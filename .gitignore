@@ -3,6 +3,7 @@
 
 # JavaScript
 /node_modules/
+/.pnpm-store/
 **/node_modules/
 **/dist/
 **/.next/
@@ -30,4 +31,3 @@
 .DS_Store
 .idea/
 .vscode/
-

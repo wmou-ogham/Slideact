@@ -1,0 +1,12 @@
+{
+    auto_https off
+}
+
+:8080 {
+    encode zstd gzip
+
+    @backend path /api/* /health/*
+    reverse_proxy @backend api:8080
+
+    reverse_proxy web:8080
+}

@@ -14,11 +14,11 @@
 - [x] 檢查遠端 Docker、Git 與 SSH commit signing 設定
 - [x] 初始化遠端 Git repository 並匯入開發計畫
 - [x] 建立 Cargo／pnpm monorepo 目錄與基礎設定
-- [ ] 建立完整 Docker Compose development stack
+- [x] 建立完整 Docker Compose development stack
 - [x] 建立 Rust Axum API health endpoints
 - [x] 建立 Rust WebSocket room prototype
 - [x] 建立 PostgreSQL、Redis 與 migration container
-- [ ] 建立前端應用骨架與 `zh-TW`／`en` i18n catalog
+- [x] 建立前端應用骨架與 `zh-TW`／`en` i18n catalog
 - [ ] 建立 Manifest V3 Chrome Extension 骨架
 - [ ] 建立 Google Slides slide detector Spike
 - [ ] 建立 CI 基礎檢查
