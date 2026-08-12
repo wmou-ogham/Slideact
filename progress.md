@@ -19,8 +19,8 @@
 - [x] 建立 Rust WebSocket room prototype
 - [x] 建立 PostgreSQL、Redis 與 migration container
 - [x] 建立前端應用骨架與 `zh-TW`／`en` i18n catalog
-- [ ] 建立 Manifest V3 Chrome Extension 骨架
-- [ ] 建立 Google Slides slide detector Spike
+- [x] 建立 Manifest V3 Chrome Extension 骨架
+- [x] 建立 Google Slides slide detector Spike
 - [ ] 建立 CI 基礎檢查
 - [ ] 完成容器建置、啟動與自動測試
 - [ ] 記錄 M0 技術驗證結果與下一階段風險
