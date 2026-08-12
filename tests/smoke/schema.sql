@@ -126,6 +126,16 @@ VALUES (
     '{"sequence":1}'
 );
 
+SELECT enqueue_session_event(
+    '92000000-0000-0000-0000-000000000001',
+    '93000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000001',
+    2,
+    2,
+    'session:50000000-0000-0000-0000-000000000001:audience',
+    '{"event_type":"audience_count_updated","count":12}'
+);
+
 DO $$
 BEGIN
     BEGIN
@@ -159,6 +169,45 @@ BEGIN
         RAISE EXCEPTION 'response submission slot uniqueness was not enforced';
     EXCEPTION
         WHEN unique_violation THEN NULL;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM session_events
+        WHERE id = '92000000-0000-0000-0000-000000000001'
+          AND event_type = 'audience_count_updated'
+    ) THEN
+        RAISE EXCEPTION 'enqueue_session_event did not persist the session event';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM outbox_events
+        WHERE id = '93000000-0000-0000-0000-000000000001'
+          AND session_event_id = '92000000-0000-0000-0000-000000000001'
+          AND session_sequence = 2
+          AND payload ->> 'event_type' = 'audience_count_updated'
+          AND payload -> 'event' ->> 'count' = '12'
+    ) THEN
+        RAISE EXCEPTION 'enqueue_session_event did not persist a coherent outbox envelope';
+    END IF;
+
+    BEGIN
+        PERFORM enqueue_session_event(
+            '92000000-0000-0000-0000-000000000002',
+            '93000000-0000-0000-0000-000000000002',
+            '50000000-0000-0000-0000-000000000001',
+            3,
+            3,
+            'session:00000000-0000-0000-0000-000000000000:audience',
+            '{"event_type":"audience_count_updated","count":13}'
+        );
+        RAISE EXCEPTION 'cross-session outbox topic was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM = 'cross-session outbox topic was accepted' THEN
+                RAISE;
+            END IF;
     END;
 END $$;
 
