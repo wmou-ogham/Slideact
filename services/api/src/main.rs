@@ -1,5 +1,7 @@
 use std::{env, net::SocketAddr};
 
+mod auth;
+
 use anyhow::{Context, Result};
 use axum::{
     Json, Router,
@@ -22,9 +24,10 @@ use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
-struct AppState {
-    database: PgPool,
-    redis: redis::Client,
+pub(crate) struct AppState {
+    pub(crate) database: PgPool,
+    pub(crate) redis: redis::Client,
+    pub(crate) google_auth: Option<auth::GoogleAuth>,
     room_tx: broadcast::Sender<ServerMessage>,
 }
 
@@ -51,6 +54,9 @@ async fn main() -> Result<()> {
 
     let redis = redis::Client::open(redis_url).context("invalid Redis URL")?;
     ping_redis(&redis).await.context("failed to ping Redis")?;
+    let google_auth = auth::GoogleAuth::from_env()
+        .await
+        .context("failed to configure Google OpenID Connect")?;
 
     let bind_address = env::var("APP_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_owned());
     let socket_address: SocketAddr = bind_address
@@ -60,6 +66,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         database,
         redis,
+        google_auth,
         room_tx,
     };
 
@@ -68,6 +75,7 @@ async fn main() -> Result<()> {
         .route("/health/ready", get(ready))
         .route("/api/version", get(version))
         .route("/api/ws", get(websocket))
+        .merge(auth::router())
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()
@@ -94,11 +102,12 @@ async fn live() -> Json<HealthResponse> {
     })
 }
 
-async fn version() -> Json<serde_json::Value> {
+async fn version(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "service": "slide-helper-api",
         "version": env!("CARGO_PKG_VERSION"),
         "protocol_version": PROTOCOL_VERSION,
+        "google_oauth_configured": state.google_auth.is_some(),
     }))
 }
 

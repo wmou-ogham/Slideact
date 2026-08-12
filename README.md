@@ -2,9 +2,10 @@
 
 跨 Google Slides、PowerPoint、Keynote 與 OBS 的即時觀眾互動層。
 
-目前專案處於 Pre-MVP／M0 技術驗證階段。架構採 Rust Backend、Google OAuth、`zh-TW`／`en` i18n，以及 Docker Compose 全容器開發／部署環境。完整產品範圍、系統架構、資料模型、測試策略、風險與 10～12 週開發里程碑請見：
+目前專案已完成 Pre-MVP／M0 技術驗證，正在進行 M1 核心平台開發。架構採 Rust Backend、Google OAuth、`zh-TW`／`en` i18n，以及 Docker Compose 全容器開發／部署環境。完整產品範圍、系統架構、資料模型、測試策略、風險與 10～12 週開發里程碑請見：
 
 - [完整開發計畫](docs/DEVELOPMENT_PLAN.md)
+- [Google OAuth 設定](docs/GOOGLE_OAUTH_SETUP.md)
 
 ## 啟動開發堆疊
 

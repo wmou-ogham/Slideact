@@ -9,6 +9,12 @@ x-rust-service: &rust-service
     DATABASE_URL: postgres://slide_helper:slide_helper_dev_only@postgres:5432/slide_helper
     REDIS_URL: redis://redis:6379/
     RUST_LOG: ${RUST_LOG:-slide_helper_api=info,slide_helper_worker=info,tower_http=info}
+    GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+    GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+    GOOGLE_OAUTH_REDIRECT_URL: ${GOOGLE_OAUTH_REDIRECT_URL:-}
+    AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+    AUTH_FLOW_TTL_SECONDS: ${AUTH_FLOW_TTL_SECONDS:-600}
+    AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-604800}
   init: true
   restart: unless-stopped
 

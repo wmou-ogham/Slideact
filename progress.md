@@ -28,7 +28,7 @@
 ## M1：Domain、OAuth 與持久化
 
 - [x] 實作 Rust Session、CueRun 與 SyncMode state machines
-- [ ] 實作 Google OpenID Connect Authorization Code + PKCE
+- [x] 實作 Google OpenID Connect Authorization Code + PKCE
 - [x] 建立 Project、Cue、Live Session、Response schema
 - [ ] 由 Rust protocol schema 產生 TypeScript client
 - [ ] 實作 role-scoped token 與 application authorization

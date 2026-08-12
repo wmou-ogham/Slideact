@@ -11,6 +11,16 @@ assert.deepEqual(await readiness.json(), {
   redis: true,
 });
 
+const anonymousMe = await fetch(`${baseUrl}/api/auth/me`);
+assert.equal(anonymousMe.status, 401);
+assert.deepEqual(await anonymousMe.json(), { code: "authentication_required" });
+
+const authStart = await fetch(`${baseUrl}/api/auth/google/start`, {
+  redirect: "manual",
+});
+assert.equal(authStart.status, 503);
+assert.deepEqual(await authStart.json(), { code: "auth_not_configured" });
+
 const first = await connect(websocketUrl);
 const second = await connect(websocketUrl);
 
