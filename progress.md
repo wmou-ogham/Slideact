@@ -15,9 +15,9 @@
 - [x] 初始化遠端 Git repository 並匯入開發計畫
 - [x] 建立 Cargo／pnpm monorepo 目錄與基礎設定
 - [ ] 建立完整 Docker Compose development stack
-- [ ] 建立 Rust Axum API health endpoints
-- [ ] 建立 Rust WebSocket room prototype
-- [ ] 建立 PostgreSQL、Redis 與 migration container
+- [x] 建立 Rust Axum API health endpoints
+- [x] 建立 Rust WebSocket room prototype
+- [x] 建立 PostgreSQL、Redis 與 migration container
 - [ ] 建立前端應用骨架與 `zh-TW`／`en` i18n catalog
 - [ ] 建立 Manifest V3 Chrome Extension 骨架
 - [ ] 建立 Google Slides slide detector Spike

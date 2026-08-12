@@ -24,6 +24,7 @@ sqlx = { version = "0.8.6", default-features = false, features = [
     "runtime-tokio-rustls",
     "postgres",
     "migrate",
+    "macros",
     "uuid",
 ] }
 thiserror = "2.0.12"
@@ -36,4 +37,3 @@ tower-http = { version = "0.6.6", features = [
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 uuid = { version = "1.17.0", features = ["serde", "v4"] }
-
