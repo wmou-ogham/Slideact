@@ -23,4 +23,14 @@ docker compose up --detach --build --wait
 
 CI 僅要求 Docker；Rust 格式、Clippy、Rust 測試、前端型別檢查、前端測試、Web／Extension 正式建置，以及 API／WebSocket smoke test 都在容器內執行。
 
+## 更新共用 Protocol 型別
+
+Rust `crates/protocol` 是 wire contract 的單一來源。修改共用 HTTP／WebSocket payload 後執行：
+
+```sh
+./scripts/generate-protocol-types.sh
+```
+
+產物會寫入 `packages/protocol/src/generated.ts`。完整 CI 會以 `--check` 模式比對產物，避免 Rust 與 TypeScript contract 漂移。
+
 Google Slides 技術 Spike 位於 `apps/extension`，輸出為可載入 Chrome 的 Manifest V3 extension，並同時提供自動跟隨與手動模式狀態。

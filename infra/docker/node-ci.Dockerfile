@@ -7,6 +7,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 COPY apps/extension apps/extension
 COPY apps/web/package.json apps/web/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
+COPY packages/protocol/package.json packages/protocol/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY apps ./apps

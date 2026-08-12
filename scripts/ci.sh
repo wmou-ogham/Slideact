@@ -14,6 +14,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 docker build --file infra/docker/rust-ci.Dockerfile --tag slide-helper-rust-ci:dev .
+PROTOCOL_GENERATOR_SKIP_BUILD=1 \
+  PROTOCOL_GENERATOR_IMAGE=slide-helper-rust-ci:dev \
+  ./scripts/generate-protocol-types.sh --check
 docker build --file infra/docker/node-ci.Dockerfile --tag slide-helper-node-ci:dev .
 ci_compose --profile test build smoke
 ci_compose --profile test up --detach --build --wait \

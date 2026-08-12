@@ -30,7 +30,7 @@
 - [x] 實作 Rust Session、CueRun 與 SyncMode state machines
 - [x] 實作 Google OpenID Connect Authorization Code + PKCE
 - [x] 建立 Project、Cue、Live Session、Response schema
-- [ ] 由 Rust protocol schema 產生 TypeScript client
+- [x] 由 Rust protocol schema 產生 TypeScript client
 - [ ] 實作 role-scoped token 與 application authorization
 - [ ] 建立 transaction outbox 與 WebSocket event protocol
 
