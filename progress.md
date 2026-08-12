@@ -13,7 +13,7 @@
 
 - [x] 檢查遠端 Docker、Git 與 SSH commit signing 設定
 - [x] 初始化遠端 Git repository 並匯入開發計畫
-- [ ] 建立 Cargo／pnpm monorepo 目錄與基礎設定
+- [x] 建立 Cargo／pnpm monorepo 目錄與基礎設定
 - [ ] 建立完整 Docker Compose development stack
 - [ ] 建立 Rust Axum API health endpoints
 - [ ] 建立 Rust WebSocket room prototype

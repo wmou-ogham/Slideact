@@ -1,0 +1,19 @@
+{
+  "name": "slide-helper",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "dev": "turbo run dev",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "2.5.5",
+    "typescript": "5.9.2"
+  }
+}
+

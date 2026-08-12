@@ -1,0 +1,20 @@
+{
+  "name": "@slide-helper/extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "wxt build",
+    "check": "tsc --noEmit",
+    "dev": "wxt",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@slide-helper/i18n": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4",
+    "wxt": "0.20.7"
+  }
+}
+

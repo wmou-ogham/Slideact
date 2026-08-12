@@ -1,0 +1,14 @@
+.git
+.data
+artifacts
+node_modules
+**/node_modules
+target
+**/dist
+**/.wxt
+coverage
+test-results
+playwright-report
+.env
+.env.*
+

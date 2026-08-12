@@ -1,0 +1,33 @@
+# Rust
+/target/
+
+# JavaScript
+/node_modules/
+**/node_modules/
+**/dist/
+**/.next/
+**/.output/
+**/.wxt/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Test and tooling output
+/coverage/
+/test-results/
+/playwright-report/
+/.turbo/
+
+# Local volumes and generated files
+/.data/
+/artifacts/
+/packages/api-client/generated/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+

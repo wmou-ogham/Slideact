@@ -1,0 +1,25 @@
+{
+  "name": "@slide-helper/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "dev": "vite --host 0.0.0.0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@slide-helper/i18n": "workspace:*",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7",
+    "@vitejs/plugin-react": "5.0.0",
+    "vite": "7.1.3",
+    "vitest": "3.2.4"
+  }
+}
+
