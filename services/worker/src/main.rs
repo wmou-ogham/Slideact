@@ -9,6 +9,8 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
+mod outbox;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
@@ -20,6 +22,13 @@ async fn main() -> Result<()> {
         .await
         .context("worker failed to connect to PostgreSQL")?;
     let redis = redis::Client::open(redis_url).context("worker received invalid Redis URL")?;
+    let dispatcher_config = outbox::DispatcherConfig::from_env()?;
+
+    tokio::spawn(outbox::run(
+        database.clone(),
+        redis.clone(),
+        dispatcher_config,
+    ));
 
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(30));

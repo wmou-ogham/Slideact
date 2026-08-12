@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 
 const baseUrl = process.env.API_BASE_URL ?? "http://api:8080";
 const websocketUrl = process.env.WS_URL ?? "ws://api:8080/api/ws";
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  "postgres://slide_helper:slide_helper_dev_only@postgres:5432/slide_helper";
 const sessionId = "a5000000-0000-0000-0000-000000000001";
 const ownerCookie = "slide_helper_session=ci-owner-session";
+const realtimeEventId = "af000000-0000-0000-0000-000000000001";
+const outboxEventId = "af100000-0000-0000-0000-000000000001";
 
 const readiness = await fetch(`${baseUrl}/health/ready`);
 assert.equal(readiness.status, 200);
@@ -95,6 +101,42 @@ assert.deepEqual(await audienceSubscribed, {
   topic: `session:${sessionId}:audience`,
 });
 
+const liveEvent = waitForMessage(
+  audience,
+  (message) =>
+    message.type === "event" && message.event.event_id === realtimeEventId,
+  8000,
+);
+enqueueAudienceCountEvent();
+assertRealtimeEvent(await liveEvent);
+await waitForOutboxPublished();
+
+const replayAudience = await connect(
+  `${websocketUrl}?token=${audienceIssue.body.token}`,
+);
+const replaySubscribed = waitForMessage(
+  replayAudience,
+  (message) => message.type === "subscribed",
+);
+const replayEvent = waitForMessage(
+  replayAudience,
+  (message) =>
+    message.type === "event" && message.event.event_id === realtimeEventId,
+);
+replayAudience.send(
+  JSON.stringify({
+    type: "subscribe",
+    topic: `session:${sessionId}:audience`,
+    after_sequence: 0,
+  }),
+);
+assert.deepEqual(await replaySubscribed, {
+  type: "subscribed",
+  topic: `session:${sessionId}:audience`,
+});
+assertRealtimeEvent(await replayEvent);
+replayAudience.close();
+
 const broadcastRejected = waitForMessage(
   presenter,
   (message) => message.type === "error",
@@ -141,6 +183,66 @@ async function issueToken(role, cookie) {
     body: JSON.stringify({ role }),
   });
   return { response, body: await response.json() };
+}
+
+function enqueueAudienceCountEvent() {
+  const sql = `
+    SELECT enqueue_session_event(
+      '${realtimeEventId}',
+      '${outboxEventId}',
+      '${sessionId}',
+      1,
+      1,
+      'session:${sessionId}:audience',
+      '{"event_type":"audience.count_updated","count":42}'::jsonb
+    );
+  `;
+  execFileSync("psql", [
+    databaseUrl,
+    "--no-psqlrc",
+    "--set=ON_ERROR_STOP=1",
+    "--quiet",
+    "--command",
+    sql,
+  ]);
+}
+
+function assertRealtimeEvent(message) {
+  assert.equal(message.type, "event");
+  assert.equal(message.topic, `session:${sessionId}:audience`);
+  assert.equal(message.event.schema_version, 1);
+  assert.equal(message.event.event_id, realtimeEventId);
+  assert.equal(message.event.session_id, sessionId);
+  assert.equal(message.event.sequence, 1);
+  assert.equal(message.event.state_version, 1);
+  assert.equal(message.event.event_type, "audience.count_updated");
+  assert.match(message.event.occurred_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(message.event.event, {
+    event_type: "audience.count_updated",
+    count: 42,
+  });
+}
+
+async function waitForOutboxPublished() {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    const published = execFileSync(
+      "psql",
+      [
+        databaseUrl,
+        "--no-psqlrc",
+        "--set=ON_ERROR_STOP=1",
+        "--tuples-only",
+        "--no-align",
+        "--command",
+        `SELECT published_at IS NOT NULL FROM outbox_events WHERE id = '${outboxEventId}';`,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+    if (published === "t") return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.fail("outbox event was not marked as published");
 }
 
 function connect(url) {

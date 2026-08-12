@@ -21,6 +21,20 @@ docker build --file infra/docker/node-ci.Dockerfile --tag slide-helper-node-ci:d
 ci_compose --profile test build smoke
 ci_compose --profile test up --detach --build --wait \
   postgres redis migrate api worker web proxy
+ci_compose up --detach --no-deps --force-recreate api
+ci_compose up --detach --wait api
+ci_compose exec --no-TTY proxy sh -c '
+  attempt=0
+  until wget --quiet --output-document=- http://127.0.0.1:8080/api/version \
+    | grep -q "\"service\":\"slide-helper-api\""; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 10 ]; then
+      echo "proxy did not refresh the recreated API upstream" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+'
 ci_compose exec --no-TTY postgres \
   psql --username slide_helper --dbname slide_helper --file /dev/stdin < tests/smoke/schema.sql
 ci_compose exec --no-TTY postgres \

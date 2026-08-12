@@ -10,6 +10,9 @@ pub const PROTOCOL_VERSION: u16 = 2;
 /// Current persisted realtime event envelope version.
 pub const EVENT_SCHEMA_VERSION: u16 = 1;
 
+/// Redis channel used by workers to fan persisted events out to API instances.
+pub const REALTIME_REDIS_CHANNEL: &str = "slide-helper:realtime:v1";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct HealthResponse {
     pub status: String,
@@ -143,6 +146,21 @@ pub struct RealtimePublication {
     pub event: RealtimeEventEnvelope,
 }
 
+impl RealtimePublication {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        self.event.validate()?;
+        let valid_topics = [
+            format!("session:{}:presenter", self.event.session_id),
+            format!("session:{}:audience", self.event.session_id),
+            format!("session:{}:overlay", self.event.session_id),
+        ];
+        if !valid_topics.iter().any(|topic| topic == &self.topic) {
+            return Err("publication topic does not belong to event session");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
@@ -199,7 +217,7 @@ pub fn typescript_bindings() -> String {
 mod tests {
     use super::{
         ClientMessage, EVENT_SCHEMA_VERSION, PROTOCOL_VERSION, RealtimeEvent,
-        RealtimeEventEnvelope, ServerMessage, typescript_bindings,
+        RealtimeEventEnvelope, RealtimePublication, ServerMessage, typescript_bindings,
     };
     use serde_json::json;
 
@@ -253,6 +271,28 @@ mod tests {
         assert_eq!(
             envelope.validate(),
             Err("event type does not match payload")
+        );
+    }
+
+    #[test]
+    fn publication_rejects_cross_session_topic() {
+        let publication = RealtimePublication {
+            topic: "session:other:audience".to_owned(),
+            event: RealtimeEventEnvelope {
+                schema_version: EVENT_SCHEMA_VERSION,
+                event_id: "event-1".to_owned(),
+                session_id: "session-1".to_owned(),
+                sequence: 1,
+                state_version: 1,
+                occurred_at: "2026-08-13T00:00:00Z".to_owned(),
+                event_type: "audience.count_updated".to_owned(),
+                event: RealtimeEvent::AudienceCountUpdated { count: 42 },
+            },
+        };
+
+        assert_eq!(
+            publication.validate(),
+            Err("publication topic does not belong to event session")
         );
     }
 

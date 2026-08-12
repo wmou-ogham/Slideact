@@ -3,6 +3,7 @@ use std::{env, net::SocketAddr, time::Duration};
 mod api_error;
 mod auth;
 mod authorization;
+mod realtime;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -66,6 +67,7 @@ async fn main() -> Result<()> {
         .parse()
         .with_context(|| format!("invalid APP_BIND value: {bind_address}"))?;
     let (room_tx, _) = broadcast::channel(256);
+    tokio::spawn(realtime::run_subscriber(redis.clone(), room_tx.clone()));
     let state = AppState {
         database,
         redis,
@@ -207,12 +209,37 @@ async fn handle_socket(socket: WebSocket, state: AppState, actor: authorization:
                                     break;
                                 }
                             }
-                            Ok(ClientMessage::Subscribe { topic, .. }) => {
+                            Ok(ClientMessage::Subscribe { topic, after_sequence }) => {
                                 match actor.authorize_topic(&topic) {
                                     Ok(()) => {
-                                        subscribed_topic = Some(topic.clone());
-                                        if send_json(&mut sender, &ServerMessage::Subscribed { topic }).await.is_err() {
-                                            break;
+                                        let replay = match after_sequence {
+                                            Some(sequence) => realtime::replay_events(
+                                                &state.database,
+                                                actor.session_id,
+                                                &topic,
+                                                sequence,
+                                            ).await,
+                                            None => Ok(Vec::new()),
+                                        };
+                                        match replay {
+                                            Ok(events) => {
+                                                subscribed_topic = Some(topic.clone());
+                                                if send_json(&mut sender, &ServerMessage::Subscribed { topic }).await.is_err() {
+                                                    break;
+                                                }
+                                                for event in events {
+                                                    if send_json(&mut sender, &event).await.is_err() {
+                                                        return;
+                                                    }
+                                                }
+                                            }
+                                            Err(code) => {
+                                                if send_json(&mut sender, &ServerMessage::Error {
+                                                    code: code.to_owned(),
+                                                }).await.is_err() {
+                                                    break;
+                                                }
+                                            }
                                         }
                                     }
                                     Err(_) => {

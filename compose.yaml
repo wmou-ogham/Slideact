@@ -15,6 +15,11 @@ x-rust-service: &rust-service
     AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     AUTH_FLOW_TTL_SECONDS: ${AUTH_FLOW_TTL_SECONDS:-600}
     AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-604800}
+    OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-500}
+    OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
+    OUTBOX_LOCK_TIMEOUT_SECONDS: ${OUTBOX_LOCK_TIMEOUT_SECONDS:-30}
+    OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-10}
+    OUTBOX_MAX_BACKOFF_SECONDS: ${OUTBOX_MAX_BACKOFF_SECONDS:-300}
   init: true
   restart: unless-stopped
 
@@ -133,6 +138,7 @@ services:
     environment:
       API_BASE_URL: http://proxy:8080
       WS_URL: ws://proxy:8080/api/ws
+      DATABASE_URL: postgres://slide_helper:slide_helper_dev_only@postgres:5432/slide_helper
     depends_on:
       proxy:
         condition: service_healthy

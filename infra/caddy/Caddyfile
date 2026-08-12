@@ -1,12 +1,22 @@
 {
-    auto_https off
+	auto_https off
 }
 
 :8080 {
-    encode zstd gzip
+	encode zstd gzip
 
-    @backend path /api/* /health/*
-    reverse_proxy @backend api:8080
+	@backend path /api/* /health/*
+	reverse_proxy @backend {
+		dynamic a api 8080 {
+			refresh 2s
+			versions ipv4
+		}
+	}
 
-    reverse_proxy web:8080
+	reverse_proxy {
+		dynamic a web 8080 {
+			refresh 2s
+			versions ipv4
+		}
+	}
 }

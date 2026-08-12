@@ -32,7 +32,7 @@
 - [x] 建立 Project、Cue、Live Session、Response schema
 - [x] 由 Rust protocol schema 產生 TypeScript client
 - [x] 實作 role-scoped token 與 application authorization
-- [ ] 建立 transaction outbox 與 WebSocket event protocol
+- [x] 建立 transaction outbox 與 WebSocket event protocol
 
 ## M2：手動播放核心
 
