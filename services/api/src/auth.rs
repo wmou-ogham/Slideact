@@ -22,7 +22,7 @@ use sqlx::{Postgres, Transaction};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::{AppState, api_error::ApiError};
 
 const GOOGLE_ISSUER: &str = "https://accounts.google.com";
 const OAUTH_FLOW_COOKIE: &str = "slide_helper_oauth_flow";
@@ -70,59 +70,6 @@ struct AuthenticatedProfile {
     display_name: String,
     locale: String,
     email: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct ErrorBody {
-    code: &'static str,
-}
-
-struct ApiError {
-    status: StatusCode,
-    code: &'static str,
-}
-
-impl ApiError {
-    const fn bad_request(code: &'static str) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            code,
-        }
-    }
-
-    const fn unauthorized(code: &'static str) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            code,
-        }
-    }
-
-    const fn unavailable(code: &'static str) -> Self {
-        Self {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            code,
-        }
-    }
-
-    const fn gateway(code: &'static str) -> Self {
-        Self {
-            status: StatusCode::BAD_GATEWAY,
-            code,
-        }
-    }
-
-    const fn internal(code: &'static str) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code,
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        (self.status, Json(ErrorBody { code: self.code })).into_response()
-    }
 }
 
 pub(crate) fn router() -> Router<AppState> {
@@ -415,6 +362,31 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Res
     Ok(response)
 }
 
+pub(crate) async fn authenticated_user_id(
+    database: &sqlx::PgPool,
+    headers: &HeaderMap,
+) -> Result<Uuid, ApiError> {
+    let token = read_cookie(headers, SESSION_COOKIE)
+        .ok_or_else(|| ApiError::unauthorized("authentication_required"))?;
+    sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT user_id
+        FROM user_sessions
+        WHERE token_hash = $1
+          AND revoked_at IS NULL
+          AND expires_at > NOW()
+        "#,
+    )
+    .bind(hash_secret(token))
+    .fetch_optional(database)
+    .await
+    .map_err(|error| {
+        warn!(%error, "failed to resolve authenticated application session");
+        ApiError::internal("auth_session_lookup_failed")
+    })?
+    .ok_or_else(|| ApiError::unauthorized("authentication_required"))
+}
+
 async fn store_pending_flow(
     redis: &redis::Client,
     state: &str,
@@ -634,11 +606,11 @@ fn secrets_equal(left: &str, right: &str) -> bool {
     hash_secret(left) == hash_secret(right)
 }
 
-fn hash_secret(value: &str) -> Vec<u8> {
+pub(crate) fn hash_secret(value: &str) -> Vec<u8> {
     Sha256::digest(value.as_bytes()).to_vec()
 }
 
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     let mut bytes = [0_u8; 32];
     rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)

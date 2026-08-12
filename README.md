@@ -6,6 +6,7 @@
 
 - [完整開發計畫](docs/DEVELOPMENT_PLAN.md)
 - [Google OAuth 設定](docs/GOOGLE_OAUTH_SETUP.md)
+- [Session Token 與即時權限](docs/AUTHORIZATION.md)
 
 ## 啟動開發堆疊
 

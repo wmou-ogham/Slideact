@@ -1,26 +1,29 @@
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, time::Duration};
 
+mod api_error;
 mod auth;
+mod authorization;
 
 use anyhow::{Context, Result};
 use axum::{
     Json, Router,
     extract::{
-        State,
+        Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
-    http::StatusCode,
+    http::{Request, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
 };
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use slide_helper_protocol::{
     ClientMessage, HealthResponse, PROTOCOL_VERSION, ReadinessResponse, ServerMessage,
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::{net::TcpListener, signal, sync::broadcast};
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::{info, info_span, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
@@ -76,10 +79,16 @@ async fn main() -> Result<()> {
         .route("/api/version", get(version))
         .route("/api/ws", get(websocket))
         .merge(auth::router())
+        .merge(authorization::router())
         .with_state(state)
         .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(tower_http::trace::DefaultMakeSpan::new().include_headers(false)),
+            TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
+                info_span!(
+                    "http.request",
+                    method = %request.method(),
+                    path = %request.uri().path()
+                )
+            }),
         );
 
     let listener = TcpListener::bind(socket_address)
@@ -134,13 +143,34 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-async fn websocket(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+#[derive(Deserialize)]
+struct WebSocketQuery {
+    token: String,
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn websocket(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Query(query): Query<WebSocketQuery>,
+) -> Result<Response, api_error::ApiError> {
+    let actor = authorization::authenticate_session_token(&state.database, &query.token).await?;
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, actor)))
+}
+
+async fn handle_socket(socket: WebSocket, state: AppState, actor: authorization::SessionActor) {
     let (mut sender, mut receiver) = socket.split();
     let mut room_rx = state.room_tx.subscribe();
+    let mut subscribed_topic: Option<String> = None;
+    let mut token_revalidation = tokio::time::interval(Duration::from_secs(5));
+    token_revalidation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    token_revalidation.tick().await;
+
+    info!(
+        token_id = %actor.token_id,
+        session_id = %actor.session_id,
+        role = ?actor.role,
+        "authorized WebSocket connected"
+    );
 
     if send_json(
         &mut sender,
@@ -156,6 +186,17 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     loop {
         tokio::select! {
+            _ = token_revalidation.tick() => {
+                match authorization::session_actor_is_active(&state.database, &actor).await {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => {
+                        let _ = send_json(&mut sender, &ServerMessage::Error {
+                            code: "session_token_invalid".to_owned(),
+                        }).await;
+                        break;
+                    }
+                }
+            }
             incoming = receiver.next() => {
                 let Some(incoming) = incoming else { break };
                 match incoming {
@@ -166,8 +207,29 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     break;
                                 }
                             }
-                            Ok(ClientMessage::Broadcast { topic, payload }) => {
-                                let _ = state.room_tx.send(ServerMessage::Broadcast { topic, payload });
+                            Ok(ClientMessage::Subscribe { topic }) => {
+                                match actor.authorize_topic(&topic) {
+                                    Ok(()) => {
+                                        subscribed_topic = Some(topic.clone());
+                                        if send_json(&mut sender, &ServerMessage::Subscribed { topic }).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => {
+                                        if send_json(&mut sender, &ServerMessage::Error {
+                                            code: "realtime_topic_forbidden".to_owned(),
+                                        }).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(ClientMessage::Broadcast { .. }) => {
+                                if send_json(&mut sender, &ServerMessage::Error {
+                                    code: "client_broadcast_forbidden".to_owned(),
+                                }).await.is_err() {
+                                    break;
+                                }
                             }
                             Err(error) => {
                                 warn!(%error, "invalid WebSocket client message");
@@ -191,7 +253,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             event = room_rx.recv() => {
                 match event {
                     Ok(event) => {
-                        if send_json(&mut sender, &event).await.is_err() {
+                        let may_receive = match &event {
+                            ServerMessage::Broadcast { topic, .. } => {
+                                subscribed_topic.as_deref() == Some(topic.as_str())
+                                    && actor.authorize_topic(topic).is_ok()
+                            }
+                            _ => false,
+                        };
+                        if may_receive && send_json(&mut sender, &event).await.is_err() {
                             break;
                         }
                     }

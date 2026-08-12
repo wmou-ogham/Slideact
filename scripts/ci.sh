@@ -23,4 +23,6 @@ ci_compose --profile test up --detach --build --wait \
   postgres redis migrate api worker web proxy
 ci_compose exec --no-TTY postgres \
   psql --username slide_helper --dbname slide_helper --file /dev/stdin < tests/smoke/schema.sql
+ci_compose exec --no-TTY postgres \
+  psql --username slide_helper --dbname slide_helper --file /dev/stdin < tests/smoke/authorization.sql
 ci_compose --profile test run --rm --no-deps smoke

@@ -27,6 +27,9 @@ pub enum ClientMessage {
     Ping {
         request_id: String,
     },
+    Subscribe {
+        topic: String,
+    },
     Broadcast {
         topic: String,
         #[ts(type = "JsonValue")]
@@ -42,6 +45,9 @@ pub enum ServerMessage {
     },
     Pong {
         request_id: String,
+    },
+    Subscribed {
+        topic: String,
     },
     Broadcast {
         topic: String,
@@ -111,6 +117,7 @@ mod tests {
         assert!(bindings.contains("export const PROTOCOL_VERSION = 1 as const"));
         assert!(bindings.contains("export type ClientMessage"));
         assert!(bindings.contains("\"type\": \"ping\""));
+        assert!(bindings.contains("\"type\": \"subscribe\""));
         assert!(bindings.contains("\"type\": \"broadcast\""));
         assert!(bindings.contains("payload: JsonValue"));
         assert!(bindings.contains("export type ServerMessage"));

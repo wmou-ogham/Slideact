@@ -13,7 +13,7 @@ export type HealthResponse = { status: string, service: string, protocol_version
 
 export type ReadinessResponse = { status: string, database: boolean, redis: boolean, };
 
-export type ClientMessage = { "type": "ping", request_id: string, } | { "type": "broadcast", topic: string, payload: JsonValue, };
+export type ClientMessage = { "type": "ping", request_id: string, } | { "type": "subscribe", topic: string, } | { "type": "broadcast", topic: string, payload: JsonValue, };
 
-export type ServerMessage = { "type": "connected", protocol_version: number, } | { "type": "pong", request_id: string, } | { "type": "broadcast", topic: string, payload: JsonValue, } | { "type": "error", code: string, };
+export type ServerMessage = { "type": "connected", protocol_version: number, } | { "type": "pong", request_id: string, } | { "type": "subscribed", topic: string, } | { "type": "broadcast", topic: string, payload: JsonValue, } | { "type": "error", code: string, };
 
