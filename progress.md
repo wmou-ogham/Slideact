@@ -21,8 +21,8 @@
 - [x] 建立前端應用骨架與 `zh-TW`／`en` i18n catalog
 - [x] 建立 Manifest V3 Chrome Extension 骨架
 - [x] 建立 Google Slides slide detector Spike
-- [ ] 建立 CI 基礎檢查
-- [ ] 完成容器建置、啟動與自動測試
+- [x] 建立 CI 基礎檢查
+- [x] 完成容器建置、啟動與自動測試
 - [ ] 記錄 M0 技術驗證結果與下一階段風險
 
 ## M1：Domain、OAuth 與持久化

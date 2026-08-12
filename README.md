@@ -2,8 +2,24 @@
 
 跨 Google Slides、PowerPoint、Keynote 與 OBS 的即時觀眾互動層。
 
-目前專案處於 Pre-MVP 規劃階段。規劃採 Rust Backend、Google OAuth、`zh-TW`／`en` i18n，以及 Docker Compose 全容器開發／部署環境。完整產品範圍、系統架構、資料模型、測試策略、風險與 10～12 週開發里程碑請見：
+目前專案處於 Pre-MVP／M0 技術驗證階段。架構採 Rust Backend、Google OAuth、`zh-TW`／`en` i18n，以及 Docker Compose 全容器開發／部署環境。完整產品範圍、系統架構、資料模型、測試策略、風險與 10～12 週開發里程碑請見：
 
 - [完整開發計畫](docs/DEVELOPMENT_PLAN.md)
 
-第一個工程任務是 Google Slides Chrome Extension 技術 Spike；在確認實際 `slideId` 偵測可行性後，再進入完整產品骨架開發。
+## 啟動開發堆疊
+
+```sh
+docker compose up --detach --build --wait
+```
+
+啟動後可在 `http://localhost:8080` 查看 Web UI。API、WebSocket、PostgreSQL、Redis、migration、worker、Web 與反向代理都由 Compose 管理。
+
+## 執行完整驗證
+
+```sh
+./scripts/ci.sh
+```
+
+CI 僅要求 Docker；Rust 格式、Clippy、Rust 測試、前端型別檢查、前端測試、Web／Extension 正式建置，以及 API／WebSocket smoke test 都在容器內執行。
+
+Google Slides 技術 Spike 位於 `apps/extension`，輸出為可載入 Chrome 的 Manifest V3 extension，並同時提供自動跟隨與手動模式狀態。
