@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "wxt build",
-    "check": "tsc --noEmit",
+    "check": "wxt prepare && tsc --noEmit",
     "dev": "wxt",
+    "prepare": "wxt prepare",
     "test": "vitest run"
   },
   "dependencies": {
@@ -17,4 +18,3 @@
     "wxt": "0.20.7"
   }
 }
-
