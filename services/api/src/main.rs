@@ -207,7 +207,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, actor: authorization:
                                     break;
                                 }
                             }
-                            Ok(ClientMessage::Subscribe { topic }) => {
+                            Ok(ClientMessage::Subscribe { topic, .. }) => {
                                 match actor.authorize_topic(&topic) {
                                     Ok(()) => {
                                         subscribed_topic = Some(topic.clone());
@@ -255,6 +255,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, actor: authorization:
                     Ok(event) => {
                         let may_receive = match &event {
                             ServerMessage::Broadcast { topic, .. } => {
+                                subscribed_topic.as_deref() == Some(topic.as_str())
+                                    && actor.authorize_topic(topic).is_ok()
+                            }
+                            ServerMessage::Event { topic, .. } => {
                                 subscribed_topic.as_deref() == Some(topic.as_str())
                                     && actor.authorize_topic(topic).is_ok()
                             }
