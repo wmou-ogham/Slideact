@@ -2,4 +2,3 @@
 
 /// Identifies the current development milestone.
 pub const CURRENT_MILESTONE: &str = "M0";
-
