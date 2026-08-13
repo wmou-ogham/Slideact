@@ -10,6 +10,7 @@ mod diagnostics;
 mod exports;
 mod live_views;
 mod questions;
+mod rate_limit;
 mod realtime;
 mod resources;
 mod sync;

@@ -15,6 +15,7 @@ use crate::{
     api_error::ApiError,
     authorization::{SessionRole, authenticate_session_token},
     commands::emit_event_to_topics,
+    rate_limit::check as check_rate_limit,
 };
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +55,14 @@ async fn submit_response(
     let participant_id = actor
         .participant_id
         .ok_or_else(|| ApiError::forbidden("participant_token_required"))?;
+    check_rate_limit(
+        &state.redis,
+        "audience-response",
+        &participant_id.to_string(),
+        20,
+        60,
+    )
+    .await?;
 
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::TEXT, 0))")
@@ -85,7 +94,7 @@ async fn submit_response(
     if interaction.1 != "open" {
         return Err(ApiError::conflict("interaction_not_open"));
     }
-    validate_payload(
+    let payload = validate_payload(
         &mut transaction,
         interaction_id,
         &interaction.0,
@@ -131,7 +140,7 @@ async fn submit_response(
         .bind(interaction_id)
         .bind(participant_id)
         .bind(&request.idempotency_key)
-        .bind(&request.payload)
+        .bind(&payload)
         .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?;
@@ -209,7 +218,7 @@ async fn validate_payload(
     interaction_id: Uuid,
     interaction_type: &str,
     payload: &Value,
-) -> Result<(), ApiError> {
+) -> Result<Value, ApiError> {
     let object = single_field_object(payload)?;
     match interaction_type {
         "understanding" => {
@@ -250,10 +259,53 @@ async fn validate_payload(
             if text.chars().count() > 200 {
                 return Err(ApiError::bad_request("response_payload_invalid"));
             }
+            let text = normalize_free_text(text);
+            if looks_like_spam(&text, 1, 14) {
+                return Err(ApiError::bad_request("response_text_rejected"));
+            }
+            return Ok(json!({"text": text}));
         }
         _ => return Err(ApiError::bad_request("interaction_type_not_supported")),
     }
-    Ok(())
+    Ok(payload.clone())
+}
+
+fn normalize_free_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '\u{3000}' => ' ',
+            '\u{ff01}'..='\u{ff5e}' => char::from_u32(character as u32 - 0xfee0)
+                .expect("full-width ASCII conversion is valid"),
+            _ => character,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn looks_like_spam(value: &str, maximum_urls: usize, maximum_run: usize) -> bool {
+    let lowercase = value.to_lowercase();
+    let url_count = lowercase.matches("http://").count() + lowercase.matches("https://").count();
+    if url_count > maximum_urls {
+        return true;
+    }
+    let mut previous = None;
+    let mut run = 0;
+    for character in value.chars() {
+        if Some(character) == previous {
+            run += 1;
+        } else {
+            previous = Some(character);
+            run = 1;
+        }
+        if run > maximum_run {
+            return true;
+        }
+    }
+    false
 }
 
 fn single_field_object(payload: &Value) -> Result<&Map<String, Value>, ApiError> {
@@ -448,7 +500,9 @@ fn persistence_error(error: sqlx::Error) -> ApiError {
 mod tests {
     use serde_json::json;
 
-    use super::{audience_can_see_aggregate, single_field_object};
+    use super::{
+        audience_can_see_aggregate, looks_like_spam, normalize_free_text, single_field_object,
+    };
 
     #[test]
     fn response_payload_must_be_an_object_with_one_field() {
@@ -469,5 +523,20 @@ mod tests {
             &json!({"results": {"audience_visibility": "presenter_only"}}),
             "revealed"
         ));
+    }
+
+    #[test]
+    fn word_cloud_text_is_normalized_and_obvious_spam_is_rejected() {
+        assert_eq!(
+            normalize_free_text("  Ｃｌａｒｉｔｙ\nROCKS  "),
+            "clarity rocks"
+        );
+        assert!(looks_like_spam("aaaaaaaaaaaaaaa", 1, 14));
+        assert!(looks_like_spam(
+            "https://one.example https://two.example",
+            1,
+            14
+        ));
+        assert!(!looks_like_spam("clear examples", 1, 14));
     }
 }

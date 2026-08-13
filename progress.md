@@ -90,5 +90,5 @@
 - [x] 公布前禁止 Audience／Overlay 取得受保護的統計 payload
 - [x] 加入專案複製與封存操作
 - [x] 顯示觀眾加入 QR Code
-- [ ] 加入觀眾寫入 rate limit 與基本垃圾內容防護
+- [x] 加入觀眾寫入 rate limit 與基本垃圾內容防護
 - [ ] 完成真實 Google Slides 測試 Deck 與 Extension E2E 驗收

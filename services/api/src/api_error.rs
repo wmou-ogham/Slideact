@@ -52,6 +52,13 @@ impl ApiError {
         }
     }
 
+    pub(crate) const fn too_many_requests(code: &'static str) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code,
+        }
+    }
+
     pub(crate) const fn unavailable(code: &'static str) -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,

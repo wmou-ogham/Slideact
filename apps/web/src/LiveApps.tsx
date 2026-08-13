@@ -83,7 +83,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       setAnswers((current) => ({ ...current, [interaction.id]: label }));
       await refresh();
     } catch (cause) {
-      setError(t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" }));
+      setError(audienceError(t, cause));
     } finally {
       setBusy(false);
     }
@@ -101,7 +101,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       });
       await refresh();
     } catch (cause) {
-      setError(t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" }));
+      setError(audienceError(t, cause));
     } finally {
       setBusy(false);
     }
@@ -118,7 +118,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       });
       await refresh();
     } catch (cause) {
-      setError(t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" }));
+      setError(audienceError(t, cause));
     } finally {
       setBusy(false);
     }
@@ -176,6 +176,11 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       </section>
     </main>
   );
+}
+
+function audienceError(t: Translate, cause: unknown) {
+  if (cause instanceof ApiError && cause.status === 429) return t("audience.rateLimited");
+  return t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" });
 }
 
 function WaitingState({ t, status }: { t: Translate; status: string }) {

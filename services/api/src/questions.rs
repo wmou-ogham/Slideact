@@ -16,6 +16,7 @@ use crate::{
     auth::authenticated_user_id,
     authorization::{SessionRole, authenticate_session_token, bearer_token, require_session_owner},
     commands::emit_event_to_all,
+    rate_limit::check as check_rate_limit,
 };
 
 #[derive(Debug, Serialize)]
@@ -78,6 +79,14 @@ async fn create_question(
     let participant_id = actor
         .participant_id
         .ok_or_else(|| ApiError::forbidden("participant_token_required"))?;
+    check_rate_limit(
+        &state.redis,
+        "audience-question",
+        &participant_id.to_string(),
+        5,
+        60,
+    )
+    .await?;
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     let state_version =
         open_qa_state_version(&mut transaction, actor.session_id, request.cue_run_id).await?;
@@ -131,6 +140,14 @@ async fn toggle_question_vote(
     let participant_id = actor
         .participant_id
         .ok_or_else(|| ApiError::forbidden("participant_token_required"))?;
+    check_rate_limit(
+        &state.redis,
+        "audience-question-vote",
+        &participant_id.to_string(),
+        120,
+        60,
+    )
+    .await?;
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     let question = sqlx::query_as::<_, (i64, Uuid)>(
         r#"
@@ -351,14 +368,47 @@ async fn open_qa_state_version(
 }
 
 fn validate_body(body: &str) -> Result<String, ApiError> {
-    let body = body.trim();
+    let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if body.is_empty() || body.chars().count() > 500 {
         return Err(ApiError::bad_request("question_body_invalid"));
     }
-    Ok(body.to_owned())
+    let lowercase = body.to_lowercase();
+    let url_count = lowercase.matches("http://").count() + lowercase.matches("https://").count();
+    let has_long_run = body
+        .chars()
+        .scan((None, 0_usize), |state, character| {
+            if state.0 == Some(character) {
+                state.1 += 1;
+            } else {
+                *state = (Some(character), 1);
+            }
+            Some(state.1)
+        })
+        .any(|run| run > 20);
+    if url_count > 2 || has_long_run {
+        return Err(ApiError::bad_request("question_body_rejected"));
+    }
+    Ok(body)
 }
 
 fn persistence_error(error: sqlx::Error) -> ApiError {
     warn!(%error, "question persistence operation failed");
     ApiError::internal("question_persistence_failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_body;
+
+    #[test]
+    fn questions_normalize_whitespace_and_reject_obvious_spam() {
+        assert_eq!(
+            validate_body("  Could you\nshow another example?  ").unwrap(),
+            "Could you show another example?"
+        );
+        assert!(validate_body("aaaaaaaaaaaaaaaaaaaaa").is_err());
+        assert!(
+            validate_body("https://one.example https://two.example https://three.example").is_err()
+        );
+    }
 }

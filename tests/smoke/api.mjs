@@ -647,6 +647,53 @@ assert.equal(wordCloud.body.aggregate.interaction_type, "word_cloud");
 assert.equal(wordCloud.body.aggregate.total_responses, 1);
 assert.equal(wordCloud.body.aggregate.entries[0].text, "clarity");
 
+const rejectedWordCloudSpam = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdWordCloud.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:word-cloud-spam-001",
+    payload: { text: "aaaaaaaaaaaaaaa" },
+  },
+);
+assert.equal(rejectedWordCloudSpam.response.status, 400);
+assert.deepEqual(rejectedWordCloudSpam.body, { code: "response_text_rejected" });
+
+for (let index = 0; index < 14; index += 1) {
+  const allowedUpdate = await submitAudienceResponse(
+    joinedAudience.body.token,
+    createdWordCloud.body.id,
+    {
+      cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+      idempotency_key: `smoke:rate-allowed-${String(index).padStart(3, "0")}`,
+      payload: { text: "clarity" },
+    },
+  );
+  assert.equal(allowedUpdate.response.status, 201);
+}
+const rateLimitedResponse = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdWordCloud.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:rate-rejected-001",
+    payload: { text: "clarity" },
+  },
+);
+assert.equal(rateLimitedResponse.response.status, 429);
+assert.deepEqual(rateLimitedResponse.body, { code: "rate_limit_exceeded" });
+
+const rejectedQuestionSpam = await requestJson("/api/audience/questions", {
+  method: "POST",
+  token: joinedAudience.body.token,
+  body: {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    body: "https://one.example https://two.example https://three.example",
+  },
+});
+assert.equal(rejectedQuestionSpam.response.status, 400);
+assert.deepEqual(rejectedQuestionSpam.body, { code: "question_body_rejected" });
+
 const submittedQuestion = await requestJson("/api/audience/questions", {
   method: "POST",
   token: joinedAudience.body.token,

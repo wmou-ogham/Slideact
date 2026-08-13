@@ -1,4 +1,9 @@
-use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    routing::post,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
@@ -10,6 +15,7 @@ use crate::{
     api_error::ApiError,
     auth::{hash_secret, random_token},
     commands::{SessionSnapshot, emit_event_to_all, snapshot_for_session},
+    rate_limit::{check as check_rate_limit, client_network_subject},
 };
 
 const AUDIENCE_TOKEN_TTL_SECONDS: i64 = 12 * 60 * 60;
@@ -39,10 +45,19 @@ pub(crate) fn router() -> Router<AppState> {
 
 async fn join(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<JoinRequest>,
 ) -> Result<(StatusCode, Json<JoinResponse>), ApiError> {
     let join_code = normalize_join_code(&request.join_code)?;
     validate_locale(&request.locale)?;
+    check_rate_limit(
+        &state.redis,
+        "audience-join",
+        &format!("{}:{join_code}", client_network_subject(&headers)),
+        300,
+        60,
+    )
+    .await?;
     let participant_key = match request.participant_key {
         Some(key) => {
             validate_participant_key(&key)?;

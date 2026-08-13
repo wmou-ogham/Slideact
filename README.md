@@ -13,6 +13,7 @@ A Slido alternative for live polls, quizzes, word clouds, Q&A, and real-time aud
 - [Google Slides Extension 安裝與相容性](docs/GOOGLE_SLIDES_EXTENSION.md)
 - [100 人效能基準](docs/PERFORMANCE.md)
 - [隱私與資料刪除](docs/PRIVACY.md)
+- [安全控制與速率限制](docs/SECURITY.md)
 - [系統診斷與錯誤追蹤](docs/DIAGNOSTICS.md)
 - [無障礙與中英文驗收](docs/ACCESSIBILITY_I18N.md)
 - [5～10 位講者封閉 Beta 腳本](docs/BETA_TEST.md)
