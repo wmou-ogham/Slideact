@@ -20,6 +20,9 @@ button, input, select, textarea { color: inherit; font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
+:focus-visible { outline: 3px solid #e0903e; outline-offset: 3px; }
+.skip-link { position: fixed; z-index: 100; top: 10px; left: 10px; padding: 10px 14px; color: #fff; background: var(--ink); border-radius: 8px; transform: translateY(-160%); }
+.skip-link:focus { transform: translateY(0); }
 
 .app-frame {
   min-height: 100vh;
@@ -364,4 +367,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
   .join-card form { display: grid; }
   .understanding-buttons { grid-template-columns: 1fr; }
   .result-options > div { grid-template-columns: 100px 1fr 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

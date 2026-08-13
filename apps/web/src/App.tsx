@@ -31,16 +31,19 @@ export function App() {
   if (path.startsWith("/remote/")) return <div className="app-frame"><RemoteApp t={t} /></div>;
   return (
     <div className="app-frame">
+      <a className="skip-link" href="#main-content">{t("a11y.skip")}</a>
       <Topbar locale={locale} setLocale={setLocale} t={t} />
-      {path.startsWith("/diagnostics") ? (
-        <DiagnosticsApp t={t} />
-      ) : path.startsWith("/presenter") ? (
-        <PresenterApp t={t} locale={locale} />
-      ) : path.startsWith("/join") ? (
-        <AudienceApp t={t} locale={locale} />
-      ) : (
-        <Landing t={t} />
-      )}
+      <div id="main-content" tabIndex={-1}>
+        {path.startsWith("/diagnostics") ? (
+          <DiagnosticsApp t={t} />
+        ) : path.startsWith("/presenter") ? (
+          <PresenterApp t={t} locale={locale} />
+        ) : path.startsWith("/join") ? (
+          <AudienceApp t={t} locale={locale} />
+        ) : (
+          <Landing t={t} />
+        )}
+      </div>
     </div>
   );
 }
@@ -51,7 +54,7 @@ function Topbar({ locale, setLocale, t }: {
   t: (key: MessageKey) => string;
 }) {
   return (
-    <nav className="topbar" aria-label={t("language.label")}>
+    <nav className="topbar" aria-label={t("nav.label")}>
       <a className="brand" href="/"><span className="brand-mark">S</span><span>{t("app.name")}</span></a>
       <div className="topbar-actions">
         <a href="/presenter">{t("nav.presenter")}</a>

@@ -12,6 +12,7 @@
 - [100 人效能基準](docs/PERFORMANCE.md)
 - [隱私與資料刪除](docs/PRIVACY.md)
 - [系統診斷與錯誤追蹤](docs/DIAGNOSTICS.md)
+- [無障礙與中英文驗收](docs/ACCESSIBILITY_I18N.md)
 
 ## 啟動開發堆疊
 
