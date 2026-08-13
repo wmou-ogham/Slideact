@@ -167,7 +167,9 @@ async function sendHeartbeat(): Promise<void> {
 
 async function pollNavigation(): Promise<NavigationCommand | null> {
   const status = await readStatus();
-  if (!status.token || !status.sessionId || status.mode !== "auto") return null;
+  // Explicit phone navigation remains available while automatic cue following is
+  // paused or the presenter is using manual cue control.
+  if (!status.token || !status.sessionId) return null;
   try {
     const response = await fetch(`${status.serverUrl}/api/extension/navigation`, {
       headers: { authorization: `Bearer ${status.token}` },

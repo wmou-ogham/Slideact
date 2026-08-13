@@ -8,6 +8,8 @@ describe("navigationSelectors", () => {
     expect(navigationSelectors("previous")).toContain('button[aria-label="上一頁"]');
     expect(navigationSelectors("next")).toContain('button[aria-label="Next slide"]');
     expect(navigationSelectors("next")).toContain('button[aria-label="下一頁"]');
+    expect(navigationSelectors("previous")).toContain(".punch-viewer-nav-v2-left");
+    expect(navigationSelectors("next")).toContain(".punch-viewer-nav-v2-right");
   });
 
   it("prefers the stable presentation-viewer classes", () => {

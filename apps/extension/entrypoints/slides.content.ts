@@ -60,7 +60,7 @@ export default defineContentScript({
         navigationPollBusy = false;
       }
     };
-    const navigationTimer = window.setInterval(() => void pollNavigation(), 1000);
+    const navigationTimer = window.setInterval(() => void pollNavigation(), 350);
     void pollNavigation();
     window.addEventListener("pagehide", () => {
       detector.stop();

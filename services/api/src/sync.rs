@@ -181,10 +181,21 @@ async fn queue_navigation(
         .get_multiplexed_async_connection()
         .await
         .map_err(redis_error)?;
-    let _: String = redis::cmd("SET")
+    let _: i64 = redis::cmd("RPUSH")
         .arg(navigation_key(session_id))
         .arg(payload)
-        .arg("EX")
+        .query_async(&mut connection)
+        .await
+        .map_err(redis_error)?;
+    let _: String = redis::cmd("LTRIM")
+        .arg(navigation_key(session_id))
+        .arg(-20)
+        .arg(-1)
+        .query_async(&mut connection)
+        .await
+        .map_err(redis_error)?;
+    let _: bool = redis::cmd("EXPIRE")
+        .arg(navigation_key(session_id))
         .arg(30)
         .query_async(&mut connection)
         .await
@@ -208,7 +219,7 @@ async fn take_navigation(
         .get_multiplexed_async_connection()
         .await
         .map_err(redis_error)?;
-    let payload: Option<String> = redis::cmd("GETDEL")
+    let payload: Option<String> = redis::cmd("LPOP")
         .arg(navigation_key(actor.session_id))
         .query_async(&mut connection)
         .await
