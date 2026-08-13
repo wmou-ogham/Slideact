@@ -352,6 +352,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .projection-waiting p { color: #8dd5ae; font-size: clamp(13px, 2vw, 22px); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .projection-waiting strong { color: #efc974; font-family: Georgia, serif; font-size: clamp(72px, 14vw, 190px); font-weight: 500; letter-spacing: .14em; line-height: .9; }
 .projection-waiting small { margin-top: 30px; color: rgba(248,246,239,.62); font-size: clamp(14px, 2vw, 24px); }
+.projection-join-qr { width: clamp(150px, 18vw, 250px); margin-top: 34px; padding: 14px; background: #f8f6ef; border-radius: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.22); }
+.projection-join-qr svg { display: block; width: 100%; height: auto; }
 .projection-results { max-width: 1500px; margin: 7vh auto 0; }
 .projection-results > p { color: #8dd5ae; font-size: clamp(11px, 1.3vw, 17px); font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
 .projection-results h1 { max-width: 1300px; margin: 18px 0 clamp(28px, 5vh, 68px); font-family: Georgia, serif; font-size: clamp(52px, 7vw, 112px); font-weight: 500; letter-spacing: -.055em; line-height: .96; }

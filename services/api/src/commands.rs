@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, header},
     routing::{get, post},
 };
 use rand::RngCore;
@@ -16,7 +16,10 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    AppState, api_error::ApiError, authorization::authorize_presenter_access,
+    AppState,
+    api_error::ApiError,
+    auth::authenticated_user_id,
+    authorization::{authorize_presenter_access, require_session_read},
     rate_limit::check as check_rate_limit,
 };
 
@@ -276,9 +279,17 @@ async fn snapshot(
     Path(session_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<SessionSnapshot>, ApiError> {
-    let access = authorize_presenter_access(&state.database, &headers, session_id).await?;
+    let user_id = if headers.contains_key(header::AUTHORIZATION) {
+        authorize_presenter_access(&state.database, &headers, session_id)
+            .await?
+            .user_id()
+    } else {
+        let user_id = authenticated_user_id(&state.database, &headers).await?;
+        require_session_read(&state.database, session_id, user_id).await?;
+        Some(user_id)
+    };
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
-    if let Some(user_id) = access.user_id() {
+    if let Some(user_id) = user_id {
         lock_authorized_session(&mut transaction, session_id, user_id).await?;
     } else {
         lock_session(&mut transaction, session_id).await?;

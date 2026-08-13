@@ -960,7 +960,7 @@ function LiveControl({
       <div className="live-summary">
         <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
         <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
-        {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong><JoinQr code={snapshot.join_code} label={t("live.joinQr")} /></div>}
+        {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
       </div>
       <div className="live-actions">
         {visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
@@ -1064,16 +1064,6 @@ function PresenterInsights({ t, live }: { t: Translate; live: LiveView }) {
       {needsAttention && <p role="alert">{t("live.attention")}</p>}
     </aside>
   );
-}
-
-function JoinQr({ code, label }: { code: string; label: string }) {
-  const svg = useMemo(() => {
-    const qr = qrcode(0, "M");
-    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
-    qr.make();
-    return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
-  }, [code]);
-  return <details className="join-qr"><summary>{label}</summary><div aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} /></details>;
 }
 
 function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close: () => void }) {

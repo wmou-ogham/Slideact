@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
+import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import { sendCommand } from "./PresenterApp";
@@ -580,7 +581,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
     <main className="projection-root">
       <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
       {!cueRun || cueRun.state === "ready" ? (
-        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><small>{t("projection.waiting")}</small></section>
+        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><small>{t("projection.waiting")}</small></section>
       ) : (
         <section className="projection-results">
           <p>{cueRun.state === "open" ? t("overlay.collecting") : cueRun.state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
@@ -600,6 +601,16 @@ export function ProjectionApp({ t }: { t: Translate }) {
       )}
     </main>
   );
+}
+
+function ProjectionJoinQr({ code, label }: { code: string; label: string }) {
+  const svg = useMemo(() => {
+    const qr = qrcode(0, "M");
+    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
+    qr.make();
+    return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+  }, [code]);
+  return <div className="projection-join-qr" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function OverlayApp({ t }: { t: Translate }) {

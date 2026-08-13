@@ -992,6 +992,12 @@ const endedCommandSession = await sendCommand(commandSessionId, {
 });
 assert.equal(endedCommandSession.response.status, 200);
 assert.equal(endedCommandSession.body.snapshot.status, "ended");
+const endedSnapshot = await requestJson(
+  `/api/sessions/${commandSessionId}/snapshot`,
+  { cookie: ownerCookie },
+);
+assert.equal(endedSnapshot.response.status, 200);
+assert.equal(endedSnapshot.body.status, "ended");
 const activeCodeReservations = execFileSync(
   "psql",
   [
