@@ -157,6 +157,8 @@ function AudienceInteraction({ t, interaction, answer, busy, submit }: {
   busy: boolean;
   submit: (payload: Record<string, unknown>, label: string) => void;
 }) {
+  const [text, setText] = useState("");
+
   return (
     <article className="audience-question">
       <span className="type-badge">{typeName(t, interaction.interaction_type)}</span>
@@ -177,7 +179,24 @@ function AudienceInteraction({ t, interaction, answer, busy, submit }: {
           ))}
         </div>
       )}
-      {(interaction.interaction_type === "word_cloud" || interaction.interaction_type === "qa") && <p className="pending-type">{t("audience.typeSoon")}</p>}
+      {interaction.interaction_type === "word_cloud" && (
+        <form className="text-response" onSubmit={(event) => {
+          event.preventDefault();
+          const value = text.trim();
+          if (value) submit({ text: value }, value);
+        }}>
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            maxLength={200}
+            placeholder={t("audience.textPlaceholder")}
+            disabled={busy}
+            rows={3}
+          />
+          <button disabled={busy || !text.trim()}>{t("audience.send")}</button>
+        </form>
+      )}
+      {interaction.interaction_type === "qa" && <p className="pending-type">{t("audience.typeSoon")}</p>}
       {answer && <p className="answer-saved">{t("audience.saved")}</p>}
     </article>
   );
@@ -197,6 +216,17 @@ function AggregateBars({ aggregate }: { aggregate: LiveView["aggregates"][number
   if (aggregate.interaction_type === "understanding") {
     const percent = Math.round(aggregate.understood_percent ?? 0);
     return <div className="result-block"><strong>{percent}%</strong><div className="result-track"><span style={{ width: `${percent}%` }} /></div></div>;
+  }
+  if (aggregate.interaction_type === "word_cloud") {
+    return (
+      <div className="word-cloud-results">
+        {aggregate.entries?.map((entry) => (
+          <span key={entry.text} style={{ fontSize: `${Math.min(2.2, 1 + entry.count / 3)}rem` }}>
+            {entry.text}<small>×{entry.count}</small>
+          </span>
+        ))}
+      </div>
+    );
   }
   return <div className="result-options">{aggregate.options?.map((option) => {
     const percent = aggregate.total_responses ? Math.round(option.count * 100 / aggregate.total_responses) : 0;

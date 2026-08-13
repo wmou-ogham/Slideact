@@ -214,6 +214,17 @@ async fn validate_payload(
                 return Err(ApiError::bad_request("response_option_invalid"));
             }
         }
+        "word_cloud" => {
+            let text = object
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ApiError::bad_request("response_payload_invalid"))?;
+            if text.chars().count() > 200 {
+                return Err(ApiError::bad_request("response_payload_invalid"));
+            }
+        }
         _ => return Err(ApiError::bad_request("interaction_type_not_supported")),
     }
     Ok(())
@@ -289,6 +300,33 @@ async fn compute_aggregate(
                 "interaction_type": "single_choice",
                 "total_responses": total_responses,
                 "options": options,
+            }))
+        }
+        "word_cloud" => {
+            let rows = sqlx::query_as::<_, (String, i64)>(
+                r#"
+                SELECT payload ->> 'text' AS text, COUNT(*)
+                FROM responses
+                WHERE cue_run_id = $1 AND interaction_id = $2
+                GROUP BY text
+                ORDER BY COUNT(*) DESC, text ASC
+                LIMIT 50
+                "#,
+            )
+            .bind(cue_run_id)
+            .bind(interaction_id)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            let total_responses = rows.iter().map(|row| row.1).sum::<i64>();
+            let entries = rows
+                .into_iter()
+                .map(|row| json!({"text": row.0, "count": row.1}))
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "interaction_type": "word_cloud",
+                "total_responses": total_responses,
+                "entries": entries,
             }))
         }
         _ => Err(ApiError::bad_request("interaction_type_not_supported")),

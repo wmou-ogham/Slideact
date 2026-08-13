@@ -82,6 +82,7 @@ export type Aggregate = {
   not_understood?: number;
   understood_percent?: number;
   options?: Array<{ option_id: string; label: string; count: number }>;
+  entries?: Array<{ text: string; count: number }>;
 };
 
 export type LiveView = {

@@ -166,6 +166,21 @@ const createdUnderstanding = await requestJson(
 );
 assert.equal(createdUnderstanding.response.status, 201);
 
+const createdWordCloud = await requestJson(
+  `/api/projects/${projectId}/cues/${cueId}/interactions`,
+  {
+    method: "POST",
+    cookie: ownerCookie,
+    body: {
+      interaction_type: "word_cloud",
+      prompt: "What is the key word you take away?",
+      description: "Share one short thought",
+      options: [],
+    },
+  },
+);
+assert.equal(createdWordCloud.response.status, 201);
+
 const cues = await requestJson(`/api/projects/${projectId}/cues`, {
   cookie: ownerCookie,
 });
@@ -241,7 +256,7 @@ const preparedCue = await sendCommand(commandSessionId, {
 });
 assert.equal(preparedCue.response.status, 200);
 assert.equal(preparedCue.body.snapshot.current_cue_run.state, "ready");
-assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 2);
+assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 3);
 assert.equal(preparedCue.body.snapshot.current_cue_run.interactions[0].options.length, 2);
 
 const openedCue = await sendCommand(commandSessionId, {
@@ -389,6 +404,20 @@ assert.equal(understood.body.aggregate.total_responses, 1);
 assert.equal(understood.body.aggregate.understood, 1);
 assert.equal(understood.body.aggregate.understood_percent, 100);
 
+const wordCloud = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdWordCloud.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:word-cloud-001",
+    payload: { text: "clarity" },
+  },
+);
+assert.equal(wordCloud.response.status, 201);
+assert.equal(wordCloud.body.aggregate.interaction_type, "word_cloud");
+assert.equal(wordCloud.body.aggregate.total_responses, 1);
+assert.equal(wordCloud.body.aggregate.entries[0].text, "clarity");
+
 const anonymousLiveView = await requestJson(
   `/api/live/sessions/${commandSessionId}`,
 );
@@ -400,7 +429,7 @@ const audienceLiveView = await requestJson(
 );
 assert.equal(audienceLiveView.response.status, 200);
 assert.equal(audienceLiveView.body.audience_count, 1);
-assert.equal(audienceLiveView.body.aggregates.length, 2);
+assert.equal(audienceLiveView.body.aggregates.length, 3);
 assert.equal(
   audienceLiveView.body.snapshot.current_cue_run.interactions[0].options[0].is_correct,
   null,
