@@ -36,6 +36,8 @@
 
 ## M2：手動播放核心
 
+- [x] 建立 Project、Cue、Interaction 與 Live Session HTTP API
+- [ ] 建立講者 authoritative command 與 Snapshot API
 - [ ] 建立 Presenter Console
 - [ ] 建立 Presenter Mobile Remote
 - [ ] 建立 Audience Join 與匿名 participant token

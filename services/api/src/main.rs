@@ -4,6 +4,7 @@ mod api_error;
 mod auth;
 mod authorization;
 mod realtime;
+mod resources;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -82,6 +83,7 @@ async fn main() -> Result<()> {
         .route("/api/ws", get(websocket))
         .merge(auth::router())
         .merge(authorization::router())
+        .merge(resources::router())
         .with_state(state)
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {

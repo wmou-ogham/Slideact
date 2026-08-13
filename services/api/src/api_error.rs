@@ -45,6 +45,13 @@ impl ApiError {
         }
     }
 
+    pub(crate) const fn conflict(code: &'static str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code,
+        }
+    }
+
     pub(crate) const fn unavailable(code: &'static str) -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,

@@ -29,6 +29,104 @@ const authStart = await fetch(`${baseUrl}/api/auth/google/start`, {
 assert.equal(authStart.status, 503);
 assert.deepEqual(await authStart.json(), { code: "auth_not_configured" });
 
+const anonymousProjects = await fetch(`${baseUrl}/api/projects`);
+assert.equal(anonymousProjects.status, 401);
+
+const createdProject = await requestJson("/api/projects", {
+  method: "POST",
+  cookie: ownerCookie,
+  body: { title: "Bilingual teaching demo", default_locale: "zh-TW" },
+});
+assert.equal(createdProject.response.status, 201);
+assert.equal(createdProject.body.status, "draft");
+assert.equal(createdProject.body.default_locale, "zh-TW");
+const projectId = createdProject.body.id;
+
+const strangerProject = await requestJson(`/api/projects/${projectId}`, {
+  cookie: "slide_helper_session=ci-stranger-session",
+});
+assert.equal(strangerProject.response.status, 404);
+assert.deepEqual(strangerProject.body, { code: "project_not_found" });
+
+const updatedProject = await requestJson(`/api/projects/${projectId}`, {
+  method: "PUT",
+  cookie: ownerCookie,
+  body: { title: "Interactive teaching demo", status: "active", default_locale: "en" },
+});
+assert.equal(updatedProject.response.status, 200);
+assert.equal(updatedProject.body.title, "Interactive teaching demo");
+
+const createdCue = await requestJson(`/api/projects/${projectId}/cues`, {
+  method: "POST",
+  cookie: ownerCookie,
+  body: {
+    name: "Check understanding",
+    anchor_type: "manual",
+    anchor_value: null,
+    trigger_mode: "presenter_confirm",
+    delay_seconds: 0,
+  },
+});
+assert.equal(createdCue.response.status, 201);
+assert.equal(createdCue.body.position, 0);
+const cueId = createdCue.body.id;
+
+const invalidInteraction = await requestJson(
+  `/api/projects/${projectId}/cues/${cueId}/interactions`,
+  {
+    method: "POST",
+    cookie: ownerCookie,
+    body: {
+      interaction_type: "single_choice",
+      prompt: "Pick one",
+      options: [{ label: "Only one", is_correct: true }],
+    },
+  },
+);
+assert.equal(invalidInteraction.response.status, 400);
+assert.deepEqual(invalidInteraction.body, { code: "interaction_options_invalid" });
+
+const createdInteraction = await requestJson(
+  `/api/projects/${projectId}/cues/${cueId}/interactions`,
+  {
+    method: "POST",
+    cookie: ownerCookie,
+    body: {
+      interaction_type: "single_choice",
+      prompt: "Which explanation is clearest?",
+      description: "Choose one answer",
+      options: [
+        { label: "Example A", is_correct: true },
+        { label: "Example B", is_correct: false },
+      ],
+    },
+  },
+);
+assert.equal(createdInteraction.response.status, 201);
+assert.equal(createdInteraction.body.options.length, 2);
+
+const cues = await requestJson(`/api/projects/${projectId}/cues`, {
+  cookie: ownerCookie,
+});
+assert.equal(cues.response.status, 200);
+assert.equal(cues.body.length, 1);
+assert.equal(cues.body[0].interactions[0].prompt, "Which explanation is clearest?");
+
+const createdSession = await requestJson(`/api/projects/${projectId}/sessions`, {
+  method: "POST",
+  cookie: ownerCookie,
+  body: { locale: "zh-TW" },
+});
+assert.equal(createdSession.response.status, 201);
+assert.equal(createdSession.body.status, "draft");
+assert.equal(createdSession.body.sync_mode, "manual");
+
+const loadedSession = await requestJson(`/api/sessions/${createdSession.body.id}`, {
+  cookie: ownerCookie,
+});
+assert.equal(loadedSession.response.status, 200);
+assert.equal(loadedSession.body.project_id, projectId);
+
 const strangerIssue = await issueToken(
   "presenter",
   "slide_helper_session=ci-stranger-session",
@@ -181,6 +279,18 @@ async function issueToken(role, cookie) {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ role }),
+  });
+  return { response, body: await response.json() };
+}
+
+async function requestJson(path, { method = "GET", cookie, body } = {}) {
+  const headers = {};
+  if (cookie) headers.cookie = cookie;
+  if (body !== undefined) headers["content-type"] = "application/json";
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { response, body: await response.json() };
 }
