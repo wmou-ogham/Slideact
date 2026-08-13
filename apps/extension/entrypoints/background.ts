@@ -22,7 +22,17 @@ const EMPTY_STATUS: ExtensionStatus = {
 export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
     void readStatus().then((status) => writeStatus(status));
+    void browser.alarms.create("slideact-heartbeat", { periodInMinutes: 0.5 });
   });
+
+  browser.runtime.onStartup.addListener(() => {
+    void sendHeartbeat();
+    void browser.alarms.create("slideact-heartbeat", { periodInMinutes: 0.5 });
+  });
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "slideact-heartbeat") void sendHeartbeat();
+  });
+  void browser.alarms.create("slideact-heartbeat", { periodInMinutes: 0.5 });
 
   browser.runtime.onMessage.addListener(async (message: unknown) => {
     if (!isExtensionMessage(message)) {
@@ -111,6 +121,7 @@ async function reportPosition(status: ExtensionStatus, position: NonNullable<Ext
       method: "POST",
       headers: { authorization: `Bearer ${status.token}`, "content-type": "application/json" },
       body: JSON.stringify({
+        device_id: await deviceId(),
         deck_id: position.deckId,
         slide_id: position.slideId,
         slide_index: position.slideIndex,
@@ -126,4 +137,34 @@ async function reportPosition(status: ExtensionStatus, position: NonNullable<Ext
     await writeStatus(next);
     return next;
   }
+}
+
+async function sendHeartbeat(): Promise<void> {
+  const status = await readStatus();
+  if (!status.token || !status.sessionId) return;
+  try {
+    const response = await fetch(`${status.serverUrl}/api/extension/heartbeat`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${status.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        device_id: await deviceId(),
+        deck_id: status.position?.deckId ?? null,
+        slide_id: status.position?.slideId ?? null,
+        slide_index: status.position?.slideIndex ?? null,
+        last_error: status.lastError,
+      }),
+    });
+    if (!response.ok) throw new Error(`heartbeat_${response.status}`);
+  } catch (error) {
+    await writeStatus({ ...status, lastError: error instanceof Error ? error.message : "heartbeat_failed", updatedAt: Date.now() });
+  }
+}
+
+async function deviceId(): Promise<string> {
+  let value = (await browser.storage.local.get("slideHelper.deviceId"))["slideHelper.deviceId"] as string | undefined;
+  if (!value) {
+    value = crypto.randomUUID();
+    await browser.storage.local.set({ "slideHelper.deviceId": value });
+  }
+  return value;
 }

@@ -536,6 +536,14 @@ function LiveControl({
   send: (command: SessionCommand) => void;
 }) {
   const [pairingCode, setPairingCode] = useState("");
+  const [extensionConnected, setExtensionConnected] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!snapshot) return;
+    const load = () => apiJson<{ paired: boolean; connected: boolean }>(`/api/sessions/${snapshot.session_id}/extension-status`).then((value) => setExtensionConnected(value.paired ? value.connected : null)).catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, 15_000);
+    return () => window.clearInterval(timer);
+  }, [snapshot?.session_id]);
   const statusActions = useMemo(() => {
     if (!snapshot) return [];
     switch (snapshot.status) {
@@ -582,7 +590,7 @@ function LiveControl({
     <section className="live-dock">
       <div className="live-summary">
         <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
-        <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong></div>
+        <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
         {snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
       </div>
       <div className="live-actions">

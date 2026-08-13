@@ -6,7 +6,7 @@ export default defineConfig({
     description: "__MSG_extensionDescription__",
     default_locale: "en",
     minimum_chrome_version: "116",
-    permissions: ["storage"],
+    permissions: ["alarms", "storage"],
     host_permissions: [
       "https://docs.google.com/presentation/*",
       "http://10.121.180.185:8080/*",

@@ -50,10 +50,39 @@ struct RedeemPairingResponse {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PositionRequest {
+    device_id: String,
     deck_id: String,
     slide_id: Option<String>,
     slide_index: Option<u32>,
     detected_at: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HeartbeatRequest {
+    device_id: String,
+    deck_id: Option<String>,
+    slide_id: Option<String>,
+    slide_index: Option<u32>,
+    last_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct HeartbeatResponse {
+    connected: bool,
+    sync_mode: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtensionStatusResponse {
+    paired: bool,
+    connected: bool,
+    device_id: Option<String>,
+    deck_id: Option<String>,
+    slide_id: Option<String>,
+    slide_index: Option<u32>,
+    last_error: Option<String>,
+    heartbeat_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +106,11 @@ pub(crate) fn router() -> Router<AppState> {
         )
         .route("/api/extension/pair", post(redeem_pairing_code))
         .route("/api/extension/position", post(report_position))
+        .route("/api/extension/heartbeat", post(extension_heartbeat))
+        .route(
+            "/api/sessions/{session_id}/extension-status",
+            axum::routing::get(extension_status),
+        )
         .route(
             "/api/sessions/{session_id}/sync-mode",
             put(update_sync_mode),
@@ -197,6 +231,16 @@ async fn report_position(
     }
     validate_position(&request)?;
     bind_deck(&state.database, actor.session_id, request.deck_id.trim()).await?;
+    touch_controller(
+        &state.database,
+        actor.session_id,
+        &request.device_id,
+        Some(request.deck_id.trim()),
+        request.slide_id.as_deref(),
+        request.slide_index,
+        None,
+    )
+    .await?;
     let (snapshot, cue_id) = apply_follow_position(
         &state.database,
         actor.session_id,
@@ -209,6 +253,101 @@ async fn report_position(
         matched: cue_id.is_some(),
         cue_id,
         snapshot,
+    }))
+}
+
+async fn extension_heartbeat(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<HeartbeatRequest>,
+) -> Result<Json<HeartbeatResponse>, ApiError> {
+    let actor = authenticate_session_token(&state.database, bearer_token(&headers)?).await?;
+    if actor.role != SessionRole::Extension {
+        return Err(ApiError::forbidden("extension_token_required"));
+    }
+    validate_device_id(&request.device_id)?;
+    if request
+        .last_error
+        .as_ref()
+        .is_some_and(|value| value.chars().count() > 300)
+    {
+        return Err(ApiError::bad_request("extension_error_invalid"));
+    }
+    touch_controller(
+        &state.database,
+        actor.session_id,
+        &request.device_id,
+        request.deck_id.as_deref(),
+        request.slide_id.as_deref(),
+        request.slide_index,
+        request.last_error.as_deref(),
+    )
+    .await?;
+    let sync_mode =
+        sqlx::query_scalar::<_, String>("SELECT sync_mode FROM live_sessions WHERE id = $1")
+            .bind(actor.session_id)
+            .fetch_one(&state.database)
+            .await
+            .map_err(persistence_error)?;
+    Ok(Json(HeartbeatResponse {
+        connected: true,
+        sync_mode,
+    }))
+}
+
+async fn extension_status(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<ExtensionStatusResponse>, ApiError> {
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    require_session_owner(&state.database, session_id, user_id).await?;
+    let row = sqlx::query_as::<_, (String, serde_json::Value, String, bool)>(
+        r#"
+        SELECT connection_key, metadata, heartbeat_at::TEXT,
+               heartbeat_at > NOW() - INTERVAL '70 seconds'
+        FROM controller_connections
+        WHERE session_id = $1 AND controller_type = 'extension'
+        ORDER BY heartbeat_at DESC LIMIT 1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    let Some((device_id, metadata, heartbeat_at, connected)) = row else {
+        return Ok(Json(ExtensionStatusResponse {
+            paired: false,
+            connected: false,
+            device_id: None,
+            deck_id: None,
+            slide_id: None,
+            slide_index: None,
+            last_error: None,
+            heartbeat_at: None,
+        }));
+    };
+    Ok(Json(ExtensionStatusResponse {
+        paired: true,
+        connected,
+        device_id: Some(device_id),
+        deck_id: metadata
+            .get("deck_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+        slide_id: metadata
+            .get("slide_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+        slide_index: metadata
+            .get("slide_index")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| u32::try_from(value).ok()),
+        last_error: metadata
+            .get("last_error")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+        heartbeat_at: Some(heartbeat_at),
     }))
 }
 
@@ -311,6 +450,40 @@ async fn bind_deck(
     Ok(())
 }
 
+async fn touch_controller(
+    database: &sqlx::PgPool,
+    session_id: Uuid,
+    device_id: &str,
+    deck_id: Option<&str>,
+    slide_id: Option<&str>,
+    slide_index: Option<u32>,
+    last_error: Option<&str>,
+) -> Result<(), ApiError> {
+    validate_device_id(device_id)?;
+    sqlx::query(
+        r#"
+        INSERT INTO controller_connections (
+            id, session_id, controller_type, connection_key, metadata
+        ) VALUES ($1, $2, 'extension', $3, $4)
+        ON CONFLICT (session_id, controller_type, connection_key)
+        DO UPDATE SET metadata = EXCLUDED.metadata, heartbeat_at = NOW(), disconnected_at = NULL
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(session_id)
+    .bind(device_id.trim())
+    .bind(json!({
+        "deck_id": deck_id,
+        "slide_id": slide_id,
+        "slide_index": slide_index,
+        "last_error": last_error,
+    }))
+    .execute(database)
+    .await
+    .map_err(persistence_error)?;
+    Ok(())
+}
+
 fn generate_pairing_code() -> String {
     let mut rng = rand::rng();
     (0..8)
@@ -330,6 +503,7 @@ fn validate_pairing_code(code: &str) -> Result<(), ApiError> {
 }
 
 fn validate_position(position: &PositionRequest) -> Result<(), ApiError> {
+    validate_device_id(&position.device_id)?;
     if position.deck_id.trim().is_empty()
         || position.deck_id.chars().count() > 300
         || position
@@ -340,6 +514,13 @@ fn validate_position(position: &PositionRequest) -> Result<(), ApiError> {
         || (position.slide_id.is_none() && position.slide_index.is_none())
     {
         return Err(ApiError::bad_request("presentation_position_invalid"));
+    }
+    Ok(())
+}
+
+fn validate_device_id(device_id: &str) -> Result<(), ApiError> {
+    if device_id.trim().is_empty() || device_id.chars().count() > 200 {
+        return Err(ApiError::bad_request("device_id_invalid"));
     }
     Ok(())
 }

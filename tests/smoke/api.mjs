@@ -317,6 +317,7 @@ const followedPosition = await requestJson("/api/extension/position", {
   method: "POST",
   token: pairedExtension.body.token,
   body: {
+    device_id: "ci-extension",
     deck_id: "ci-google-deck",
     slide_id: "slide-five",
     slide_index: 4,
@@ -332,6 +333,7 @@ const wrongDeckPosition = await requestJson("/api/extension/position", {
   method: "POST",
   token: pairedExtension.body.token,
   body: {
+    device_id: "ci-extension",
     deck_id: "another-google-deck",
     slide_id: "slide-five",
     slide_index: 4,
@@ -340,6 +342,31 @@ const wrongDeckPosition = await requestJson("/api/extension/position", {
 });
 assert.equal(wrongDeckPosition.response.status, 409);
 assert.deepEqual(wrongDeckPosition.body, { code: "deck_not_paired" });
+
+const extensionHeartbeat = await requestJson("/api/extension/heartbeat", {
+  method: "POST",
+  token: pairedExtension.body.token,
+  body: {
+    device_id: "ci-extension",
+    deck_id: "ci-google-deck",
+    slide_id: "slide-five",
+    slide_index: 4,
+    last_error: null,
+  },
+});
+assert.equal(extensionHeartbeat.response.status, 200);
+assert.equal(extensionHeartbeat.body.connected, true);
+
+const extensionStatus = await requestJson(
+  `/api/sessions/${commandSessionId}/extension-status`,
+  { cookie: ownerCookie },
+);
+assert.equal(extensionStatus.response.status, 200);
+assert.equal(extensionStatus.body.paired, true);
+assert.equal(extensionStatus.body.connected, true);
+assert.equal(extensionStatus.body.device_id, "ci-extension");
+assert.equal(extensionStatus.body.deck_id, "ci-google-deck");
+assert.equal(extensionStatus.body.slide_index, 4);
 
 const manualSync = await requestJson(
   `/api/sessions/${commandSessionId}/sync-mode`,

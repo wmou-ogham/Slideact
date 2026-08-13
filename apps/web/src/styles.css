@@ -164,6 +164,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .live-summary > div { display: grid; gap: 3px; }
 .live-summary small, .join-code small { color: rgba(255,255,255,.55); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .live-summary strong { font-size: 13px; }
+.live-summary em { color: rgba(255,255,255,.5); font-size: 9px; font-style: normal; }
+.live-summary em.sync-connected { color: #82d9ab; }
 .live-light { width: 9px; height: 9px; background: #7c928d; border-radius: 50%; }
 .live-light.active { background: #67d49d; box-shadow: 0 0 0 5px rgba(103,212,157,.14); }
 .join-code { margin-left: 16px; padding-left: 18px; border-left: 1px solid rgba(255,255,255,.15); }
