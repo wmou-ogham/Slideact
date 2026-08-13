@@ -40,7 +40,7 @@
 - [x] 建立講者 authoritative command 與 Snapshot API
 - [ ] 建立 Presenter Console
 - [ ] 建立 Presenter Mobile Remote
-- [ ] 建立 Audience Join 與匿名 participant token
+- [x] 建立 Audience Join 與匿名 participant token
 - [ ] 建立透明 OBS Overlay
 - [ ] 實作理解度互動
 - [ ] 實作單選題互動

@@ -1,6 +1,7 @@
 use std::{env, net::SocketAddr, time::Duration};
 
 mod api_error;
+mod audience;
 mod auth;
 mod authorization;
 mod commands;
@@ -82,6 +83,7 @@ async fn main() -> Result<()> {
         .route("/health/ready", get(ready))
         .route("/api/version", get(version))
         .route("/api/ws", get(websocket))
+        .merge(audience::router())
         .merge(auth::router())
         .merge(authorization::router())
         .merge(commands::router())
@@ -175,6 +177,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, actor: authorization:
         token_id = %actor.token_id,
         session_id = %actor.session_id,
         role = ?actor.role,
+        participant_id = ?actor.participant_id,
         "authorized WebSocket connected"
     );
 

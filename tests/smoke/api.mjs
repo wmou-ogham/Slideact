@@ -200,6 +200,60 @@ assert.equal(authoritativeSnapshot.response.status, 200);
 assert.equal(authoritativeSnapshot.body.current_cue_run.state, "open");
 assert.equal(authoritativeSnapshot.body.state_version, 4);
 
+const invalidJoin = await requestJson("/api/audience/join", {
+  method: "POST",
+  body: { join_code: "ABC23D", locale: "en", participant_key: null },
+});
+assert.equal(invalidJoin.response.status, 404);
+assert.deepEqual(invalidJoin.body, { code: "join_code_not_found" });
+
+const joinedAudience = await requestJson("/api/audience/join", {
+  method: "POST",
+  body: {
+    join_code: openedLobby.body.snapshot.join_code.toLowerCase(),
+    locale: "zh-TW",
+    participant_key: null,
+  },
+});
+assert.equal(joinedAudience.response.status, 201);
+assert.equal(joinedAudience.body.session_id, commandSessionId);
+assert.match(joinedAudience.body.participant_key, /^[A-Za-z0-9_-]{43}$/);
+assert.match(joinedAudience.body.token, /^[A-Za-z0-9_-]{43}$/);
+assert.equal(joinedAudience.body.topic, `session:${commandSessionId}:audience`);
+assert.equal(joinedAudience.body.snapshot.current_cue_run.state, "open");
+assert.equal(
+  joinedAudience.body.snapshot.current_cue_run.interactions[0].options[0].is_correct,
+  null,
+);
+
+const rejoinedAudience = await requestJson("/api/audience/join", {
+  method: "POST",
+  body: {
+    join_code: openedLobby.body.snapshot.join_code,
+    locale: "en",
+    participant_key: joinedAudience.body.participant_key,
+  },
+});
+assert.equal(rejoinedAudience.response.status, 201);
+assert.equal(rejoinedAudience.body.participant_id, joinedAudience.body.participant_id);
+assert.notEqual(rejoinedAudience.body.token, joinedAudience.body.token);
+
+const joinedSocket = await connect(
+  `${websocketUrl}?token=${joinedAudience.body.token}`,
+);
+const joinedSubscribed = waitForMessage(
+  joinedSocket,
+  (message) => message.type === "subscribed",
+);
+joinedSocket.send(
+  JSON.stringify({ type: "subscribe", topic: joinedAudience.body.topic }),
+);
+assert.deepEqual(await joinedSubscribed, {
+  type: "subscribed",
+  topic: joinedAudience.body.topic,
+});
+joinedSocket.close();
+
 const strangerIssue = await issueToken(
   "presenter",
   "slide_helper_session=ci-stranger-session",

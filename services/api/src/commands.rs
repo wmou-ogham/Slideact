@@ -11,7 +11,7 @@ use slide_helper_domain::{
     CueRunAction, CueRunMachine, CueRunState, LiveSessionAction, LiveSessionMachine,
     LiveSessionState, StateMachineError,
 };
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -68,7 +68,7 @@ struct CommandResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SessionSnapshot {
+pub(crate) struct SessionSnapshot {
     session_id: Uuid,
     project_id: Uuid,
     join_code: Option<String>,
@@ -105,6 +105,19 @@ struct OptionSnapshot {
     id: Uuid,
     label: String,
     is_correct: Option<bool>,
+}
+
+impl SessionSnapshot {
+    pub(crate) fn redact_for_audience(mut self) -> Self {
+        if let Some(cue_run) = &mut self.current_cue_run {
+            for interaction in &mut cue_run.interactions {
+                for option in &mut interaction.options {
+                    option.is_correct = None;
+                }
+            }
+        }
+        self
+    }
 }
 
 struct LockedSession {
@@ -231,6 +244,16 @@ async fn snapshot(
     let snapshot = load_snapshot(&mut transaction, session_id).await?;
     transaction.commit().await.map_err(persistence_error)?;
     Ok(Json(snapshot))
+}
+
+pub(crate) async fn snapshot_for_session(
+    database: &PgPool,
+    session_id: Uuid,
+) -> Result<SessionSnapshot, ApiError> {
+    let mut transaction = database.begin().await.map_err(persistence_error)?;
+    let snapshot = load_snapshot(&mut transaction, session_id).await?;
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok(snapshot)
 }
 
 async fn lock_authorized_session(
@@ -514,7 +537,7 @@ async fn increment_session_version(
     Ok(())
 }
 
-async fn emit_event_to_all(
+pub(crate) async fn emit_event_to_all(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,
     state_version: u64,

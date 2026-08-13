@@ -75,6 +75,8 @@ impl SessionRole {
 struct TokenResourceScope {
     schema_version: u16,
     topics: Vec<String>,
+    #[serde(default)]
+    participant_id: Option<Uuid>,
 }
 
 #[derive(Debug)]
@@ -82,6 +84,7 @@ pub(crate) struct SessionActor {
     pub(crate) token_id: Uuid,
     pub(crate) session_id: Uuid,
     pub(crate) role: SessionRole,
+    pub(crate) participant_id: Option<Uuid>,
     scope: TokenResourceScope,
 }
 
@@ -254,6 +257,7 @@ pub(crate) async fn authenticate_session_token(
         token_id: record.0,
         session_id: record.1,
         role,
+        participant_id: scope.participant_id,
         scope,
     })
 }
@@ -340,9 +344,11 @@ mod tests {
             token_id: Uuid::nil(),
             session_id,
             role,
+            participant_id: None,
             scope: TokenResourceScope {
                 schema_version: TOKEN_SCOPE_VERSION,
                 topics: vec![topic],
+                participant_id: None,
             },
         }
     }
