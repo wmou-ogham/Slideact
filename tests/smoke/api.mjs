@@ -204,7 +204,7 @@ const createdQa = await requestJson(
       description: "Ask and upvote audience questions",
       settings: {
         schema_version: 1,
-        results: { audience_visibility: "question_only" },
+        results: { audience_visibility: "live" },
       },
       options: [],
     },
@@ -856,6 +856,13 @@ assert.equal(
 assert.equal(audienceLiveView.body.questions.length, 1);
 assert.equal(audienceLiveView.body.questions[0].status, "pinned");
 assert.equal(audienceLiveView.body.questions[0].voted_by_me, true);
+const publicQaOverlay = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: pairedExtension.body.overlay_token },
+);
+assert.equal(publicQaOverlay.response.status, 200);
+assert.equal(publicQaOverlay.body.questions.length, 1);
+assert.equal(publicQaOverlay.body.questions[0].body, submittedQuestion.body.body);
 
 const exportedCsv = await fetch(
   `${baseUrl}/api/sessions/${commandSessionId}/export.csv`,

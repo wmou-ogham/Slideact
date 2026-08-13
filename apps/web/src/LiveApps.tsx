@@ -574,6 +574,12 @@ export function ProjectionApp({ t }: { t: Translate }) {
               ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />)
               : <span className="projection-empty">{t("projection.noResults")}</span>}
           </div>
+          {live.questions.length > 0 && (
+            <div className="projection-questions">
+              <h2>{t("qa.heading")}</h2>
+              <QuestionList t={t} questions={live.questions} busy />
+            </div>
+          )}
         </section>
       )}
     </main>

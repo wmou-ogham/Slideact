@@ -101,16 +101,21 @@ async fn get_live_view(
         aggregate: row.2,
     })
     .collect();
-    let questions = load_questions(
-        &state.database,
-        session_id,
-        actor.participant_id,
-        matches!(
-            actor.role,
-            SessionRole::Owner | SessionRole::Presenter | SessionRole::Controller
-        ),
-    )
-    .await?;
+    let current_qa_is_public = snapshot.current_qa_is_live();
+    let can_view_questions = presenter_side
+        || actor.role == SessionRole::Audience
+        || (actor.role == SessionRole::Overlay && current_qa_is_public);
+    let questions = if can_view_questions {
+        load_questions(
+            &state.database,
+            session_id,
+            actor.participant_id,
+            presenter_side,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
 
     Ok(Json(LiveView {
         snapshot,

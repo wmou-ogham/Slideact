@@ -117,3 +117,10 @@
 - [ ] 使用已登入 Google 的 Chrome 與真實 Slides deck 完成 Extension E2E
 - [ ] 由 5～10 位真人講者完成封閉 Beta 腳本
 - [ ] 使用 GitHub 管理權限設定 About description 並確認雲端 Actions run
+
+## 現場控制回饋修正（二）
+
+- [x] 現場 Cue 下拉保留目前選擇，立即開啟 Cue 會直接進入可作答狀態
+- [x] 桌面與手機移除暫停／關閉作答操作，只保留公布結果與保留回覆的重新開放
+- [x] 手機投影片導覽改用短期 FIFO 佇列，並支援手動 Cue 模式與 Slides 編輯模式
+- [x] 觀眾問答預設即時公開，且觀眾頁與投影頁皆顯示問題清單

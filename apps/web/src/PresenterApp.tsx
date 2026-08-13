@@ -588,7 +588,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                 {interactionType === "single_choice" && <textarea name="options" required placeholder={t("interaction.optionsPlaceholder")} />}
                 <label className="field-label">
                   <span>{t("interaction.visibility")}</span>
-                  <select name="audience_visibility" defaultValue="after_reveal">
+                  <select key={interactionType} name="audience_visibility" defaultValue={defaultVisibility(interactionType)}>
                     <option value="after_reveal">{t("interaction.visibilityAfterReveal")}</option>
                     <option value="live">{t("interaction.visibilityLive")}</option>
                   </select>
@@ -765,8 +765,7 @@ function typeName(t: Translate, type: Interaction["interaction_type"]) {
 }
 
 function defaultVisibility(type: Interaction["interaction_type"]) {
-  if (type === "understanding" || type === "word_cloud") return "live";
-  return "after_reveal";
+  return type === "single_choice" ? "after_reveal" : "live";
 }
 
 function InteractionEditForm({ t, busy, item, onSave, onDelete }: {

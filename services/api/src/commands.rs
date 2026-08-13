@@ -121,6 +121,19 @@ impl SessionSnapshot {
         }
         self
     }
+
+    pub(crate) fn current_qa_is_live(&self) -> bool {
+        self.current_cue_run.as_ref().is_some_and(|cue_run| {
+            cue_run.interactions.iter().any(|interaction| {
+                interaction.interaction_type == "qa"
+                    && interaction
+                        .settings
+                        .pointer("/results/audience_visibility")
+                        .and_then(Value::as_str)
+                        == Some("live")
+            })
+        })
+    }
 }
 
 struct LockedSession {
