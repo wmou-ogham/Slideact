@@ -660,8 +660,17 @@ async fn apply_cue_command(
         r#"
         UPDATE cue_runs SET state = $2, state_version = $3,
             opened_at = CASE WHEN $2 = 'open' THEN COALESCE(opened_at, NOW()) ELSE opened_at END,
-            closed_at = CASE WHEN $2 = 'closed' THEN NOW() WHEN $2 = 'open' THEN NULL ELSE closed_at END,
-            revealed_at = CASE WHEN $2 = 'revealed' THEN NOW() ELSE revealed_at END
+            closed_at = CASE
+                WHEN $2 = 'closed' THEN NOW()
+                WHEN $2 = 'revealed' THEN COALESCE(closed_at, NOW())
+                WHEN $2 = 'open' THEN NULL
+                ELSE closed_at
+            END,
+            revealed_at = CASE
+                WHEN $2 = 'revealed' THEN NOW()
+                WHEN $2 = 'open' THEN NULL
+                ELSE revealed_at
+            END
         WHERE id = $1
         "#,
     )

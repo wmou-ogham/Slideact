@@ -926,15 +926,23 @@ assert.equal(
   true,
 );
 
-const closedForReveal = await sendCommand(commandSessionId, {
-  idempotency_key: "smoke:close-for-visibility-001",
+const revealedDirectly = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:direct-reveal-001",
   expected_version: 9,
-  command: { type: "close_cue" },
+  command: { type: "reveal_cue" },
 }, controllerIssue.body.token);
-assert.equal(closedForReveal.response.status, 200);
-const revealedForAudience = await sendCommand(commandSessionId, {
-  idempotency_key: "smoke:reveal-for-visibility-001",
+assert.equal(revealedDirectly.response.status, 200);
+assert.equal(revealedDirectly.body.snapshot.current_cue_run.state, "revealed");
+const reopenedAfterReveal = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:reopen-after-reveal-001",
   expected_version: 10,
+  command: { type: "reopen_cue" },
+}, controllerIssue.body.token);
+assert.equal(reopenedAfterReveal.response.status, 200);
+assert.equal(reopenedAfterReveal.body.snapshot.current_cue_run.state, "open");
+const revealedForAudience = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:reveal-after-reopen-001",
+  expected_version: 11,
   command: { type: "reveal_cue" },
 });
 assert.equal(revealedForAudience.response.status, 200);
