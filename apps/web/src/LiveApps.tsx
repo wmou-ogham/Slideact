@@ -446,22 +446,6 @@ export function RemoteApp({ t }: { t: Translate }) {
     }
   }
 
-  async function closeAndReveal() {
-    if (!snapshot) return;
-    setBusy(true);
-    try {
-      let next = await sendCommand(sessionId, snapshot.state_version, { type: "close_cue" }, token || undefined);
-      next = await sendCommand(sessionId, next.state_version, { type: "reveal_cue" }, token || undefined);
-      setSnapshot(next);
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.code : "network_error");
-      await refresh().catch(() => undefined);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function navigate(direction: "previous" | "next") {
     setBusy(true);
     try {
@@ -500,7 +484,6 @@ export function RemoteApp({ t }: { t: Translate }) {
   if (!snapshot) return <main className="center-state">{t("status.checking")}</main>;
   const cueState = snapshot.current_cue_run?.state;
   const currentInteraction = snapshot.current_cue_run?.interactions[0];
-  const presenterReveal = resultVisibility(currentInteraction) !== "live";
   return (
     <main className="remote-shell">
       <header><span className={snapshot.status === "live" ? "live-light active" : "live-light"} /><span>{t(`statusName.${snapshot.status}`)}</span><strong>{snapshot.join_code}</strong></header>
@@ -513,13 +496,9 @@ export function RemoteApp({ t }: { t: Translate }) {
         </div>
         <div className="remote-primary">
           {snapshot.status === "lobby" && <button disabled={busy} onClick={() => send({ type: "start" })}>{t("live.start")}</button>}
-          {snapshot.status === "live" && <button disabled={busy} onClick={() => send({ type: "pause" })}>{t("live.pause")}</button>}
-          {snapshot.status === "paused" && <button disabled={busy} onClick={() => send({ type: "resume" })}>{t("live.resume")}</button>}
           {cueState === "ready" && <button disabled={busy} onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
-          {cueState === "open" && <button disabled={busy} onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
-          {cueState === "open" && presenterReveal && <button className="reveal-action" disabled={busy} onClick={closeAndReveal}>{t("remote.closeAndReveal")}</button>}
-          {cueState === "closed" && <button disabled={busy} onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
-          {(cueState === "closed" || cueState === "revealed") && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
+          {(cueState === "open" || cueState === "closed") && <button className="reveal-action" disabled={busy} onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
+          {cueState === "revealed" && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
       </section>
       <section className="remote-cues">
@@ -662,14 +641,6 @@ function connectLiveSocket(token: string, topic: string, refresh: () => Promise<
     }
   });
   return () => socket.close();
-}
-
-function resultVisibility(interaction: SnapshotInteraction | undefined) {
-  const results = interaction?.settings.results;
-  if (typeof results !== "object" || results === null) return "after_reveal";
-  return (results as Record<string, unknown>).audience_visibility === "live"
-    ? "live"
-    : "after_reveal";
 }
 
 function remoteCueLabel(t: Translate, cue: Cue) {

@@ -875,7 +875,7 @@ function LiveControl({
     if (!snapshot) return [];
     switch (snapshot.status) {
       case "lobby": return [["start", "live.start"]] as const;
-      case "live": return [["pause", "live.pause"], ["end", "live.end"]] as const;
+      case "live": return [["end", "live.end"]] as const;
       case "paused": return [["resume", "live.resume"], ["end", "live.end"]] as const;
       default: return [];
     }
@@ -951,15 +951,19 @@ function LiveControl({
         <button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>
         {statusActions.map(([type, key]) => <button disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
         {snapshot && snapshot.status !== "draft" && snapshot.status !== "ended" && (
-          <select defaultValue="" onChange={(event) => { if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value }); event.target.value = ""; }}>
+          <select
+            aria-label={t("live.selectCue")}
+            value={snapshot.current_cue_run?.cue_id ?? ""}
+            disabled={busy}
+            onChange={(event) => { if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value }); }}
+          >
             <option value="">{t("live.prepare")}</option>
             {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
           </select>
         )}
         {cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
-        {cueState === "open" && <button onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
-        {cueState === "closed" && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
-        {(cueState === "closed" || cueState === "revealed") && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
+        {(cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
+        {cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         {snapshot && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
         {snapshot && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}

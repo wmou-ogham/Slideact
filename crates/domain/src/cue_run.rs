@@ -81,15 +81,16 @@ impl CueRunMachine {
 fn next_state(state: CueRunState, action: CueRunAction) -> Result<CueRunState, StateMachineError> {
     match (state, action) {
         (CueRunState::Idle, CueRunAction::Prepare) => Ok(CueRunState::Ready),
-        (CueRunState::Ready, CueRunAction::Open) | (CueRunState::Closed, CueRunAction::Reopen) => {
+        (CueRunState::Ready, CueRunAction::Open)
+        | (CueRunState::Closed | CueRunState::Revealed, CueRunAction::Reopen) => {
             Ok(CueRunState::Open)
         }
         (CueRunState::Open, CueRunAction::Close) => Ok(CueRunState::Closed),
-        (CueRunState::Closed, CueRunAction::Reveal) => Ok(CueRunState::Revealed),
-        (CueRunState::Ready, CueRunAction::Skip) => Ok(CueRunState::Skipped),
-        (CueRunState::Revealed, CueRunAction::Open | CueRunAction::Reopen) => {
-            Err(StateMachineError::NewCueRunRequired)
+        (CueRunState::Open | CueRunState::Closed, CueRunAction::Reveal) => {
+            Ok(CueRunState::Revealed)
         }
+        (CueRunState::Ready, CueRunAction::Skip) => Ok(CueRunState::Skipped),
+        (CueRunState::Revealed, CueRunAction::Open) => Err(StateMachineError::NewCueRunRequired),
         _ => Err(StateMachineError::InvalidTransition {
             machine: "cue_run",
             state: state.as_str(),
@@ -159,18 +160,18 @@ mod tests {
     }
 
     #[test]
-    fn revealed_cue_requires_a_new_run_to_reopen() {
+    fn open_cue_can_publish_directly_and_reopen_without_losing_responses() {
         let mut cue = CueRunMachine::new();
         cue.apply(0, CueRunAction::Prepare).unwrap();
         cue.apply(1, CueRunAction::Open).unwrap();
-        cue.apply(2, CueRunAction::Close).unwrap();
-        cue.apply(3, CueRunAction::Reveal).unwrap();
-
         assert_eq!(
-            cue.apply(4, CueRunAction::Reopen),
-            Err(StateMachineError::NewCueRunRequired)
+            cue.apply(2, CueRunAction::Reveal).unwrap().current,
+            CueRunState::Revealed
         );
-        assert_eq!(cue.state(), CueRunState::Revealed);
+        assert_eq!(
+            cue.apply(3, CueRunAction::Reopen).unwrap().current,
+            CueRunState::Open
+        );
         assert_eq!(cue.state_version(), 4);
     }
 

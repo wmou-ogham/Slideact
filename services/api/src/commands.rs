@@ -189,7 +189,7 @@ async fn command(
             .await?;
         }
         SessionCommand::PrepareCue { cue_id } => {
-            prepare_cue(
+            let trigger_mode = prepare_cue(
                 &mut transaction,
                 session_id,
                 &mut locked,
@@ -197,6 +197,16 @@ async fn command(
                 &request.idempotency_key,
             )
             .await?;
+            if trigger_mode == "immediate" && locked.status == LiveSessionState::Live {
+                apply_cue_command(
+                    &mut transaction,
+                    session_id,
+                    &mut locked,
+                    &SessionCommand::OpenCue,
+                    &format!("{}-open", request.idempotency_key),
+                )
+                .await?;
+            }
         }
         SessionCommand::OpenCue
         | SessionCommand::CloseCue
@@ -343,7 +353,7 @@ pub(crate) async fn apply_follow_position(
         None => None,
     };
     if current_cue_id != Some(cue_id) {
-        prepare_cue(
+        let prepared_trigger_mode = prepare_cue(
             &mut transaction,
             session_id,
             &mut locked,
@@ -351,7 +361,8 @@ pub(crate) async fn apply_follow_position(
             idempotency_key,
         )
         .await?;
-        if trigger_mode == "immediate" && locked.status == LiveSessionState::Live {
+        debug_assert_eq!(prepared_trigger_mode, trigger_mode);
+        if prepared_trigger_mode == "immediate" && locked.status == LiveSessionState::Live {
             apply_cue_command(
                 &mut transaction,
                 session_id,
@@ -543,24 +554,22 @@ async fn prepare_cue(
     locked: &mut LockedSession,
     cue_id: Uuid,
     idempotency_key: &str,
-) -> Result<(), ApiError> {
+) -> Result<String, ApiError> {
     if !matches!(
         locked.status,
         LiveSessionState::Lobby | LiveSessionState::Live | LiveSessionState::Paused
     ) {
         return Err(ApiError::conflict("command_invalid_transition"));
     }
-    let belongs = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (SELECT 1 FROM cues WHERE id = $1 AND project_id = $2)",
+    let trigger_mode = sqlx::query_scalar::<_, String>(
+        "SELECT trigger_mode FROM cues WHERE id = $1 AND project_id = $2",
     )
     .bind(cue_id)
     .bind(locked.project_id)
-    .fetch_one(&mut **transaction)
+    .fetch_optional(&mut **transaction)
     .await
-    .map_err(persistence_error)?;
-    if !belongs {
-        return Err(ApiError::not_found("cue_not_found"));
-    }
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::not_found("cue_not_found"))?;
     let run_number = sqlx::query_scalar::<_, i32>(
         "SELECT COALESCE(MAX(run_number) + 1, 1)::INTEGER FROM cue_runs WHERE session_id = $1 AND cue_id = $2",
     )
@@ -596,7 +605,8 @@ async fn prepare_cue(
         }),
         idempotency_key,
     )
-    .await
+    .await?;
+    Ok(trigger_mode)
 }
 
 async fn apply_cue_command(
