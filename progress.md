@@ -38,7 +38,7 @@
 
 - [x] 建立 Project、Cue、Interaction 與 Live Session HTTP API
 - [x] 建立講者 authoritative command 與 Snapshot API
-- [ ] 建立 Presenter Console
+- [x] 建立 Presenter Console
 - [ ] 建立 Presenter Mobile Remote
 - [x] 建立 Audience Join 與匿名 participant token
 - [ ] 建立透明 OBS Overlay
@@ -48,7 +48,7 @@
 
 ## M3：完整 MVP 題型與編輯器
 
-- [ ] 建立三欄式互動編輯器
+- [x] 建立三欄式互動編輯器
 - [ ] 實作文字雲
 - [ ] 實作 Q&A、按讚與置頂
 - [ ] 建立教學、Lightning Talk、產品 Demo 模板
