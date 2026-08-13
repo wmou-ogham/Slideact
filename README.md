@@ -11,6 +11,7 @@
 - [Google Slides Extension 安裝與相容性](docs/GOOGLE_SLIDES_EXTENSION.md)
 - [100 人效能基準](docs/PERFORMANCE.md)
 - [隱私與資料刪除](docs/PRIVACY.md)
+- [系統診斷與錯誤追蹤](docs/DIAGNOSTICS.md)
 
 ## 啟動開發堆疊
 

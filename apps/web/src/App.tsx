@@ -8,6 +8,7 @@ import {
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { PresenterApp } from "./PresenterApp";
+import { DiagnosticsApp } from "./DiagnosticsApp";
 import { AudienceApp, OverlayApp, RemoteApp } from "./LiveApps";
 
 export function App() {
@@ -31,7 +32,9 @@ export function App() {
   return (
     <div className="app-frame">
       <Topbar locale={locale} setLocale={setLocale} t={t} />
-      {path.startsWith("/presenter") ? (
+      {path.startsWith("/diagnostics") ? (
+        <DiagnosticsApp t={t} />
+      ) : path.startsWith("/presenter") ? (
         <PresenterApp t={t} locale={locale} />
       ) : path.startsWith("/join") ? (
         <AudienceApp t={t} locale={locale} />
@@ -52,6 +55,7 @@ function Topbar({ locale, setLocale, t }: {
       <a className="brand" href="/"><span className="brand-mark">S</span><span>{t("app.name")}</span></a>
       <div className="topbar-actions">
         <a href="/presenter">{t("nav.presenter")}</a>
+        <a href="/diagnostics">{t("nav.diagnostics")}</a>
         <label className="language-picker">
           <span>{t("language.label")}</span>
           <select value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>

@@ -6,6 +6,7 @@ mod audience_responses;
 mod auth;
 mod authorization;
 mod commands;
+mod diagnostics;
 mod exports;
 mod live_views;
 mod questions;
@@ -93,6 +94,7 @@ async fn main() -> Result<()> {
         .merge(auth::router())
         .merge(authorization::router())
         .merge(commands::router())
+        .merge(diagnostics::router())
         .merge(exports::router())
         .merge(live_views::router())
         .merge(questions::router())

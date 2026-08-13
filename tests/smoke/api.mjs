@@ -432,6 +432,28 @@ const confirmedResync = await requestJson(
 assert.equal(confirmedResync.response.status, 200);
 assert.equal(confirmedResync.body.sync_mode, "auto_connected");
 
+const reportedClientError = await fetch(`${baseUrl}/api/diagnostics/client-errors`, {
+  method: "POST",
+  headers: { cookie: ownerCookie, "content-type": "application/json" },
+  body: JSON.stringify({
+    surface: "web",
+    route: "/presenter",
+    message: "Smoke test client error",
+    context: {},
+  }),
+});
+assert.equal(reportedClientError.status, 204);
+const clientErrors = await requestJson("/api/diagnostics/client-errors", {
+  cookie: ownerCookie,
+});
+assert.equal(clientErrors.response.status, 200);
+assert.equal(clientErrors.body[0].message, "Smoke test client error");
+const strangerErrors = await requestJson("/api/diagnostics/client-errors", {
+  cookie: "slide_helper_session=ci-stranger-session",
+});
+assert.equal(strangerErrors.response.status, 200);
+assert.equal(strangerErrors.body.length, 0);
+
 const invalidJoin = await requestJson("/api/audience/join", {
   method: "POST",
   body: { join_code: "ABC23D", locale: "en", participant_key: null },
