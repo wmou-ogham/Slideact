@@ -8,6 +8,7 @@
 - [Google OAuth 設定](docs/GOOGLE_OAUTH_SETUP.md)
 - [Session Token 與即時權限](docs/AUTHORIZATION.md)
 - [Realtime Events 與 Transactional Outbox](docs/REALTIME_EVENTS.md)
+- [Google Slides Extension 安裝與相容性](docs/GOOGLE_SLIDES_EXTENSION.md)
 
 ## 啟動開發堆疊
 
@@ -35,4 +36,4 @@ Rust `crates/protocol` 是 wire contract 的單一來源。修改共用 HTTP／W
 
 產物會寫入 `packages/protocol/src/generated.ts`。完整 CI 會以 `--check` 模式比對產物，避免 Rust 與 TypeScript contract 漂移。
 
-Google Slides 技術 Spike 位於 `apps/extension`，輸出為可載入 Chrome 的 Manifest V3 extension，並同時提供自動跟隨與手動模式狀態。
+Google Slides Extension 位於 `apps/extension`，輸出為可載入 Chrome 的 Manifest V3 extension，提供安全配對、自動跟隨、Overlay 注入、heartbeat 診斷與手動接手。
