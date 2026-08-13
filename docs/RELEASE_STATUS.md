@@ -1,7 +1,7 @@
 # Slideact Beta 交付狀態
 
 最後稽核：2026-08-13  
-稽核版本：`aa4c3542664366cdae2e4f4aa3d0a4fb075d7364`
+稽核版本：`832de6e`
 
 ## 結論
 
@@ -17,16 +17,16 @@ Slideact 的封閉 Beta 軟體範圍已完成並部署。講者工作室、觀�
 - 最新提交已使用 SSH key 簽章並通過 `git verify-commit`。
 - Git remote：`git@github.com:wmou-ogham/Slideact.git`
 - API、Web、Worker、Proxy、PostgreSQL、Redis 六個容器在本次稽核時皆為 `healthy`。
-- 完整容器化 CI：`logs/ci-20260813-202049.log`
+- 完整容器化 CI：`logs/ci-20260813-reveal-reopen.log`
   - Rust 測試組：22、18、6 項全部通過。
   - Extension 測試：7 項全部通過。
   - Web 測試：4 項全部通過。
   - i18n／protocol 測試：4／3 項全部通過。
   - API 與 WebSocket smoke test 通過。
-  - 100 位並行觀眾基準：join p95 647 ms、response p95 656 ms。
-- 最新 Extension 產物：`artifacts/slideact-extension-aa4c354.tar.gz`
-- Extension SHA-256：`6e5a49bf87960a021510418f5caa8994b2dae708cd26140ece610c5724116b0f`
-- Extension build log：`logs/build-extension-aa4c354.log`
+  - 100 位並行觀眾基準：join p95 685 ms、response p95 652 ms。
+- 最新 Extension 產物：`artifacts/slideact-extension-832de6e.tar.gz`
+- Extension SHA-256：`314b2f368c8c95e755a2db4c560c4fcb2fc281f99612ba784ddafaf6f9395861`
+- Extension build log：`logs/build-extension-832de6e.log`
 - GitHub Actions workflow：`.github/workflows/ci.yml`，在 `main` push 與 pull request 執行 `scripts/ci.sh`，保存完整 log artifact 並只在輸出中列出摘要。
 - `sudo.log` 證實本專案至今沒有執行 sudo 指令。
 
@@ -39,8 +39,11 @@ Slideact 的封閉 Beta 軟體範圍已完成並部署。講者工作室、觀�
 - 講者可直接開啟不透明的全螢幕投影結果；OBS 透明 Overlay 維持獨立入口。
 - 文字雲使用 `@visx/wordcloud`，以權重控制字級、旋轉與配置，並改善前景／背景對比。
 - 手機遙控 QR 使用八小時、單一活動範圍的 controller token，放在 URL fragment；不暴露 Guest Vault 或登入 cookie。
-- 手機遙控可上一頁／下一頁，並依結果策略顯示「關閉作答」或「結束作答並顯示結果」。
-- Extension 會消費單次導覽命令，在 Google Slides 執行上一頁／下一頁；不支援的簡報工具仍可使用手動控制。
+- 現場 Cue 下拉會保留目前選擇；立即開啟 Cue 會直接進入可作答狀態。
+- 桌面與手機移除暫停／關閉作答操作，只保留「公布結果」及保留既有回覆的「重新開放作答」。
+- 手機遙控可上一頁／下一頁；Extension 以短期 FIFO 佇列依序消費導覽命令，且在手動 Cue 模式仍可回控 Google Slides。
+- Q&A 預設即時公開，觀眾頁及全螢幕投影頁都會顯示公開問題。
+- 不支援 Extension 的簡報工具仍可使用手動 Cue 控制。
 
 ## 外部發布閘門
 
@@ -84,9 +87,9 @@ Slideact 的封閉 Beta 軟體範圍已完成並部署。講者工作室、觀�
 ```sh
 git verify-commit HEAD
 docker compose ps
-sha256sum artifacts/slideact-extension-aa4c354.tar.gz
+sha256sum artifacts/slideact-extension-832de6e.tar.gz
 curl -fsS http://127.0.0.1:8080/api/version
-grep -E "API and WebSocket smoke test passed|100-person|test result:|Tasks:" logs/ci-20260813-202049.log
+grep -E "API and WebSocket smoke test passed|100-person|test result:|Tasks:" logs/ci-20260813-reveal-reopen.log
 ```
 
 正式 Beta 放行條件：上述四個外部發布閘門完成，且沒有未解決的資料遺失、跨帳號存取、錯誤投影片跳轉或無法恢復的現場活動問題。
