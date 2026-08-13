@@ -584,6 +584,7 @@ function LiveControl({
         {cueState === "closed" && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
         {snapshot && <a className="secondary-link" href={`/remote/${snapshot.session_id}`}>{t("live.remote")}</a>}
         {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
+        {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
       </div>
     </section>
   );

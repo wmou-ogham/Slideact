@@ -54,7 +54,7 @@
 - [x] 實作 Q&A、按讚與置頂
 - [x] 建立教學、Lightning Talk、產品 Demo 模板
 - [x] 建立投影、手機、講者三種預覽
-- [ ] 建立 CSV 匯出
+- [x] 建立 CSV 匯出
 
 ## M4：Google Slides 自動跟隨
 

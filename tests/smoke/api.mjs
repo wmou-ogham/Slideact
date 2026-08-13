@@ -497,6 +497,28 @@ assert.equal(audienceLiveView.body.aggregates.length, 3);
 assert.equal(audienceLiveView.body.questions.length, 1);
 assert.equal(audienceLiveView.body.questions[0].status, "pinned");
 assert.equal(audienceLiveView.body.questions[0].voted_by_me, true);
+
+const exportedCsv = await fetch(
+  `${baseUrl}/api/sessions/${commandSessionId}/export.csv`,
+  { headers: { cookie: ownerCookie } },
+);
+assert.equal(exportedCsv.status, 200);
+assert.match(exportedCsv.headers.get("content-type"), /^text\/csv/);
+assert.match(
+  exportedCsv.headers.get("content-disposition"),
+  new RegExp(`slideact-${commandSessionId}\\.csv`),
+);
+const exportedCsvBody = await exportedCsv.text();
+assert.match(exportedCsvBody, /record_type,session_id,cue_name/);
+assert.match(exportedCsvBody, /"response"/);
+assert.match(exportedCsvBody, /"question"/);
+assert.match(exportedCsvBody, /Could you show another real-world example\?/);
+
+const forbiddenCsv = await fetch(
+  `${baseUrl}/api/sessions/${commandSessionId}/export.csv`,
+  { headers: { cookie: "slide_helper_session=ci-stranger-session" } },
+);
+assert.equal(forbiddenCsv.status, 404);
 assert.equal(
   audienceLiveView.body.snapshot.current_cue_run.interactions[0].options[0].is_correct,
   null,
