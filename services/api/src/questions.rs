@@ -13,8 +13,9 @@ use uuid::Uuid;
 use crate::{
     AppState,
     api_error::ApiError,
-    auth::authenticated_user_id,
-    authorization::{SessionRole, authenticate_session_token, bearer_token, require_session_owner},
+    authorization::{
+        SessionRole, authenticate_session_token, authorize_presenter_access, bearer_token,
+    },
     commands::emit_event_to_all,
     rate_limit::check as check_rate_limit,
 };
@@ -213,8 +214,7 @@ async fn list_presenter_questions(
     Path(session_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<QuestionView>>, ApiError> {
-    let user_id = authenticated_user_id(&state.database, &headers).await?;
-    require_session_owner(&state.database, session_id, user_id).await?;
+    authorize_presenter_access(&state.database, &headers, session_id).await?;
     Ok(Json(
         load_questions(&state.database, session_id, None, true).await?,
     ))
@@ -232,8 +232,7 @@ async fn update_question(
     ) {
         return Err(ApiError::bad_request("question_status_invalid"));
     }
-    let user_id = authenticated_user_id(&state.database, &headers).await?;
-    require_session_owner(&state.database, session_id, user_id).await?;
+    authorize_presenter_access(&state.database, &headers, session_id).await?;
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     if request.status == "pinned" {
         sqlx::query(

@@ -88,6 +88,28 @@ pub(crate) struct SessionActor {
     scope: TokenResourceScope,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PresenterAccess {
+    User(Uuid),
+    ControllerToken(Uuid),
+}
+
+impl PresenterAccess {
+    pub(crate) fn actor_scope(self) -> String {
+        match self {
+            Self::User(user_id) => format!("user:{user_id}"),
+            Self::ControllerToken(token_id) => format!("controller:{token_id}"),
+        }
+    }
+
+    pub(crate) const fn user_id(self) -> Option<Uuid> {
+        match self {
+            Self::User(user_id) => Some(user_id),
+            Self::ControllerToken(_) => None,
+        }
+    }
+}
+
 pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     headers
         .get(header::AUTHORIZATION)
@@ -326,6 +348,24 @@ pub(crate) async fn require_session_owner(
         return Err(ApiError::bad_request("session_ended"));
     }
     Ok(())
+}
+
+pub(crate) async fn authorize_presenter_access(
+    database: &sqlx::PgPool,
+    headers: &HeaderMap,
+    session_id: Uuid,
+) -> Result<PresenterAccess, ApiError> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        let actor = authenticate_session_token(database, bearer_token(headers)?).await?;
+        if actor.session_id != session_id || actor.role != SessionRole::Controller {
+            return Err(ApiError::forbidden("controller_token_required"));
+        }
+        return Ok(PresenterAccess::ControllerToken(actor.token_id));
+    }
+
+    let user_id = authenticated_user_id(database, headers).await?;
+    require_session_owner(database, session_id, user_id).await?;
+    Ok(PresenterAccess::User(user_id))
 }
 
 fn topic_for_role(session_id: Uuid, role: SessionRole) -> String {

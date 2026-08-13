@@ -11,6 +11,7 @@ Slideact applies server-side authorization, validation, and fixed-window rate li
 | Create Q&A question | Participant | 5 / 60 seconds |
 | Toggle Q&A vote | Participant | 120 / 60 seconds |
 | Presenter command | Session + presenter | 120 / 60 seconds |
+| Presentation navigation | Session + presenter | 120 / 60 seconds |
 
 The join allowance intentionally supports the documented 100-person baseline from one venue network. Exceeding a limit returns HTTP `429` with `rate_limit_exceeded`; the bilingual audience client asks the participant to wait and retry.
 
@@ -22,3 +23,7 @@ The join allowance intentionally supports the documented 100-person baseline fro
 - User-provided free text and bearer tokens are never included in structured error logs.
 
 These controls are deliberately basic abuse prevention for the beta. A production internet deployment should put an additional edge rate limiter and bot-management policy in front of the proxy.
+
+## Phone remote links
+
+The phone QR code never contains the Google session cookie or long-lived Guest Vault credential. It contains an eight-hour controller token in the URL fragment, scoped to one live session. The fragment is not sent in HTTP requests or referrer headers. Controller tokens can read that session's cue list and Q&A state, send state-machine commands, and queue previous/next navigation for the paired extension; they cannot access the presenter studio, other projects, account settings, exports, or Vault data. Tokens become invalid when they expire, are revoked, or the live session ends.

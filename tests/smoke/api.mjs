@@ -396,6 +396,58 @@ assert.equal(pairedExtension.body.session_id, commandSessionId);
 assert.match(pairedExtension.body.token, /^[A-Za-z0-9_-]{43}$/);
 assert.match(pairedExtension.body.overlay_token, /^[A-Za-z0-9_-]{43}$/);
 
+const controllerIssue = await requestJson(
+  `/api/sessions/${commandSessionId}/tokens`,
+  { method: "POST", cookie: ownerCookie, body: { role: "controller" } },
+);
+assert.equal(controllerIssue.response.status, 201);
+assert.equal(controllerIssue.body.role, "controller");
+
+const controllerSnapshot = await requestJson(
+  `/api/sessions/${commandSessionId}/snapshot`,
+  { token: controllerIssue.body.token },
+);
+assert.equal(controllerSnapshot.response.status, 200);
+assert.equal(controllerSnapshot.body.session_id, commandSessionId);
+
+const controllerCues = await requestJson(
+  `/api/sessions/${commandSessionId}/controller-cues`,
+  { token: controllerIssue.body.token },
+);
+assert.equal(controllerCues.response.status, 200);
+assert.equal(controllerCues.body[0].id, cueId);
+
+const overlayCannotControl = await requestJson(
+  `/api/sessions/${commandSessionId}/snapshot`,
+  { token: pairedExtension.body.overlay_token },
+);
+assert.equal(overlayCannotControl.response.status, 403);
+assert.deepEqual(overlayCannotControl.body, { code: "controller_token_required" });
+
+const queuedNavigation = await requestJson(
+  `/api/sessions/${commandSessionId}/navigation`,
+  { method: "POST", token: controllerIssue.body.token, body: { direction: "next" } },
+);
+assert.equal(queuedNavigation.response.status, 200);
+assert.equal(queuedNavigation.body.accepted, true);
+const rejectedNavigation = await requestJson(
+  `/api/sessions/${commandSessionId}/navigation`,
+  { method: "POST", token: controllerIssue.body.token, body: { direction: "sideways" } },
+);
+assert.equal(rejectedNavigation.response.status, 400);
+assert.deepEqual(rejectedNavigation.body, { code: "navigation_direction_invalid" });
+const takenNavigation = await requestJson("/api/extension/navigation", {
+  token: pairedExtension.body.token,
+});
+assert.equal(takenNavigation.response.status, 200);
+assert.equal(takenNavigation.body.command.id, queuedNavigation.body.command_id);
+assert.equal(takenNavigation.body.command.direction, "next");
+const consumedNavigation = await requestJson("/api/extension/navigation", {
+  token: pairedExtension.body.token,
+});
+assert.equal(consumedNavigation.response.status, 200);
+assert.equal(consumedNavigation.body.command, null);
+
 const reusedPairing = await requestJson("/api/extension/pair", {
   method: "POST",
   body: { code: extensionPairing.body.code, device_id: "second-extension" },
@@ -769,7 +821,7 @@ assert.deepEqual(revotedQuestion.body, { voted: true, votes: 1 });
 
 const presenterQuestions = await requestJson(
   `/api/sessions/${commandSessionId}/questions`,
-  { cookie: ownerCookie },
+  { token: controllerIssue.body.token },
 );
 assert.equal(presenterQuestions.response.status, 200);
 assert.equal(presenterQuestions.body.length, 1);
@@ -777,7 +829,7 @@ assert.equal(presenterQuestions.body[0].body, submittedQuestion.body.body);
 
 const pinnedQuestion = await requestJson(
   `/api/sessions/${commandSessionId}/questions/${submittedQuestion.body.id}`,
-  { method: "PATCH", cookie: ownerCookie, body: { status: "pinned" } },
+  { method: "PATCH", token: controllerIssue.body.token, body: { status: "pinned" } },
 );
 assert.equal(pinnedQuestion.response.status, 200);
 assert.equal(pinnedQuestion.body.status, "pinned");
@@ -871,7 +923,7 @@ const closedForReveal = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:close-for-visibility-001",
   expected_version: 9,
   command: { type: "close_cue" },
-});
+}, controllerIssue.body.token);
 assert.equal(closedForReveal.response.status, 200);
 const revealedForAudience = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:reveal-for-visibility-001",
@@ -1123,10 +1175,11 @@ async function requestJson(path, { method = "GET", cookie, token, body } = {}) {
   };
 }
 
-async function sendCommand(session, body) {
+async function sendCommand(session, body, token) {
   return requestJson(`/api/sessions/${session}/commands`, {
     method: "POST",
-    cookie: ownerCookie,
+    cookie: token ? undefined : ownerCookie,
+    token,
     body,
   });
 }

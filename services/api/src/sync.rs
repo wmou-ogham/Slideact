@@ -15,8 +15,12 @@ use crate::{
     AppState,
     api_error::ApiError,
     auth::{authenticated_user_id, hash_secret, random_token},
-    authorization::{SessionRole, authenticate_session_token, bearer_token, require_session_owner},
+    authorization::{
+        SessionRole, authenticate_session_token, authorize_presenter_access, bearer_token,
+        require_session_owner,
+    },
     commands::{SessionSnapshot, apply_follow_position, emit_event_to_all, snapshot_for_session},
+    rate_limit::check as check_rate_limit,
 };
 
 const PAIRING_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -73,6 +77,29 @@ struct HeartbeatResponse {
     sync_mode: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NavigationRequest {
+    direction: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct NavigationCommand {
+    id: Uuid,
+    direction: String,
+}
+
+#[derive(Debug, Serialize)]
+struct NavigationQueuedResponse {
+    accepted: bool,
+    command_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtensionNavigationResponse {
+    command: Option<NavigationCommand>,
+}
+
 #[derive(Debug, Serialize)]
 struct ExtensionStatusResponse {
     paired: bool,
@@ -108,6 +135,14 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/extension/position", post(report_position))
         .route("/api/extension/heartbeat", post(extension_heartbeat))
         .route(
+            "/api/extension/navigation",
+            axum::routing::get(take_navigation),
+        )
+        .route(
+            "/api/sessions/{session_id}/navigation",
+            post(queue_navigation),
+        )
+        .route(
             "/api/sessions/{session_id}/extension-status",
             axum::routing::get(extension_status),
         )
@@ -115,6 +150,74 @@ pub(crate) fn router() -> Router<AppState> {
             "/api/sessions/{session_id}/sync-mode",
             put(update_sync_mode),
         )
+}
+
+async fn queue_navigation(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<NavigationRequest>,
+) -> Result<Json<NavigationQueuedResponse>, ApiError> {
+    let access = authorize_presenter_access(&state.database, &headers, session_id).await?;
+    if !matches!(request.direction.as_str(), "previous" | "next") {
+        return Err(ApiError::bad_request("navigation_direction_invalid"));
+    }
+    check_rate_limit(
+        &state.redis,
+        "presentation-navigation",
+        &format!("{session_id}:{}", access.actor_scope()),
+        120,
+        60,
+    )
+    .await?;
+    let command = NavigationCommand {
+        id: Uuid::new_v4(),
+        direction: request.direction,
+    };
+    let payload = serde_json::to_string(&command)
+        .map_err(|_| ApiError::internal("navigation_command_invalid"))?;
+    let mut connection = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(redis_error)?;
+    let _: String = redis::cmd("SET")
+        .arg(navigation_key(session_id))
+        .arg(payload)
+        .arg("EX")
+        .arg(30)
+        .query_async(&mut connection)
+        .await
+        .map_err(redis_error)?;
+    Ok(Json(NavigationQueuedResponse {
+        accepted: true,
+        command_id: command.id,
+    }))
+}
+
+async fn take_navigation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ExtensionNavigationResponse>, ApiError> {
+    let actor = authenticate_session_token(&state.database, bearer_token(&headers)?).await?;
+    if actor.role != SessionRole::Extension {
+        return Err(ApiError::forbidden("extension_token_required"));
+    }
+    let mut connection = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(redis_error)?;
+    let payload: Option<String> = redis::cmd("GETDEL")
+        .arg(navigation_key(actor.session_id))
+        .query_async(&mut connection)
+        .await
+        .map_err(redis_error)?;
+    let command = payload
+        .map(|value| serde_json::from_str(&value))
+        .transpose()
+        .map_err(|_| ApiError::internal("navigation_command_invalid"))?;
+    Ok(Json(ExtensionNavigationResponse { command }))
 }
 
 async fn create_pairing_code(
@@ -601,6 +704,15 @@ fn validate_device_id(device_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("device_id_invalid"));
     }
     Ok(())
+}
+
+fn navigation_key(session_id: Uuid) -> String {
+    format!("extension:navigation:{session_id}")
+}
+
+fn redis_error(error: redis::RedisError) -> ApiError {
+    warn!(%error, "extension navigation Redis operation failed");
+    ApiError::internal("extension_navigation_failed")
 }
 
 fn persistence_error(error: sqlx::Error) -> ApiError {

@@ -12,7 +12,10 @@ use sqlx::{PgPool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::{AppState, api_error::ApiError, auth::authenticated_user_id};
+use crate::{
+    AppState, api_error::ApiError, auth::authenticated_user_id,
+    authorization::authorize_presenter_access,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProjectAccess {
@@ -182,6 +185,10 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/api/projects/{project_id}/sessions",
             get(list_sessions).post(create_session),
+        )
+        .route(
+            "/api/sessions/{session_id}/controller-cues",
+            get(list_controller_cues),
         )
         .route("/api/sessions/{session_id}", get(get_session))
 }
@@ -410,6 +417,22 @@ async fn list_cues(
 ) -> Result<Json<Vec<Cue>>, ApiError> {
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     require_project_access(&state.database, project_id, user_id).await?;
+    Ok(Json(load_cues(&state.database, project_id).await?))
+}
+
+async fn list_controller_cues(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Cue>>, ApiError> {
+    authorize_presenter_access(&state.database, &headers, session_id).await?;
+    let project_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT project_id FROM live_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.database)
+            .await
+            .map_err(persistence_error)?
+            .ok_or_else(|| ApiError::not_found("session_not_found"))?;
     Ok(Json(load_cues(&state.database, project_id).await?))
 }
 

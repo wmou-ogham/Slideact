@@ -308,7 +308,7 @@ function ResultsView({ t, live, cueName, state }: { t: Translate; live: LiveView
     <div className="audience-results">
       <p className="eyebrow">{state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
       <h1>{cueName}</h1>
-      {live?.aggregates.map((item) => <AggregateBars key={item.interaction_id} aggregate={item.aggregate} />)}
+      {live?.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />)}
       {live?.questions.length ? <QuestionList t={t} questions={live.questions} busy /> : null}
     </div>
   );
@@ -344,7 +344,7 @@ function QuestionList({ t, questions, busy, onVote }: {
   );
 }
 
-function AggregateBars({ aggregate }: { aggregate: LiveView["aggregates"][number]["aggregate"] }) {
+function AggregateBars({ t, aggregate }: { t: Translate; aggregate: LiveView["aggregates"][number]["aggregate"] }) {
   if (aggregate.interaction_type === "understanding") {
     const segments = [
       ["green", aggregate.green_percent ?? aggregate.understood_percent ?? 0],
@@ -354,7 +354,7 @@ function AggregateBars({ aggregate }: { aggregate: LiveView["aggregates"][number
     return <div className="understanding-result">{segments.map(([name, percent]) => <div key={name} className={name} style={{ width: `${percent}%` }}><span>{Math.round(percent)}%</span></div>)}</div>;
   }
   if (aggregate.interaction_type === "word_cloud") {
-    return <WordCloudResult entries={aggregate.entries ?? []} />;
+    return <WordCloudResult label={t("interaction.wordCloud")} entries={aggregate.entries ?? []} />;
   }
   return <div className="result-options">{aggregate.options?.map((option) => {
     const percent = aggregate.total_responses ? Math.round(option.count * 100 / aggregate.total_responses) : 0;
@@ -362,7 +362,7 @@ function AggregateBars({ aggregate }: { aggregate: LiveView["aggregates"][number
   })}</div>;
 }
 
-function WordCloudResult({ entries }: { entries: Array<{ text: string; count: number }> }) {
+function WordCloudResult({ entries, label }: { entries: Array<{ text: string; count: number }>; label: string }) {
   const words = entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count }));
   if (!words.length) return null;
   const minimum = Math.min(...words.map((word) => word.value));
@@ -370,7 +370,7 @@ function WordCloudResult({ entries }: { entries: Array<{ text: string; count: nu
   const size = (value: number) => 24 + ((value - minimum) / Math.max(1, maximum - minimum)) * 64;
   const colors = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0"];
   return (
-    <div className="word-cloud-results" aria-label="Word cloud">
+    <div className="word-cloud-results" aria-label={label}>
       <svg viewBox="0 0 720 400" role="img">
         <Wordcloud
           width={720}
@@ -407,6 +407,7 @@ function WordCloudResult({ entries }: { entries: Array<{ text: string; count: nu
 
 export function RemoteApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
+  const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [cues, setCues] = useState<Cue[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -414,18 +415,19 @@ export function RemoteApp({ t }: { t: Translate }) {
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
-    const next = await apiJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`);
+    const headers = token ? { authorization: `Bearer ${token}` } : undefined;
+    const next = await apiJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`, { headers });
     setSnapshot(next);
     const [nextCues, nextQuestions] = await Promise.all([
-      apiJson<Cue[]>(`/api/projects/${next.project_id}/cues`),
-      apiJson<Question[]>(`/api/sessions/${sessionId}/questions`),
+      apiJson<Cue[]>(`/api/sessions/${sessionId}/controller-cues`, { headers }),
+      apiJson<Question[]>(`/api/sessions/${sessionId}/questions`, { headers }),
     ]);
     setCues(nextCues);
     setQuestions(nextQuestions);
-  }, [sessionId]);
+  }, [sessionId, token]);
 
   useEffect(() => {
-    refresh().catch((cause) => setError(cause instanceof ApiError && cause.status === 401 ? "auth" : "load"));
+    refresh().catch((cause) => setError(cause instanceof ApiError && (cause.status === 401 || cause.status === 403) ? (token ? "token" : "auth") : "load"));
     const timer = window.setInterval(() => refresh().catch(() => undefined), 3000);
     return () => window.clearInterval(timer);
   }, [refresh]);
@@ -434,11 +436,43 @@ export function RemoteApp({ t }: { t: Translate }) {
     if (!snapshot) return;
     setBusy(true);
     try {
-      setSnapshot(await sendCommand(sessionId, snapshot.state_version, command));
+      setSnapshot(await sendCommand(sessionId, snapshot.state_version, command, token || undefined));
       setError("");
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
       await refresh().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeAndReveal() {
+    if (!snapshot) return;
+    setBusy(true);
+    try {
+      let next = await sendCommand(sessionId, snapshot.state_version, { type: "close_cue" }, token || undefined);
+      next = await sendCommand(sessionId, next.state_version, { type: "reveal_cue" }, token || undefined);
+      setSnapshot(next);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.code : "network_error");
+      await refresh().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function navigate(direction: "previous" | "next") {
+    setBusy(true);
+    try {
+      await apiJson(`/api/sessions/${sessionId}/navigation`, {
+        method: "POST",
+        headers: token ? { authorization: `Bearer ${token}` } : undefined,
+        body: JSON.stringify({ direction }),
+      });
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.code : "network_error");
     } finally {
       setBusy(false);
     }
@@ -449,6 +483,7 @@ export function RemoteApp({ t }: { t: Translate }) {
     try {
       await apiJson(`/api/sessions/${sessionId}/questions/${questionId}`, {
         method: "PATCH",
+        headers: token ? { authorization: `Bearer ${token}` } : undefined,
         body: JSON.stringify({ status }),
       });
       await refresh();
@@ -460,28 +495,36 @@ export function RemoteApp({ t }: { t: Translate }) {
     }
   }
 
-  if (error === "auth") return <main className="remote-shell"><h1>{t("auth.heading")}</h1><a className="primary-button" href={`/api/auth/google/start?return_to=/remote/${sessionId}`}>{t("auth.google")}</a></main>;
+  if (error === "auth") return <main className="remote-shell remote-auth"><h1>{t("auth.heading")}</h1><p>{t("remote.openFromStudio")}</p><a className="primary-button" href={`/api/auth/google/start?return_to=/remote/${sessionId}`}>{t("auth.google")}</a></main>;
+  if (error === "token") return <main className="remote-shell remote-auth"><h1>{t("remote.invalid")}</h1><p>{t("remote.expired")}</p></main>;
   if (!snapshot) return <main className="center-state">{t("status.checking")}</main>;
   const cueState = snapshot.current_cue_run?.state;
+  const currentInteraction = snapshot.current_cue_run?.interactions[0];
+  const presenterReveal = resultVisibility(currentInteraction) !== "live";
   return (
     <main className="remote-shell">
       <header><span className={snapshot.status === "live" ? "live-light active" : "live-light"} /><span>{t(`statusName.${snapshot.status}`)}</span><strong>{snapshot.join_code}</strong></header>
       <section>
         <p className="eyebrow">{t("remote.heading")}</p>
-        <h1>{snapshot.current_cue_run?.cue_name ?? t("remote.noCue")}</h1>
+        <h1>{currentInteraction?.prompt ?? t("remote.noCue")}</h1>
+        <div className="remote-navigation">
+          <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previous")}</button>
+          <button disabled={busy} onClick={() => navigate("next")}>{t("remote.next")}<span>→</span></button>
+        </div>
         <div className="remote-primary">
           {snapshot.status === "lobby" && <button disabled={busy} onClick={() => send({ type: "start" })}>{t("live.start")}</button>}
           {snapshot.status === "live" && <button disabled={busy} onClick={() => send({ type: "pause" })}>{t("live.pause")}</button>}
           {snapshot.status === "paused" && <button disabled={busy} onClick={() => send({ type: "resume" })}>{t("live.resume")}</button>}
           {cueState === "ready" && <button disabled={busy} onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
           {cueState === "open" && <button disabled={busy} onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
+          {cueState === "open" && presenterReveal && <button className="reveal-action" disabled={busy} onClick={closeAndReveal}>{t("remote.closeAndReveal")}</button>}
           {cueState === "closed" && <button disabled={busy} onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
           {(cueState === "closed" || cueState === "revealed") && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
       </section>
       <section className="remote-cues">
         <h2>{t("remote.cues")}</h2>
-        {cues.map((cue) => <button disabled={busy} key={cue.id} onClick={() => send({ type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{cue.name}<small>{cue.anchor_value ? t("cue.slide", { slide: cue.anchor_value }) : t("cue.manual")}</small></button>)}
+        {cues.map((cue) => <button disabled={busy} key={cue.id} onClick={() => send({ type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
       </section>
       {questions.length > 0 && (
         <section className="remote-questions">
@@ -549,7 +592,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
           <h1>{prompt ?? cueRun.cue_name}</h1>
           <div className="projection-visuals">
             {live.aggregates.length
-              ? live.aggregates.map((item) => <AggregateBars key={item.interaction_id} aggregate={item.aggregate} />)
+              ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />)
               : <span className="projection-empty">{t("projection.noResults")}</span>}
           </div>
         </section>
@@ -593,7 +636,7 @@ export function OverlayApp({ t }: { t: Translate }) {
       <section className="overlay-card">
         <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
         <h1>{cueRun.interactions[0]?.prompt ?? cueRun.cue_name}</h1>
-        {live.aggregates.length ? live.aggregates.map((item) => <AggregateBars key={item.interaction_id} aggregate={item.aggregate} />) : <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
+        {live.aggregates.length ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />) : <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
         {pinnedQuestion && <div className="overlay-question"><span>{t("qa.pinned")}</span><p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>}
       </section>
     </main>
@@ -619,6 +662,21 @@ function connectLiveSocket(token: string, topic: string, refresh: () => Promise<
     }
   });
   return () => socket.close();
+}
+
+function resultVisibility(interaction: SnapshotInteraction | undefined) {
+  const results = interaction?.settings.results;
+  if (typeof results !== "object" || results === null) return "after_reveal";
+  return (results as Record<string, unknown>).audience_visibility === "live"
+    ? "live"
+    : "after_reveal";
+}
+
+function remoteCueLabel(t: Translate, cue: Cue) {
+  const anchor = cue.anchor_value ?? String(cue.position + 1);
+  return /^\d+$/.test(anchor)
+    ? t("cue.slide", { slide: anchor })
+    : t("cue.slideId", { id: anchor });
 }
 
 function typeName(t: Translate, type: SnapshotInteraction["interaction_type"]) {

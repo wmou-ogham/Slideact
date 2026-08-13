@@ -1,7 +1,8 @@
 import { browser } from "wxt/browser";
 
 import { GoogleSlidesDetector } from "../src/google-slides/detector";
-import { MESSAGE_TYPES, type ExtensionMessage } from "../src/messages";
+import { navigatePresentation } from "../src/google-slides/navigation";
+import { MESSAGE_TYPES, type ExtensionMessage, type NavigationCommand } from "../src/messages";
 
 export default defineContentScript({
   matches: ["https://docs.google.com/presentation/*"],
@@ -44,6 +45,26 @@ export default defineContentScript({
     });
 
     detector.start();
-    window.addEventListener("pagehide", () => detector.stop(), { once: true });
+    let navigationPollBusy = false;
+    const pollNavigation = async () => {
+      if (navigationPollBusy) return;
+      navigationPollBusy = true;
+      try {
+        const command = await browser.runtime.sendMessage({
+          type: MESSAGE_TYPES.pollNavigation,
+        }) as NavigationCommand | null;
+        if (command) navigatePresentation(command.direction);
+      } catch {
+        // Polling resumes when the extension background context is available again.
+      } finally {
+        navigationPollBusy = false;
+      }
+    };
+    const navigationTimer = window.setInterval(() => void pollNavigation(), 1000);
+    void pollNavigation();
+    window.addEventListener("pagehide", () => {
+      detector.stop();
+      window.clearInterval(navigationTimer);
+    }, { once: true });
   },
 });

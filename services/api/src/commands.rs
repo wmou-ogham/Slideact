@@ -16,7 +16,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    AppState, api_error::ApiError, auth::authenticated_user_id,
+    AppState, api_error::ApiError, authorization::authorize_presenter_access,
     rate_limit::check as check_rate_limit,
 };
 
@@ -143,19 +143,23 @@ async fn command(
     headers: HeaderMap,
     Json(request): Json<CommandRequest>,
 ) -> Result<Json<CommandResponse>, ApiError> {
-    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    let access = authorize_presenter_access(&state.database, &headers, session_id).await?;
     validate_idempotency_key(&request.idempotency_key)?;
+    let actor_scope = access.actor_scope();
     check_rate_limit(
         &state.redis,
         "presenter-command",
-        &format!("{session_id}:{user_id}"),
+        &format!("{session_id}:{actor_scope}"),
         120,
         60,
     )
     .await?;
-    let actor_scope = format!("user:{user_id}");
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
-    let mut locked = lock_authorized_session(&mut transaction, session_id, user_id).await?;
+    let mut locked = if let Some(user_id) = access.user_id() {
+        lock_authorized_session(&mut transaction, session_id, user_id).await?
+    } else {
+        lock_session(&mut transaction, session_id).await?
+    };
 
     if let Some(mut replay) =
         load_command_replay(&mut transaction, session_id, &actor_scope, &request).await?
@@ -249,9 +253,13 @@ async fn snapshot(
     Path(session_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<SessionSnapshot>, ApiError> {
-    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    let access = authorize_presenter_access(&state.database, &headers, session_id).await?;
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
-    lock_authorized_session(&mut transaction, session_id, user_id).await?;
+    if let Some(user_id) = access.user_id() {
+        lock_authorized_session(&mut transaction, session_id, user_id).await?;
+    } else {
+        lock_session(&mut transaction, session_id).await?;
+    }
     let snapshot = load_snapshot(&mut transaction, session_id).await?;
     transaction.commit().await.map_err(persistence_error)?;
     Ok(Json(snapshot))
@@ -380,6 +388,31 @@ async fn lock_authorized_session(
     )
     .bind(session_id)
     .bind(user_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::not_found("session_not_found"))?;
+    Ok(LockedSession {
+        project_id: row.0,
+        status: parse_session_state(&row.1)?,
+        state_version: u64::try_from(row.2)
+            .map_err(|_| ApiError::internal("state_version_invalid"))?,
+        sync_mode: row.3,
+        current_cue_run_id: row.4,
+    })
+}
+
+async fn lock_session(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+) -> Result<LockedSession, ApiError> {
+    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>)>(
+        r#"
+        SELECT project_id, status, state_version, sync_mode, current_cue_run_id
+        FROM live_sessions WHERE id = $1 FOR UPDATE
+        "#,
+    )
+    .bind(session_id)
     .fetch_optional(&mut **transaction)
     .await
     .map_err(persistence_error)?

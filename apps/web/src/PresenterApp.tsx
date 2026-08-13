@@ -748,10 +748,14 @@ function PreviewDialog({ t, cue, mode, close }: {
   );
 }
 
-export async function sendCommand(sessionId: string, expectedVersion: number, command: SessionCommand) {
-  const response = await postJson<{ snapshot: SessionSnapshot }>(
+export async function sendCommand(sessionId: string, expectedVersion: number, command: SessionCommand, token?: string) {
+  const response = await apiJson<{ snapshot: SessionSnapshot }>(
     `/api/sessions/${sessionId}/commands`,
-    { idempotency_key: uuid(), expected_version: expectedVersion, command },
+    {
+      method: "POST",
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+      body: JSON.stringify({ idempotency_key: uuid(), expected_version: expectedVersion, command }),
+    },
   );
   return response.snapshot;
 }
@@ -858,6 +862,7 @@ function LiveControl({
   send: (command: SessionCommand) => void;
 }) {
   const [pairingCode, setPairingCode] = useState("");
+  const [remoteLink, setRemoteLink] = useState("");
   const [extensionConnected, setExtensionConnected] = useState<boolean | null>(null);
   useEffect(() => {
     if (!snapshot) return;
@@ -912,6 +917,15 @@ function LiveControl({
     setPairingCode(response.code);
   }
 
+  async function createRemoteAccess() {
+    if (!snapshot) return;
+    const issued = await postJson<{ token: string; expires_in_seconds: number }>(
+      `/api/sessions/${snapshot.session_id}/tokens`,
+      { role: "controller" },
+    );
+    setRemoteLink(`${window.location.origin}/remote/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`);
+  }
+
   async function useManualSync() {
     if (!snapshot) return;
     await apiJson(`/api/sessions/${snapshot.session_id}/sync-mode`, {
@@ -946,7 +960,7 @@ function LiveControl({
         {cueState === "open" && <button onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
         {cueState === "closed" && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
         {(cueState === "closed" || cueState === "revealed") && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
-        {snapshot && <a className="secondary-link" href={`/remote/${snapshot.session_id}`}>{t("live.remote")}</a>}
+        {snapshot && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
         {snapshot && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
@@ -954,6 +968,7 @@ function LiveControl({
         {snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
       {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
+      {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
     </section>
   );
 }
@@ -989,4 +1004,24 @@ function JoinQr({ code, label }: { code: string; label: string }) {
     return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
   }, [code]);
   return <details className="join-qr"><summary>{label}</summary><div aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} /></details>;
+}
+
+function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close: () => void }) {
+  const svg = useMemo(() => qrSvg(url), [url]);
+  return (
+    <aside className="remote-access-panel" role="dialog" aria-label={t("remote.qrHeading")}>
+      <header><strong>{t("remote.qrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
+      <div className="remote-access-content">
+        <div className="remote-access-qr" dangerouslySetInnerHTML={{ __html: svg }} />
+        <div><p>{t("remote.qrCopy")}</p><input readOnly value={url} onFocus={(event) => event.currentTarget.select()} aria-label={t("remote.link")} /><a href={url} target="_blank" rel="noreferrer">{t("remote.open")}</a><small>{t("remote.expires")}</small></div>
+      </div>
+    </aside>
+  );
+}
+
+function qrSvg(value: string) {
+  const qr = qrcode(0, "M");
+  qr.addData(value);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
 }

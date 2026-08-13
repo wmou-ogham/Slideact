@@ -216,6 +216,17 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .pairing-code small { color: #76501d; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .pairing-code strong { font-family: Georgia, serif; font-size: 28px; letter-spacing: .16em; }
 .pairing-code span { max-width: 250px; color: #76501d; font-size: 10px; line-height: 1.4; }
+.remote-access-panel { position: absolute; right: 0; bottom: calc(100% + 12px); width: min(560px, calc(100vw - 28px)); padding: 14px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 20px 20px 6px 20px; box-shadow: 0 22px 65px rgba(0,0,0,.28); }
+.remote-access-panel > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.remote-access-panel > header strong { font-size: 13px; }
+.remote-access-panel > header button { width: 30px; height: 30px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 50%; font-size: 18px; }
+.remote-access-content { display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: center; }
+.remote-access-qr { padding: 7px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.remote-access-qr svg { display: block; width: 100%; height: auto; }
+.remote-access-content p { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.remote-access-content input { padding: 8px; font-size: 8px; }
+.remote-access-content a { display: inline-flex; margin-top: 9px; padding: 9px 12px; color: #fff; background: var(--green); border-radius: 9px; font-size: 10px; font-weight: 800; text-decoration: none; }
+.remote-access-content small { display: block; margin-top: 7px; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .project-actions { display: flex; gap: 5px; }
 .project-actions button { padding: 5px 7px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; font-size: 9px; }
 .join-qr { position: relative; margin-top: 3px; }
@@ -316,6 +327,11 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .remote-primary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .remote-primary button { min-height: 92px; color: #fff; background: var(--green); border: 0; border-radius: 20px; font-size: 15px; font-weight: 850; }
 .remote-primary button:only-child { grid-column: 1 / -1; }
+.remote-primary button.reveal-action { color: var(--ink); background: #efc974; }
+.remote-navigation { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: -10px 0 18px; }
+.remote-navigation button { display: flex; min-height: 58px; align-items: center; justify-content: space-between; padding: 10px 16px; color: var(--green); background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 14px; font-size: 12px; font-weight: 850; }
+.remote-navigation span { font-size: 22px; }
+.remote-auth p { color: var(--muted); line-height: 1.6; }
 .remote-cues { margin-top: 52px; padding-top: 22px; border-top: 1px solid var(--line); }
 .remote-cues h2 { font-size: 13px; }
 .remote-cues > button { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; width: 100%; min-height: 58px; padding: 10px; text-align: left; background: rgba(255,255,255,.62); border: 1px solid var(--line); border-radius: 13px; }
@@ -455,6 +471,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
   .join-card form { display: grid; }
   .understanding-buttons { grid-template-columns: 1fr; }
   .result-options > div { grid-template-columns: 100px 1fr 40px; }
+  .remote-access-content { grid-template-columns: 1fr; max-height: 70vh; overflow-y: auto; }
+  .remote-access-qr { width: min(220px, 100%); margin: 0 auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

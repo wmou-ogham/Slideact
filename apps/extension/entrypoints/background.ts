@@ -4,6 +4,7 @@ import {
   isExtensionMessage,
   MESSAGE_TYPES,
   type ExtensionStatus,
+  type NavigationCommand,
   type SyncMode,
 } from "../src/messages";
 
@@ -59,6 +60,10 @@ export default defineBackground(() => {
 
     if (message.type === MESSAGE_TYPES.pair) {
       return pairExtension(message.payload.code, message.payload.serverUrl);
+    }
+
+    if (message.type === MESSAGE_TYPES.pollNavigation) {
+      return pollNavigation();
     }
 
     const nextMode: SyncMode = message.payload.mode;
@@ -157,6 +162,26 @@ async function sendHeartbeat(): Promise<void> {
     if (!response.ok) throw new Error(`heartbeat_${response.status}`);
   } catch (error) {
     await writeStatus({ ...status, lastError: error instanceof Error ? error.message : "heartbeat_failed", updatedAt: Date.now() });
+  }
+}
+
+async function pollNavigation(): Promise<NavigationCommand | null> {
+  const status = await readStatus();
+  if (!status.token || !status.sessionId || status.mode !== "auto") return null;
+  try {
+    const response = await fetch(`${status.serverUrl}/api/extension/navigation`, {
+      headers: { authorization: `Bearer ${status.token}` },
+    });
+    if (!response.ok) throw new Error(`navigation_${response.status}`);
+    const result = await response.json() as { command: NavigationCommand | null };
+    return result.command;
+  } catch (error) {
+    await writeStatus({
+      ...status,
+      lastError: error instanceof Error ? error.message : "navigation_failed",
+      updatedAt: Date.now(),
+    });
+    return null;
   }
 }
 
