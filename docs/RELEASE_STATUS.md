@@ -12,7 +12,7 @@ Slideact 的封閉 Beta 軟體範圍已完成並部署。講者工作室、觀�
 ## 已完成證據
 
 - 遠端部署位置：`/home/moriss/slide-helper`
-- 對外測試入口：`http://10.121.180.185:8080/`
+- 對外測試入口：`http://10.121.180.185:18666/`
 - Git 分支：`main`
 - 最新提交已使用 SSH key 簽章並通過 `git verify-commit`。
 - Git remote：`git@github.com:wmou-ogham/Slideact.git`

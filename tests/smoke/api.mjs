@@ -841,6 +841,17 @@ const pinnedQuestion = await requestJson(
 assert.equal(pinnedQuestion.response.status, 200);
 assert.equal(pinnedQuestion.body.status, "pinned");
 assert.equal(pinnedQuestion.body.votes, 1);
+const highlightedQuestion = await requestJson(
+  `/api/sessions/${commandSessionId}/questions/${submittedQuestion.body.id}`,
+  { method: "PATCH", token: controllerIssue.body.token, body: { status: "highlighted" } },
+);
+assert.equal(highlightedQuestion.response.status, 200);
+assert.equal(highlightedQuestion.body.status, "highlighted");
+const repinnedQuestion = await requestJson(
+  `/api/sessions/${commandSessionId}/questions/${submittedQuestion.body.id}`,
+  { method: "PATCH", token: controllerIssue.body.token, body: { status: "pinned" } },
+);
+assert.equal(repinnedQuestion.response.status, 200);
 
 const anonymousLiveView = await requestJson(
   `/api/live/sessions/${commandSessionId}`,

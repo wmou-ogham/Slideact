@@ -327,6 +327,7 @@ function QuestionList({ t, questions, busy, onVote }: {
         <article className={`question-card question-${question.status}`} key={question.id}>
           <div>
             {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
+            {question.status === "highlighted" && <span>{t("qa.highlighted")}</span>}
             <p>{question.body}</p>
             {question.status === "answered" && <small>{t("qa.answered")}</small>}
           </div>
@@ -449,6 +450,19 @@ export function RemoteApp({ t }: { t: Translate }) {
   async function navigate(direction: "previous" | "next") {
     setBusy(true);
     try {
+      const orderedCues = [...cues].sort((left, right) => left.position - right.position);
+      const currentIndex = snapshot?.current_cue_run
+        ? orderedCues.findIndex((cue) => cue.id === snapshot.current_cue_run?.cue_id)
+        : -1;
+      const targetCue = orderedCues[currentIndex + (direction === "next" ? 1 : -1)];
+      if (targetCue && snapshot) {
+        setSnapshot(await sendCommand(
+          sessionId,
+          snapshot.state_version,
+          { type: "prepare_cue", cue_id: targetCue.id },
+          token || undefined,
+        ));
+      }
       await apiJson(`/api/sessions/${sessionId}/navigation`, {
         method: "POST",
         headers: token ? { authorization: `Bearer ${token}` } : undefined,
@@ -513,11 +527,13 @@ export function RemoteApp({ t }: { t: Translate }) {
               <article className={`question-card question-${question.status}`} key={question.id}>
                 <div>
                   {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
+                  {question.status === "highlighted" && <span>{t("qa.highlighted")}</span>}
                   <p>{question.body}</p>
                   <small>{t("qa.votes", { count: question.votes })}</small>
                 </div>
                 <div className="question-actions">
                   <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
+                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "highlighted" ? "visible" : "highlighted")}>{question.status === "highlighted" ? t("qa.unhighlight") : t("qa.highlight")}</button>
                   <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.restore") : t("qa.markAnswered")}</button>
                   <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
                 </div>
@@ -615,14 +631,15 @@ export function OverlayApp({ t }: { t: Translate }) {
   if (!live) return <main className="overlay-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
   if (!cueRun || cueRun.state === "ready") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("live.joinCode")}</small><strong>{live.snapshot.join_code}</strong></div></main>;
-  const pinnedQuestion = live.questions.find((question) => question.status === "pinned");
+  const pinnedQuestion = live.questions.find((question) => question.status === "pinned")
+    ?? live.questions.find((question) => question.status === "highlighted");
   return (
     <main className="overlay-root">
       <section className="overlay-card">
         <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
         <h1>{cueRun.interactions[0]?.prompt ?? cueRun.cue_name}</h1>
         {live.aggregates.length ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />) : <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
-        {pinnedQuestion && <div className="overlay-question"><span>{t("qa.pinned")}</span><p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>}
+        {pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}><span>{pinnedQuestion.status === "pinned" ? t("qa.pinned") : t("qa.highlighted")}</span><p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>}
       </section>
     </main>
   );

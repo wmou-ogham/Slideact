@@ -9,7 +9,7 @@ export default defineConfig({
     permissions: ["alarms", "storage"],
     host_permissions: [
       "https://docs.google.com/presentation/*",
-      "http://10.121.180.185:8080/*",
+      "http://10.121.180.185:18666/*",
       "http://localhost:8080/*",
     ],
     action: {

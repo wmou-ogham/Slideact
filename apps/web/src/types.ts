@@ -133,7 +133,7 @@ export type Question = {
   id: string;
   cue_run_id: string;
   body: string;
-  status: "pending" | "visible" | "answered" | "hidden" | "pinned";
+  status: "pending" | "visible" | "answered" | "hidden" | "pinned" | "highlighted";
   votes: number;
   voted_by_me: boolean;
   created_at: string;

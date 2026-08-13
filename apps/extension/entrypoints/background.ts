@@ -13,7 +13,7 @@ const EMPTY_STATUS: ExtensionStatus = {
   mode: "auto",
   position: null,
   updatedAt: null,
-  serverUrl: "http://10.121.180.185:8080",
+  serverUrl: "http://10.121.180.185:18666",
   sessionId: null,
   token: null,
   overlayUrl: null,

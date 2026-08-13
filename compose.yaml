@@ -122,7 +122,7 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "${SLIDE_HELPER_PORT:-8080}:8080"
+      - "${SLIDE_HELPER_PORT:-18666}:8080"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health/live"]
       interval: 10s

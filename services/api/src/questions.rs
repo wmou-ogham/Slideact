@@ -228,7 +228,7 @@ async fn update_question(
 ) -> Result<Json<QuestionView>, ApiError> {
     if !matches!(
         request.status.as_str(),
-        "visible" | "answered" | "hidden" | "pinned"
+        "visible" | "answered" | "hidden" | "pinned" | "highlighted"
     ) {
         return Err(ApiError::bad_request("question_status_invalid"));
     }
@@ -311,9 +311,10 @@ pub(crate) async fn load_questions(
         LEFT JOIN question_votes ON question_votes.question_id = questions.id
         WHERE cue_runs.session_id = $1
           AND cue_runs.id = (SELECT current_cue_run_id FROM live_sessions WHERE id = $1)
-          AND ($3 OR questions.status IN ('visible', 'pinned', 'answered'))
+          AND ($3 OR questions.status IN ('visible', 'pinned', 'highlighted', 'answered'))
         GROUP BY questions.id
-        ORDER BY (questions.status = 'pinned') DESC, COUNT(question_votes.participant_id) DESC,
+        ORDER BY (questions.status = 'pinned') DESC, (questions.status = 'highlighted') DESC,
+                 COUNT(question_votes.participant_id) DESC,
                  questions.created_at ASC
         "#,
     )
