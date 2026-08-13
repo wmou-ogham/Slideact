@@ -313,7 +313,9 @@ pub(crate) async fn load_questions(
           AND cue_runs.id = (SELECT current_cue_run_id FROM live_sessions WHERE id = $1)
           AND ($3 OR questions.status IN ('visible', 'pinned', 'highlighted', 'answered'))
         GROUP BY questions.id
-        ORDER BY (questions.status = 'pinned') DESC, (questions.status = 'highlighted') DESC,
+        -- Highlight is presentation-only: it must not move a question in the
+        -- audience's vote/time ordering.
+        ORDER BY (questions.status = 'pinned') DESC,
                  COUNT(question_votes.participant_id) DESC,
                  questions.created_at ASC
         "#,
