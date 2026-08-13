@@ -316,7 +316,7 @@ const openedLobby = await sendCommand(commandSessionId, {
 assert.equal(openedLobby.response.status, 200);
 assert.equal(openedLobby.body.idempotent, false);
 assert.equal(openedLobby.body.snapshot.status, "lobby");
-assert.match(openedLobby.body.snapshot.join_code, /^[A-Z2-9]{6}$/);
+assert.match(openedLobby.body.snapshot.join_code, /^\d{6}$/);
 assert.equal(openedLobby.body.snapshot.state_version, 1);
 
 const replayedLobby = await sendCommand(commandSessionId, {
@@ -599,13 +599,13 @@ const invalidJoin = await requestJson("/api/audience/join", {
   method: "POST",
   body: { join_code: "ABC23D", locale: "en", participant_key: null },
 });
-assert.equal(invalidJoin.response.status, 404);
-assert.deepEqual(invalidJoin.body, { code: "join_code_not_found" });
+assert.equal(invalidJoin.response.status, 400);
+assert.deepEqual(invalidJoin.body, { code: "join_code_invalid" });
 
 const joinedAudience = await requestJson("/api/audience/join", {
   method: "POST",
   body: {
-    join_code: openedLobby.body.snapshot.join_code.toLowerCase(),
+    join_code: openedLobby.body.snapshot.join_code,
     locale: "zh-TW",
     participant_key: null,
   },

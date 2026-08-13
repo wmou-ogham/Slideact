@@ -20,7 +20,7 @@ use crate::{
     rate_limit::check as check_rate_limit,
 };
 
-const JOIN_CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const JOIN_CODE_ALPHABET: &[u8] = b"0123456789";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -978,14 +978,11 @@ mod tests {
     use super::{random_join_code, validate_idempotency_key};
 
     #[test]
-    fn join_codes_are_six_unambiguous_uppercase_characters() {
+    fn join_codes_are_six_numeric_characters() {
         for _ in 0..32 {
             let code = random_join_code();
             assert_eq!(code.len(), 6);
-            assert!(
-                code.bytes()
-                    .all(|byte| b"23456789ABCDEFGHJKMNPQRSTUVWXYZ".contains(&byte))
-            );
+            assert!(code.bytes().all(|byte| byte.is_ascii_digit()));
         }
     }
 

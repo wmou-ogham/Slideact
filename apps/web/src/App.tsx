@@ -75,7 +75,7 @@ function Landing({ t }: { t: (key: MessageKey) => string }) {
   const [code, setCode] = useState("");
   function join(event: FormEvent) {
     event.preventDefault();
-    const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const normalized = code.replace(/\D/g, "");
     if (normalized) window.location.assign(`/join/${normalized}`);
   }
   return (
@@ -88,7 +88,7 @@ function Landing({ t }: { t: (key: MessageKey) => string }) {
           <div className="hero-actions">
             <a className="primary-button" href="/presenter">{t("landing.presenterCta")}</a>
             <form className="join-form" onSubmit={join}>
-              <input value={code} onChange={(event) => setCode(event.target.value)} maxLength={8} placeholder={t("landing.codePlaceholder")} aria-label={t("landing.codePlaceholder")} />
+              <input inputMode="numeric" pattern="[0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
               <button>{t("landing.join")}</button>
             </form>
           </div>

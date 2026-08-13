@@ -75,7 +75,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       localStorage.setItem("slide-helper-participant-key", response.participant_key);
       setJoined(response);
       setLive({ snapshot: response.snapshot, audience_count: 1, aggregates: [], questions: [] });
-      history.replaceState(null, "", `/join/${code.toUpperCase()}`);
+      history.replaceState(null, "", `/join/${code}`);
     } catch (cause) {
       setError(
         cause instanceof ApiError && cause.code === "join_code_not_found"
@@ -162,7 +162,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
         <h1>{t("audience.joinHeading")}</h1>
         <p>{t("audience.joinCopy")}</p>
         <form onSubmit={join}>
-          <input autoFocus value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={6} placeholder="ABC234" aria-label={t("landing.codePlaceholder")} />
+          <input autoFocus inputMode="numeric" pattern="[0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
           <button className="primary-button" disabled={busy || code.length !== 6}>{t("landing.join")}</button>
         </form>
         {error && <p className="form-error" role="alert">{error}</p>}

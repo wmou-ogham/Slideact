@@ -170,12 +170,8 @@ async fn upsert_participant(
 }
 
 fn normalize_join_code(value: &str) -> Result<String, ApiError> {
-    let value = value.trim().to_ascii_uppercase();
-    if value.len() != 6
-        || !value
-            .bytes()
-            .all(|byte| b"23456789ABCDEFGHJKMNPQRSTUVWXYZ".contains(&byte))
-    {
+    let value = value.trim().to_owned();
+    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(ApiError::bad_request("join_code_invalid"));
     }
     Ok(value)
@@ -210,9 +206,9 @@ mod tests {
     use super::{normalize_join_code, validate_participant_key};
 
     #[test]
-    fn join_codes_are_normalized_but_ambiguous_characters_are_rejected() {
-        assert_eq!(normalize_join_code(" ab2c3d ").unwrap(), "AB2C3D");
-        assert!(normalize_join_code("AB10CD").is_err());
+    fn join_codes_accept_exactly_six_digits() {
+        assert_eq!(normalize_join_code(" 234567 ").unwrap(), "234567");
+        assert!(normalize_join_code("AB2345").is_err());
         assert!(normalize_join_code("short").is_err());
     }
 
