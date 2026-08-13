@@ -890,6 +890,19 @@ function LiveControl({
     }
   }
 
+  async function launchProjection() {
+    if (!snapshot) return;
+    const target = window.open("about:blank", "_blank");
+    try {
+      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "overlay" });
+      const url = `/projection/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
+      if (target) target.location.href = url;
+      else location.href = url;
+    } catch {
+      target?.close();
+    }
+  }
+
   async function createExtensionPairing() {
     if (!snapshot) return;
     const response = await postJson<{ code: string }>(
@@ -926,7 +939,7 @@ function LiveControl({
         {snapshot && snapshot.status !== "draft" && snapshot.status !== "ended" && (
           <select defaultValue="" onChange={(event) => { if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value }); event.target.value = ""; }}>
             <option value="">{t("live.prepare")}</option>
-            {cues.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+            {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
           </select>
         )}
         {cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
@@ -934,6 +947,7 @@ function LiveControl({
         {cueState === "closed" && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
         {(cueState === "closed" || cueState === "revealed") && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         {snapshot && <a className="secondary-link" href={`/remote/${snapshot.session_id}`}>{t("live.remote")}</a>}
+        {snapshot && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
         {snapshot && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}

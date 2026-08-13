@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Wordcloud } from "@visx/wordcloud";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import { sendCommand } from "./PresenterApp";
@@ -353,20 +354,55 @@ function AggregateBars({ aggregate }: { aggregate: LiveView["aggregates"][number
     return <div className="understanding-result">{segments.map(([name, percent]) => <div key={name} className={name} style={{ width: `${percent}%` }}><span>{Math.round(percent)}%</span></div>)}</div>;
   }
   if (aggregate.interaction_type === "word_cloud") {
-    return (
-      <div className="word-cloud-results">
-        {aggregate.entries?.map((entry) => (
-          <span key={entry.text} style={{ fontSize: `${Math.min(2.2, 1 + entry.count / 3)}rem` }}>
-            {entry.text}<small>×{entry.count}</small>
-          </span>
-        ))}
-      </div>
-    );
+    return <WordCloudResult entries={aggregate.entries ?? []} />;
   }
   return <div className="result-options">{aggregate.options?.map((option) => {
     const percent = aggregate.total_responses ? Math.round(option.count * 100 / aggregate.total_responses) : 0;
     return <div key={option.option_id}><span>{option.label}</span><div className="result-track"><i style={{ width: `${percent}%` }} /></div><strong>{percent}%</strong></div>;
   })}</div>;
+}
+
+function WordCloudResult({ entries }: { entries: Array<{ text: string; count: number }> }) {
+  const words = entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count }));
+  if (!words.length) return null;
+  const minimum = Math.min(...words.map((word) => word.value));
+  const maximum = Math.max(...words.map((word) => word.value));
+  const size = (value: number) => 24 + ((value - minimum) / Math.max(1, maximum - minimum)) * 64;
+  const colors = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0"];
+  return (
+    <div className="word-cloud-results" aria-label="Word cloud">
+      <svg viewBox="0 0 720 400" role="img">
+        <Wordcloud
+          width={720}
+          height={400}
+          words={words}
+          padding={4}
+          font='Inter, ui-sans-serif, system-ui, sans-serif'
+          fontSize={(word) => size(word.value)}
+          fontWeight={800}
+          rotate={(_, index) => index % 7 === 0 ? -12 : index % 11 === 0 ? 12 : 0}
+          spiral="archimedean"
+          random={() => 0.5}
+        >
+          {(cloudWords) => cloudWords.map((word, index) => (
+            <text
+              key={`${word.text}-${index}`}
+              x={word.x}
+              y={word.y}
+              fill={colors[index % colors.length]}
+              fontFamily={word.font}
+              fontSize={word.size}
+              fontWeight={word.weight}
+              textAnchor="middle"
+              transform={`rotate(${word.rotate ?? 0}, ${word.x ?? 0}, ${word.y ?? 0})`}
+            >
+              {word.text}
+            </text>
+          ))}
+        </Wordcloud>
+      </svg>
+    </div>
+  );
 }
 
 export function RemoteApp({ t }: { t: Translate }) {
@@ -469,6 +505,55 @@ export function RemoteApp({ t }: { t: Translate }) {
         </section>
       )}
       {error && error !== "auth" && <p className="form-error">{t("error.generic", { code: error })}</p>}
+    </main>
+  );
+}
+
+export function ProjectionApp({ t }: { t: Translate }) {
+  const sessionId = location.pathname.split("/")[2] ?? "";
+  const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
+  const [live, setLive] = useState<LiveView | null>(null);
+  const [error, setError] = useState("");
+  const refresh = useCallback(async () => {
+    if (!token) throw new Error("projection_token_missing");
+    setLive(await loadLiveView(sessionId, token));
+  }, [sessionId, token]);
+
+  useEffect(() => {
+    document.body.classList.add("projection-body");
+    refresh().catch(() => setError("projection_token_invalid"));
+    const timer = window.setInterval(() => refresh().catch(() => undefined), 2000);
+    return () => {
+      document.body.classList.remove("projection-body");
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!token || !live) return;
+    return connectLiveSocket(token, `session:${sessionId}:overlay`, refresh);
+  }, [live?.snapshot.session_id, refresh, sessionId, token]);
+
+  if (error) return <main className="projection-error">{t("projection.invalid")}</main>;
+  if (!live) return <main className="projection-root"><span className="waiting-orbit"><i /></span></main>;
+  const cueRun = live.snapshot.current_cue_run;
+  const prompt = cueRun?.interactions[0]?.prompt;
+  return (
+    <main className="projection-root">
+      <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
+      {!cueRun || cueRun.state === "ready" ? (
+        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><small>{t("projection.waiting")}</small></section>
+      ) : (
+        <section className="projection-results">
+          <p>{cueRun.state === "open" ? t("overlay.collecting") : cueRun.state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
+          <h1>{prompt ?? cueRun.cue_name}</h1>
+          <div className="projection-visuals">
+            {live.aggregates.length
+              ? live.aggregates.map((item) => <AggregateBars key={item.interaction_id} aggregate={item.aggregate} />)
+              : <span className="projection-empty">{t("projection.noResults")}</span>}
+          </div>
+        </section>
+      )}
     </main>
   );
 }
