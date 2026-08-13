@@ -29,6 +29,14 @@ const authStart = await fetch(`${baseUrl}/api/auth/google/start`, {
 assert.equal(authStart.status, 503);
 assert.deepEqual(await authStart.json(), { code: "auth_not_configured" });
 
+const devLogin = await fetch(`${baseUrl}/api/auth/dev`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ display_name: "CI Presenter", locale: "zh-TW" }),
+});
+assert.equal(devLogin.status, 204);
+assert.match(devLogin.headers.get("set-cookie"), /slide_helper_session=/);
+
 const anonymousProjects = await fetch(`${baseUrl}/api/projects`);
 assert.equal(anonymousProjects.status, 401);
 

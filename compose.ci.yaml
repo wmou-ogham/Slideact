@@ -1,3 +1,6 @@
 services:
   proxy:
     ports: !reset []
+  api:
+    environment:
+      DEV_AUTH_ENABLED: "true"

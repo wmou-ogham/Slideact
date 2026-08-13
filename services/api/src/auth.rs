@@ -72,12 +72,102 @@ struct AuthenticatedProfile {
     email: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DevLoginRequest {
+    display_name: String,
+    locale: String,
+}
+
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/auth/google/start", get(start_google_auth))
         .route("/api/auth/google/callback", get(google_auth_callback))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/me", get(me))
+        .route("/api/auth/dev", post(dev_login))
+}
+
+async fn dev_login(
+    State(state): State<AppState>,
+    Json(request): Json<DevLoginRequest>,
+) -> Result<Response, ApiError> {
+    if !boolean_env("DEV_AUTH_ENABLED", false).map_err(|error| {
+        warn!(%error, "invalid development authentication setting");
+        ApiError::internal("dev_auth_configuration_invalid")
+    })? {
+        return Err(ApiError::not_found("dev_auth_not_enabled"));
+    }
+    let display_name = request.display_name.trim();
+    if display_name.is_empty() || display_name.chars().count() > 100 {
+        return Err(ApiError::bad_request("display_name_invalid"));
+    }
+    if !matches!(request.locale.as_str(), "en" | "zh-TW") {
+        return Err(ApiError::bad_request("locale_invalid"));
+    }
+    let user_id = Uuid::new_v4();
+    let session_token = random_token();
+    let session_id = Uuid::new_v4();
+    let session_ttl_seconds = duration_env("AUTH_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS)
+        .map_err(|error| {
+            warn!(%error, "invalid authentication session TTL");
+            ApiError::internal("dev_auth_configuration_invalid")
+        })?;
+    let secure_cookies = boolean_env("AUTH_COOKIE_SECURE", true).map_err(|error| {
+        warn!(%error, "invalid authentication cookie setting");
+        ApiError::internal("dev_auth_configuration_invalid")
+    })?;
+    let mut transaction = state.database.begin().await.map_err(|error| {
+        warn!(%error, "failed to begin development login transaction");
+        ApiError::internal("dev_auth_failed")
+    })?;
+    sqlx::query("INSERT INTO profiles (id, display_name, locale) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(display_name)
+        .bind(&request.locale)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| {
+            warn!(%error, "failed to persist development profile");
+            ApiError::internal("dev_auth_failed")
+        })?;
+    sqlx::query(
+        r#"
+        INSERT INTO user_sessions (id, user_id, token_hash, expires_at)
+        VALUES ($1, $2, $3, NOW() + ($4::BIGINT * INTERVAL '1 second'))
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(hash_secret(&session_token))
+    .bind(
+        i64::try_from(session_ttl_seconds)
+            .map_err(|_| ApiError::internal("dev_auth_configuration_invalid"))?,
+    )
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| {
+        warn!(%error, "failed to persist development session");
+        ApiError::internal("dev_auth_failed")
+    })?;
+    transaction.commit().await.map_err(|error| {
+        warn!(%error, "failed to commit development login");
+        ApiError::internal("dev_auth_failed")
+    })?;
+
+    let cookie = build_cookie(
+        SESSION_COOKIE,
+        &session_token,
+        "/",
+        session_ttl_seconds,
+        secure_cookies,
+    );
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&cookie).expect("generated cookie header must be valid"),
+    );
+    Ok(response)
 }
 
 impl GoogleAuth {
