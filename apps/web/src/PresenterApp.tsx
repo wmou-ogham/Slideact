@@ -22,6 +22,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -126,6 +127,39 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       setProjectId(created.id);
       form.reset();
     }, t("notice.projectCreated"));
+  }
+
+  async function createTemplate(kind: TemplateKind) {
+    const template = templates(locale)[kind];
+    await run(async () => {
+      const createdProject = await postJson<Project>("/api/projects", {
+        title: template.title,
+        default_locale: locale,
+      });
+      for (const [cueIndex, templateCue] of template.cues.entries()) {
+        const createdCue = await postJson<Cue>(`/api/projects/${createdProject.id}/cues`, {
+          name: templateCue.name,
+          anchor_type: templateCue.slide ? "deck_slide" : "manual",
+          anchor_value: templateCue.slide ? String(templateCue.slide) : null,
+          trigger_mode: templateCue.confirm ? "presenter_confirm" : "immediate",
+          delay_seconds: 0,
+        });
+        for (const interaction of templateCue.interactions) {
+          await postJson<Interaction>(
+            `/api/projects/${createdProject.id}/cues/${createdCue.id}/interactions`,
+            {
+              interaction_type: interaction.type,
+              prompt: interaction.prompt,
+              description: interaction.description ?? null,
+              settings: { schema_version: 1, template: kind, cue: cueIndex + 1 },
+              options: interaction.options?.map((label) => ({ label, is_correct: null })) ?? [],
+            },
+          );
+        }
+      }
+      await refreshProjects();
+      setProjectId(createdProject.id);
+    }, t("notice.templateCreated"));
   }
 
   async function createCue(event: FormEvent<HTMLFormElement>) {
@@ -253,6 +287,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
             <input name="title" required maxLength={200} placeholder={t("project.placeholder")} />
             <button className="icon-button" disabled={busy} aria-label={t("project.create")}>+</button>
           </form>
+          <div className="template-picker">
+            <small>{t("template.startWith")}</small>
+            <button disabled={busy} onClick={() => createTemplate("teaching")}><b>{t("template.teaching")}</b><span>{t("template.teachingCopy")}</span></button>
+            <button disabled={busy} onClick={() => createTemplate("lightning")}><b>{t("template.lightning")}</b><span>{t("template.lightningCopy")}</span></button>
+            <button disabled={busy} onClick={() => createTemplate("demo")}><b>{t("template.demo")}</b><span>{t("template.demoCopy")}</span></button>
+          </div>
           <div className="item-list">
             {projects.map((item) => (
               <button
@@ -306,7 +346,11 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         <section className="panel editor-panel">
           <div className="panel-heading">
             <div><span className="step">03</span><h2>{t("interaction.heading")}</h2></div>
-            {cue && <span className="context-label">{cue.name}</span>}
+            {cue && <div className="preview-actions">
+              <button onClick={() => setPreview("projection")}>{t("preview.projection")}</button>
+              <button onClick={() => setPreview("mobile")}>{t("preview.mobile")}</button>
+              <button onClick={() => setPreview("presenter")}>{t("preview.presenter")}</button>
+            </div>}
           </div>
           {cue ? (
             <>
@@ -336,6 +380,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         </section>
       </section>
 
+      {cue && preview && <PreviewDialog t={t} cue={cue} mode={preview} close={() => setPreview(null)} />}
+
       <LiveControl
         t={t}
         busy={busy}
@@ -349,6 +395,117 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         send={send}
       />
     </main>
+  );
+}
+
+type TemplateKind = "teaching" | "lightning" | "demo";
+type TemplateInteraction = {
+  type: Interaction["interaction_type"];
+  prompt: string;
+  description?: string;
+  options?: string[];
+};
+type PresentationTemplate = {
+  title: string;
+  cues: Array<{
+    name: string;
+    slide?: number;
+    confirm?: boolean;
+    interactions: TemplateInteraction[];
+  }>;
+};
+
+function templates(locale: string): Record<TemplateKind, PresentationTemplate> {
+  if (locale === "zh-TW") {
+    return {
+      teaching: {
+        title: "教學互動範本",
+        cues: [
+          { name: "確認理解度", slide: 2, interactions: [{ type: "understanding", prompt: "目前為止都聽懂了嗎？", description: "即時確認是否需要多做說明" }] },
+          { name: "課中小測驗", slide: 5, confirm: true, interactions: [{ type: "single_choice", prompt: "哪一個敘述最符合剛才的觀念？", options: ["選項 A", "選項 B", "選項 C", "選項 D"] }] },
+          { name: "學生提問", confirm: true, interactions: [{ type: "qa", prompt: "有什麼地方希望老師再說明？" }] },
+        ],
+      },
+      lightning: {
+        title: "Lightning Talk 互動範本",
+        cues: [
+          { name: "快速暖場", slide: 2, interactions: [{ type: "understanding", prompt: "你曾經遇過這個問題嗎？" }] },
+          { name: "一句話收斂", slide: 4, interactions: [{ type: "word_cloud", prompt: "用一個詞形容你最大的收穫" }] },
+          { name: "限時問答", confirm: true, interactions: [{ type: "qa", prompt: "把最想問的問題送上來" }] },
+        ],
+      },
+      demo: {
+        title: "產品 Demo 互動範本",
+        cues: [
+          { name: "痛點優先序", slide: 2, interactions: [{ type: "single_choice", prompt: "目前哪個問題最影響你的團隊？", options: ["效率", "協作", "成本", "可見性"] }] },
+          { name: "功能清晰度", slide: 4, interactions: [{ type: "understanding", prompt: "這個功能的價值是否清楚？" }] },
+          { name: "使用情境", slide: 6, interactions: [{ type: "word_cloud", prompt: "你最想把它用在哪個情境？" }] },
+        ],
+      },
+    };
+  }
+  return {
+    teaching: {
+      title: "Interactive teaching template",
+      cues: [
+        { name: "Check understanding", slide: 2, interactions: [{ type: "understanding", prompt: "Does everything make sense so far?", description: "See whether the room needs another explanation" }] },
+        { name: "Knowledge check", slide: 5, confirm: true, interactions: [{ type: "single_choice", prompt: "Which statement best matches the concept?", options: ["Option A", "Option B", "Option C", "Option D"] }] },
+        { name: "Student questions", confirm: true, interactions: [{ type: "qa", prompt: "What should the instructor explain again?" }] },
+      ],
+    },
+    lightning: {
+      title: "Lightning Talk template",
+      cues: [
+        { name: "Quick opener", slide: 2, interactions: [{ type: "understanding", prompt: "Have you experienced this problem?" }] },
+        { name: "One-word takeaway", slide: 4, interactions: [{ type: "word_cloud", prompt: "Describe your biggest takeaway in one word" }] },
+        { name: "Rapid Q&A", confirm: true, interactions: [{ type: "qa", prompt: "Send the one question you most want answered" }] },
+      ],
+    },
+    demo: {
+      title: "Product demo template",
+      cues: [
+        { name: "Pain-point priority", slide: 2, interactions: [{ type: "single_choice", prompt: "Which problem affects your team most?", options: ["Efficiency", "Collaboration", "Cost", "Visibility"] }] },
+        { name: "Feature clarity", slide: 4, interactions: [{ type: "understanding", prompt: "Is the value of this feature clear?" }] },
+        { name: "Use cases", slide: 6, interactions: [{ type: "word_cloud", prompt: "Where would you use this first?" }] },
+      ],
+    },
+  };
+}
+
+function PreviewDialog({ t, cue, mode, close }: {
+  t: Translate;
+  cue: Cue;
+  mode: "projection" | "mobile" | "presenter";
+  close: () => void;
+}) {
+  const interaction = cue.interactions[0];
+  return (
+    <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <section className={`preview-dialog preview-${mode}`} role="dialog" aria-modal="true" aria-label={t(`preview.${mode}`)}>
+        <header><span>{t(`preview.${mode}`)}</span><button onClick={close} aria-label={t("preview.close")}>×</button></header>
+        {mode === "projection" && (
+          <div className="projection-preview">
+            <small>LIVE · ABC234</small>
+            <h2>{interaction?.prompt ?? cue.name}</h2>
+            <div className="preview-bars"><i /><i /><i /></div>
+          </div>
+        )}
+        {mode === "mobile" && (
+          <div className="mobile-preview">
+            <small>ABC234 · {t("audience.people", { count: 42 })}</small>
+            <h2>{interaction?.prompt ?? cue.name}</h2>
+            {interaction?.interaction_type === "single_choice" ? interaction.options.map((option, index) => <button key={option.id}><span>{String.fromCharCode(65 + index)}</span>{option.label}</button>) : interaction?.interaction_type === "qa" || interaction?.interaction_type === "word_cloud" ? <><textarea disabled placeholder={interaction.interaction_type === "qa" ? t("qa.placeholder") : t("audience.textPlaceholder")} /><button>{interaction.interaction_type === "qa" ? t("qa.ask") : t("audience.send")}</button></> : <><button>{t("audience.yes")}</button><button>{t("audience.no")}</button></>}
+          </div>
+        )}
+        {mode === "presenter" && (
+          <div className="presenter-preview">
+            <small>{t("remote.heading")}</small><h2>{cue.name}</h2>
+            <button>{t("live.open")}</button>
+            <ol>{cue.interactions.map((item) => <li key={item.id}>{typeName(t, item.interaction_type)} · {item.prompt}</li>)}</ol>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
