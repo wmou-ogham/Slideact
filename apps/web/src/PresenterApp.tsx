@@ -4,6 +4,7 @@ import { ApiError, apiJson, postJson, uuid } from "./api";
 import type {
   Cue,
   Interaction,
+  LiveView,
   LiveSession,
   Profile,
   Project,
@@ -22,6 +23,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const [presenterLive, setPresenterLive] = useState<LiveView | null>(null);
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -101,6 +103,34 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     return () => window.clearInterval(timer);
   }, [refreshSnapshot, sessionId]);
 
+  useEffect(() => {
+    if (!sessionId) {
+      setPresenterLive(null);
+      return;
+    }
+    let cancelled = false;
+    let timer = 0;
+    const start = async () => {
+      const issued = await postJson<{ token: string }>(`/api/sessions/${sessionId}/tokens`, {
+        role: "presenter",
+      });
+      const load = async () => {
+        const next = await apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
+          headers: { authorization: `Bearer ${issued.token}` },
+        });
+        if (!cancelled) setPresenterLive(next);
+      };
+      await load();
+      if (!cancelled) timer = window.setInterval(() => load().catch(() => undefined), 2500);
+    };
+    setPresenterLive(null);
+    start().catch(() => undefined);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionId]);
+
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
     setMessage("");
@@ -151,7 +181,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
               interaction_type: interaction.type,
               prompt: interaction.prompt,
               description: interaction.description ?? null,
-              settings: { schema_version: 1, template: kind, cue: cueIndex + 1 },
+              settings: {
+                schema_version: 1,
+                template: kind,
+                cue: cueIndex + 1,
+                results: { audience_visibility: defaultVisibility(interaction.type) },
+              },
               options: interaction.options?.map((label) => ({ label, is_correct: null })) ?? [],
             },
           );
@@ -199,7 +234,11 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           interaction_type: type,
           prompt: data.get("prompt"),
           description: null,
-          settings: { schema_version: 1 },
+          settings: {
+            schema_version: 1,
+            results: { audience_visibility: data.get("audience_visibility") },
+            response: { allow_change: true },
+          },
           options:
             type === "single_choice"
               ? rawOptions.map((label) => ({ label, is_correct: null }))
@@ -368,6 +407,15 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                 </select>
                 <textarea name="prompt" required maxLength={500} placeholder={t("interaction.promptPlaceholder")} />
                 <textarea name="options" placeholder={t("interaction.optionsPlaceholder")} />
+                <label className="field-label">
+                  <span>{t("interaction.visibility")}</span>
+                  <select name="audience_visibility" defaultValue="after_reveal">
+                    <option value="after_reveal">{t("interaction.visibilityAfterReveal")}</option>
+                    <option value="live">{t("interaction.visibilityLive")}</option>
+                    <option value="question_only">{t("interaction.visibilityQuestionOnly")}</option>
+                    <option value="presenter_only">{t("interaction.visibilityPresenterOnly")}</option>
+                  </select>
+                </label>
                 <button disabled={busy}>{t("interaction.create")}</button>
               </form>
               <div className="interaction-list">
@@ -396,6 +444,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         sessionId={sessionId}
         setSessionId={setSessionId}
         snapshot={snapshot}
+        live={presenterLive}
         createSession={createSession}
         send={send}
       />
@@ -526,8 +575,14 @@ function typeName(t: Translate, type: Interaction["interaction_type"]) {
   return t(`interaction.${type === "single_choice" ? "choice" : type === "word_cloud" ? "wordCloud" : type}`);
 }
 
+function defaultVisibility(type: Interaction["interaction_type"]) {
+  if (type === "understanding" || type === "word_cloud") return "live";
+  if (type === "qa") return "question_only";
+  return "after_reveal";
+}
+
 function LiveControl({
-  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, createSession, send,
+  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, live, createSession, send,
 }: {
   t: Translate;
   busy: boolean;
@@ -537,6 +592,7 @@ function LiveControl({
   sessionId: string;
   setSessionId: (value: string) => void;
   snapshot: SessionSnapshot | null;
+  live: LiveView | null;
   createSession: () => void;
   send: (command: SessionCommand) => void;
 }) {
@@ -593,6 +649,7 @@ function LiveControl({
 
   return (
     <section className="live-dock">
+      {snapshot?.current_cue_run && live && <PresenterInsights t={t} live={live} />}
       <div className="live-summary">
         <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
         <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
@@ -614,6 +671,7 @@ function LiveControl({
         {cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
         {cueState === "open" && <button onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
         {cueState === "closed" && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
+        {(cueState === "closed" || cueState === "revealed") && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         {snapshot && <a className="secondary-link" href={`/remote/${snapshot.session_id}`}>{t("live.remote")}</a>}
         {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
@@ -622,5 +680,28 @@ function LiveControl({
       </div>
       {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
     </section>
+  );
+}
+
+function PresenterInsights({ t, live }: { t: Translate; live: LiveView }) {
+  const aggregate = live.aggregates.find((item) => item.aggregate.interaction_type === "understanding")?.aggregate
+    ?? live.aggregates[0]?.aggregate;
+  const total = aggregate?.total_responses ?? 0;
+  const responseRate = live.audience_count ? Math.round(total * 100 / live.audience_count) : 0;
+  const needsAttention = aggregate?.interaction_type === "understanding"
+    && total > 0
+    && (((aggregate.yellow ?? 0) + (aggregate.red ?? 0)) * 100 / total >= 25);
+  return (
+    <aside className={needsAttention ? "presenter-insights needs-attention" : "presenter-insights"} aria-live="polite">
+      <div><small>{t("live.audience")}</small><strong>{live.audience_count}</strong></div>
+      <div><small>{t("live.responses")}</small><strong>{total}</strong></div>
+      <div><small>{t("live.responseRate")}</small><strong>{responseRate}%</strong></div>
+      {aggregate?.interaction_type === "understanding" && <div className="signal-counts">
+        <span className="signal-green">{t("audience.green")} <b>{aggregate.green ?? 0}</b></span>
+        <span className="signal-yellow">{t("audience.yellow")} <b>{aggregate.yellow ?? 0}</b></span>
+        <span className="signal-red">{t("audience.red")} <b>{aggregate.red ?? 0}</b></span>
+      </div>}
+      {needsAttention && <p role="alert">{t("live.attention")}</p>}
+    </aside>
   );
 }

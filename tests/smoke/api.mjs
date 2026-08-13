@@ -141,6 +141,10 @@ const createdInteraction = await requestJson(
       interaction_type: "single_choice",
       prompt: "Which explanation is clearest?",
       description: "Choose one answer",
+      settings: {
+        schema_version: 1,
+        results: { audience_visibility: "after_reveal" },
+      },
       options: [
         { label: "Example A", is_correct: true },
         { label: "Example B", is_correct: false },
@@ -160,6 +164,10 @@ const createdUnderstanding = await requestJson(
       interaction_type: "understanding",
       prompt: "Do you understand this page?",
       description: "Tap once to update your feedback",
+      settings: {
+        schema_version: 1,
+        results: { audience_visibility: "live" },
+      },
       options: [],
     },
   },
@@ -175,6 +183,10 @@ const createdWordCloud = await requestJson(
       interaction_type: "word_cloud",
       prompt: "What is the key word you take away?",
       description: "Share one short thought",
+      settings: {
+        schema_version: 1,
+        results: { audience_visibility: "live" },
+      },
       options: [],
     },
   },
@@ -190,6 +202,10 @@ const createdQa = await requestJson(
       interaction_type: "qa",
       prompt: "What would you like the presenter to clarify?",
       description: "Ask and upvote audience questions",
+      settings: {
+        schema_version: 1,
+        results: { audience_visibility: "question_only" },
+      },
       options: [],
     },
   },
@@ -524,7 +540,7 @@ const aggregateEvent = waitForMessage(
   joinedSocket,
   (message) =>
     message.type === "event" &&
-    message.event.event_type === "response.aggregate_updated" &&
+    message.event.event_type === "response.updated" &&
     message.event.event.interaction_id === createdInteraction.body.id,
   8000,
 );
@@ -540,7 +556,7 @@ const firstChoice = await submitAudienceResponse(
 assert.equal(firstChoice.response.status, 201);
 assert.equal(firstChoice.body.aggregate.total_responses, 1);
 assert.equal(firstChoice.body.aggregate.options[0].count, 1);
-assert.equal((await aggregateEvent).event.event.aggregate.total_responses, 1);
+assert.equal((await aggregateEvent).event.event.aggregate, undefined);
 
 const replayedChoice = await submitAudienceResponse(
   joinedAudience.body.token,
@@ -574,13 +590,15 @@ const understood = await submitAudienceResponse(
   {
     cue_run_id: openedCue.body.snapshot.current_cue_run.id,
     idempotency_key: "smoke:understanding-001",
-    payload: { understood: true },
+    payload: { level: "yellow" },
   },
 );
 assert.equal(understood.response.status, 201);
 assert.equal(understood.body.aggregate.total_responses, 1);
-assert.equal(understood.body.aggregate.understood, 1);
-assert.equal(understood.body.aggregate.understood_percent, 100);
+assert.equal(understood.body.aggregate.green, 0);
+assert.equal(understood.body.aggregate.yellow, 1);
+assert.equal(understood.body.aggregate.red, 0);
+assert.equal(understood.body.aggregate.yellow_percent, 100);
 
 const wordCloud = await submitAudienceResponse(
   joinedAudience.body.token,
@@ -656,7 +674,13 @@ const audienceLiveView = await requestJson(
 );
 assert.equal(audienceLiveView.response.status, 200);
 assert.equal(audienceLiveView.body.audience_count, 1);
-assert.equal(audienceLiveView.body.aggregates.length, 3);
+assert.equal(audienceLiveView.body.aggregates.length, 2);
+assert.equal(
+  audienceLiveView.body.aggregates.some(
+    (item) => item.interaction_id === createdInteraction.body.id,
+  ),
+  false,
+);
 assert.equal(audienceLiveView.body.questions.length, 1);
 assert.equal(audienceLiveView.body.questions[0].status, "pinned");
 assert.equal(audienceLiveView.body.questions[0].voted_by_me, true);
@@ -697,7 +721,50 @@ const overlayLiveView = await requestJson(
   { token: overlayIssue.body.token },
 );
 assert.equal(overlayLiveView.response.status, 200);
-assert.equal(overlayLiveView.body.aggregates[0].aggregate.total_responses, 1);
+assert.equal(overlayLiveView.body.aggregates.length, 2);
+assert.equal(
+  overlayLiveView.body.aggregates.some(
+    (item) => item.interaction_id === createdInteraction.body.id,
+  ),
+  false,
+);
+
+const commandPresenterIssue = await requestJson(
+  `/api/sessions/${commandSessionId}/tokens`,
+  { method: "POST", cookie: ownerCookie, body: { role: "presenter" } },
+);
+assert.equal(commandPresenterIssue.response.status, 201);
+const presenterLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: commandPresenterIssue.body.token },
+);
+assert.equal(presenterLiveView.response.status, 200);
+assert.equal(presenterLiveView.body.aggregates.length, 3);
+assert.equal(
+  presenterLiveView.body.aggregates.some(
+    (item) => item.interaction_id === createdInteraction.body.id,
+  ),
+  true,
+);
+
+const closedForReveal = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:close-for-visibility-001",
+  expected_version: 9,
+  command: { type: "close_cue" },
+});
+assert.equal(closedForReveal.response.status, 200);
+const revealedForAudience = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:reveal-for-visibility-001",
+  expected_version: 10,
+  command: { type: "reveal_cue" },
+});
+assert.equal(revealedForAudience.response.status, 200);
+const revealedAudienceLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: joinedAudience.body.token },
+);
+assert.equal(revealedAudienceLiveView.response.status, 200);
+assert.equal(revealedAudienceLiveView.body.aggregates.length, 3);
 joinedSocket.close();
 
 const strangerIssue = await issueToken(

@@ -114,6 +114,11 @@ pub enum RealtimeEvent {
         #[ts(type = "JsonValue")]
         aggregate: Value,
     },
+    #[serde(rename = "response.updated")]
+    ResponseUpdated {
+        cue_run_id: String,
+        interaction_id: String,
+    },
     #[serde(rename = "audience.count_updated")]
     AudienceCountUpdated { count: u32 },
     #[serde(rename = "question.updated")]
@@ -133,6 +138,7 @@ impl RealtimeEvent {
             Self::PresentationPositionChanged { .. } => "presentation.position_changed",
             Self::InteractionStateChanged { .. } => "interaction.state_changed",
             Self::ResponseAggregateUpdated { .. } => "response.aggregate_updated",
+            Self::ResponseUpdated { .. } => "response.updated",
             Self::AudienceCountUpdated { .. } => "audience.count_updated",
             Self::QuestionUpdated { .. } => "question.updated",
         }

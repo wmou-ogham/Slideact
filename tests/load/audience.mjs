@@ -37,7 +37,10 @@ const interaction = await request(
       interaction_type: "understanding",
       prompt: "Does the benchmark make sense?",
       description: null,
-      settings: { schema_version: 1 },
+      settings: {
+        schema_version: 1,
+        results: { audience_visibility: "live" },
+      },
       options: [],
     },
   },

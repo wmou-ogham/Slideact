@@ -14,7 +14,7 @@ use crate::{
     AppState,
     api_error::ApiError,
     authorization::{SessionRole, authenticate_session_token},
-    commands::emit_event_to_all,
+    commands::emit_event_to_topics,
 };
 
 #[derive(Debug, Deserialize)]
@@ -61,9 +61,10 @@ async fn submit_response(
         .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?;
-    let interaction = sqlx::query_as::<_, (String, String, i64)>(
+    let interaction = sqlx::query_as::<_, (String, String, i64, Value)>(
         r#"
-        SELECT interactions.interaction_type, cue_runs.state, live_sessions.state_version
+        SELECT interactions.interaction_type, cue_runs.state, live_sessions.state_version,
+               interactions.settings
         FROM interactions
         JOIN cues ON cues.id = interactions.cue_id
         JOIN cue_runs ON cue_runs.cue_id = cues.id
@@ -157,17 +158,32 @@ async fn submit_response(
         .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?;
-        emit_event_to_all(
+        let full_event = json!({
+            "event_type": "response.aggregate_updated",
+            "cue_run_id": request.cue_run_id,
+            "interaction_id": interaction_id,
+            "aggregate": aggregate,
+        });
+        let invalidation_event = json!({
+            "event_type": "response.updated",
+            "cue_run_id": request.cue_run_id,
+            "interaction_id": interaction_id,
+        });
+        let audience_event = if audience_can_see_aggregate(&interaction.3, &interaction.1) {
+            full_event.clone()
+        } else {
+            invalidation_event
+        };
+        emit_event_to_topics(
             &mut transaction,
             actor.session_id,
             u64::try_from(interaction.2)
                 .map_err(|_| ApiError::internal("state_version_invalid"))?,
-            json!({
-                "event_type": "response.aggregate_updated",
-                "cue_run_id": request.cue_run_id,
-                "interaction_id": interaction_id,
-                "aggregate": aggregate,
-            }),
+            [
+                ("presenter", full_event),
+                ("audience", audience_event.clone()),
+                ("overlay", audience_event),
+            ],
             &format!("response-{}-{}", participant_id, request.idempotency_key),
         )
         .await?;
@@ -197,7 +213,12 @@ async fn validate_payload(
     let object = single_field_object(payload)?;
     match interaction_type {
         "understanding" => {
-            if !object.get("understood").is_some_and(Value::is_boolean) {
+            let legacy_valid = object.get("understood").is_some_and(Value::is_boolean);
+            let level_valid = object
+                .get("level")
+                .and_then(Value::as_str)
+                .is_some_and(|level| matches!(level, "green" | "yellow" | "red"));
+            if !legacy_valid && !level_valid {
                 return Err(ApiError::bad_request("response_payload_invalid"));
             }
         }
@@ -253,9 +274,18 @@ async fn compute_aggregate(
 ) -> Result<Value, ApiError> {
     match interaction_type {
         "understanding" => {
-            let counts = sqlx::query_as::<_, (i64, i64)>(
+            let counts = sqlx::query_as::<_, (i64, i64, i64, i64)>(
                 r#"
-                SELECT COUNT(*), COUNT(*) FILTER (WHERE payload ->> 'understood' = 'true')
+                SELECT COUNT(*),
+                       COUNT(*) FILTER (
+                           WHERE payload ->> 'level' = 'green'
+                              OR payload ->> 'understood' = 'true'
+                       ),
+                       COUNT(*) FILTER (WHERE payload ->> 'level' = 'yellow'),
+                       COUNT(*) FILTER (
+                           WHERE payload ->> 'level' = 'red'
+                              OR payload ->> 'understood' = 'false'
+                       )
                 FROM responses WHERE cue_run_id = $1 AND interaction_id = $2
                 "#,
             )
@@ -273,8 +303,14 @@ async fn compute_aggregate(
                 "interaction_type": "understanding",
                 "total_responses": counts.0,
                 "understood": counts.1,
-                "not_understood": counts.0 - counts.1,
+                "not_understood": counts.2 + counts.3,
                 "understood_percent": understood_percent,
+                "green": counts.1,
+                "yellow": counts.2,
+                "red": counts.3,
+                "green_percent": percentage(counts.1, counts.0),
+                "yellow_percent": percentage(counts.2, counts.0),
+                "red_percent": percentage(counts.3, counts.0),
             }))
         }
         "single_choice" => {
@@ -338,6 +374,26 @@ async fn compute_aggregate(
     }
 }
 
+fn percentage(count: i64, total: i64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        count as f64 * 100.0 / total as f64
+    }
+}
+
+fn audience_can_see_aggregate(settings: &Value, cue_state: &str) -> bool {
+    match settings
+        .pointer("/results/audience_visibility")
+        .and_then(Value::as_str)
+        .unwrap_or("after_reveal")
+    {
+        "live" => true,
+        "after_reveal" => cue_state == "revealed",
+        _ => false,
+    }
+}
+
 async fn load_aggregate(
     transaction: &mut Transaction<'_, Postgres>,
     cue_run_id: Uuid,
@@ -392,12 +448,26 @@ fn persistence_error(error: sqlx::Error) -> ApiError {
 mod tests {
     use serde_json::json;
 
-    use super::single_field_object;
+    use super::{audience_can_see_aggregate, single_field_object};
 
     #[test]
     fn response_payload_must_be_an_object_with_one_field() {
         assert!(single_field_object(&json!({"understood": true})).is_ok());
         assert!(single_field_object(&json!({"understood": true, "admin": true})).is_err());
         assert!(single_field_object(&json!([true])).is_err());
+    }
+
+    #[test]
+    fn audience_aggregate_visibility_defaults_to_reveal() {
+        assert!(audience_can_see_aggregate(
+            &json!({"results": {"audience_visibility": "live"}}),
+            "open"
+        ));
+        assert!(!audience_can_see_aggregate(&json!({}), "open"));
+        assert!(audience_can_see_aggregate(&json!({}), "revealed"));
+        assert!(!audience_can_see_aggregate(
+            &json!({"results": {"audience_visibility": "presenter_only"}}),
+            "revealed"
+        ));
     }
 }

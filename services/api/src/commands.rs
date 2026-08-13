@@ -647,16 +647,37 @@ pub(crate) async fn emit_event_to_all(
     event: Value,
     idempotency_key: &str,
 ) -> Result<(), ApiError> {
+    emit_event_to_topics(
+        transaction,
+        session_id,
+        state_version,
+        [
+            ("presenter", event.clone()),
+            ("audience", event.clone()),
+            ("overlay", event),
+        ],
+        idempotency_key,
+    )
+    .await
+}
+
+pub(crate) async fn emit_event_to_topics(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+    state_version: u64,
+    events: impl IntoIterator<Item = (&'static str, Value)>,
+    idempotency_key: &str,
+) -> Result<(), ApiError> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::TEXT, 0))")
         .bind(session_id)
         .execute(&mut **transaction)
         .await
         .map_err(persistence_error)?;
-    let event_type = event
-        .get("event_type")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ApiError::internal("event_type_missing"))?;
-    for audience in ["presenter", "audience", "overlay"] {
+    for (audience, event) in events {
+        let event_type = event
+            .get("event_type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::internal("event_type_missing"))?;
         let sequence = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(MAX(sequence), 0) + 1 FROM session_events WHERE session_id = $1",
         )
@@ -674,7 +695,7 @@ pub(crate) async fn emit_event_to_all(
             .bind(sequence)
             .bind(i64::try_from(state_version).expect("database state version fits i64"))
             .bind(topic)
-            .bind(&event)
+            .bind(event)
             .bind(deduplication_key)
             .execute(&mut **transaction)
             .await

@@ -56,6 +56,13 @@ async fn get_live_view(
             .fetch_one(&state.database)
             .await
             .map_err(persistence_error)?;
+    let presenter_side = matches!(
+        actor.role,
+        SessionRole::Owner
+            | SessionRole::Presenter
+            | SessionRole::Controller
+            | SessionRole::Extension
+    );
     let aggregates = sqlx::query_as::<_, (Uuid, Uuid, Value)>(
         r#"
         SELECT response_aggregates.cue_run_id,
@@ -63,14 +70,27 @@ async fn get_live_view(
                response_aggregates.aggregate
         FROM response_aggregates
         JOIN cue_runs ON cue_runs.id = response_aggregates.cue_run_id
+        JOIN interactions ON interactions.id = response_aggregates.interaction_id
         WHERE cue_runs.session_id = $1
           AND cue_runs.id = (
               SELECT current_cue_run_id FROM live_sessions WHERE id = $1
+          )
+          AND (
+              $2
+              OR interactions.settings #>> '{results,audience_visibility}' = 'live'
+              OR (
+                  COALESCE(
+                      interactions.settings #>> '{results,audience_visibility}',
+                      'after_reveal'
+                  ) = 'after_reveal'
+                  AND cue_runs.state = 'revealed'
+              )
           )
         ORDER BY response_aggregates.interaction_id
         "#,
     )
     .bind(session_id)
+    .bind(presenter_side)
     .fetch_all(&state.database)
     .await
     .map_err(persistence_error)?

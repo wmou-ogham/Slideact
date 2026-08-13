@@ -81,6 +81,12 @@ export type Aggregate = {
   understood?: number;
   not_understood?: number;
   understood_percent?: number;
+  green?: number;
+  yellow?: number;
+  red?: number;
+  green_percent?: number;
+  yellow_percent?: number;
+  red_percent?: number;
   options?: Array<{ option_id: string; label: string; count: number }>;
   entries?: Array<{ text: string; count: number }>;
 };

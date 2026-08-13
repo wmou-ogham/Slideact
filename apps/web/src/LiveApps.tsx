@@ -208,8 +208,9 @@ function AudienceInteraction({ t, interaction, answer, busy, submit, questions, 
       {interaction.description && <p>{interaction.description}</p>}
       {interaction.interaction_type === "understanding" && (
         <div className="understanding-buttons">
-          <button className={answer === "yes" ? "selected yes" : "yes"} disabled={busy} onClick={() => submit({ understood: true }, "yes")}>{t("audience.yes")}</button>
-          <button className={answer === "no" ? "selected no" : "no"} disabled={busy} onClick={() => submit({ understood: false }, "no")}>{t("audience.no")}</button>
+          <button className={answer === "green" ? "selected green" : "green"} disabled={busy} onClick={() => submit({ level: "green" }, "green")}>{t("audience.green")}</button>
+          <button className={answer === "yellow" ? "selected yellow" : "yellow"} disabled={busy} onClick={() => submit({ level: "yellow" }, "yellow")}>{t("audience.yellow")}</button>
+          <button className={answer === "red" ? "selected red" : "red"} disabled={busy} onClick={() => submit({ level: "red" }, "red")}>{t("audience.red")}</button>
         </div>
       )}
       {interaction.interaction_type === "single_choice" && (
@@ -308,8 +309,12 @@ function QuestionList({ t, questions, busy, onVote }: {
 
 function AggregateBars({ aggregate }: { aggregate: LiveView["aggregates"][number]["aggregate"] }) {
   if (aggregate.interaction_type === "understanding") {
-    const percent = Math.round(aggregate.understood_percent ?? 0);
-    return <div className="result-block"><strong>{percent}%</strong><div className="result-track"><span style={{ width: `${percent}%` }} /></div></div>;
+    const segments = [
+      ["green", aggregate.green_percent ?? aggregate.understood_percent ?? 0],
+      ["yellow", aggregate.yellow_percent ?? 0],
+      ["red", aggregate.red_percent ?? 0],
+    ] as const;
+    return <div className="understanding-result">{segments.map(([name, percent]) => <div key={name} className={name} style={{ width: `${percent}%` }}><span>{Math.round(percent)}%</span></div>)}</div>;
   }
   if (aggregate.interaction_type === "word_cloud") {
     return (
@@ -399,6 +404,7 @@ export function RemoteApp({ t }: { t: Translate }) {
           {cueState === "ready" && <button disabled={busy} onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
           {cueState === "open" && <button disabled={busy} onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
           {cueState === "closed" && <button disabled={busy} onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
+          {(cueState === "closed" || cueState === "revealed") && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
       </section>
       <section className="remote-cues">
