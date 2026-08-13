@@ -325,7 +325,29 @@ pub(crate) async fn require_session_owner(
     session_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), ApiError> {
-    let session_status = sqlx::query_scalar::<_, String>(
+    let session_status = session_owner_status(database, session_id, user_id).await?;
+    if session_status == "ended" {
+        return Err(ApiError::bad_request("session_ended"));
+    }
+    Ok(())
+}
+
+pub(crate) async fn require_session_read(
+    database: &sqlx::PgPool,
+    session_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), ApiError> {
+    session_owner_status(database, session_id, user_id)
+        .await
+        .map(|_| ())
+}
+
+async fn session_owner_status(
+    database: &sqlx::PgPool,
+    session_id: Uuid,
+    user_id: Uuid,
+) -> Result<String, ApiError> {
+    sqlx::query_scalar::<_, String>(
         r#"
         SELECT live_sessions.status
         FROM live_sessions
@@ -343,11 +365,7 @@ pub(crate) async fn require_session_owner(
     .fetch_optional(database)
     .await
     .map_err(persistence_error)?
-    .ok_or_else(|| ApiError::not_found("session_not_found"))?;
-    if session_status == "ended" {
-        return Err(ApiError::bad_request("session_ended"));
-    }
-    Ok(())
+    .ok_or_else(|| ApiError::not_found("session_not_found"))
 }
 
 pub(crate) async fn authorize_presenter_access(

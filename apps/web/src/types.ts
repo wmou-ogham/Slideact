@@ -52,6 +52,44 @@ export type LiveSession = {
   locale: string;
   sync_mode: string;
   state_version: number;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+};
+
+export type SessionResults = {
+  session_id: string;
+  status: LiveSession["status"];
+  join_code: string | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  audience_count: number;
+  cue_runs: Array<{
+    id: string;
+    cue_id: string;
+    cue_name: string;
+    anchor_value: string | null;
+    run_number: number;
+    state: string;
+    created_at: string;
+    opened_at: string | null;
+    closed_at: string | null;
+    revealed_at: string | null;
+    interactions: Array<{
+      id: string;
+      interaction_type: string;
+      prompt: string;
+      aggregate: Aggregate | null;
+    }>;
+    questions: Array<{
+      id: string;
+      body: string;
+      status: string;
+      votes: number;
+      created_at: string;
+    }>;
+  }>;
 };
 
 export type SnapshotInteraction = Omit<Interaction, "cue_id" | "position">;

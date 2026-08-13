@@ -146,6 +146,9 @@ struct LiveSession {
     locale: String,
     sync_mode: String,
     state_version: i64,
+    created_at: String,
+    started_at: Option<String>,
+    ended_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -687,9 +690,10 @@ async fn list_sessions(
 ) -> Result<Json<Vec<LiveSession>>, ApiError> {
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     require_project_access(&state.database, project_id, user_id).await?;
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, Option<String>, String, String, String, i64)>(
+    let rows = sqlx::query_as::<_, SessionRow>(
         r#"
-        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, state_version
+        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, state_version,
+               created_at::TEXT, started_at::TEXT, ended_at::TEXT
         FROM live_sessions WHERE project_id = $1 ORDER BY created_at DESC
         "#,
     )
@@ -908,9 +912,10 @@ async fn load_interaction(
 }
 
 async fn load_session(database: &PgPool, session_id: Uuid) -> Result<LiveSession, ApiError> {
-    sqlx::query_as::<_, (Uuid, Uuid, Option<String>, String, String, String, i64)>(
+    sqlx::query_as::<_, SessionRow>(
         r#"
-        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, state_version
+        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, state_version,
+               created_at::TEXT, started_at::TEXT, ended_at::TEXT
         FROM live_sessions WHERE id = $1
         "#,
     )
@@ -922,7 +927,20 @@ async fn load_session(database: &PgPool, session_id: Uuid) -> Result<LiveSession
     .ok_or_else(|| ApiError::not_found("session_not_found"))
 }
 
-fn session_from_row(row: (Uuid, Uuid, Option<String>, String, String, String, i64)) -> LiveSession {
+type SessionRow = (
+    Uuid,
+    Uuid,
+    Option<String>,
+    String,
+    String,
+    String,
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+fn session_from_row(row: SessionRow) -> LiveSession {
     LiveSession {
         id: row.0,
         project_id: row.1,
@@ -931,6 +949,9 @@ fn session_from_row(row: (Uuid, Uuid, Option<String>, String, String, String, i6
         locale: row.4,
         sync_mode: row.5,
         state_version: row.6,
+        created_at: row.7,
+        started_at: row.8,
+        ended_at: row.9,
     }
 }
 

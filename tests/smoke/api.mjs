@@ -952,6 +952,49 @@ const revealedAudienceLiveView = await requestJson(
 );
 assert.equal(revealedAudienceLiveView.response.status, 200);
 assert.equal(revealedAudienceLiveView.body.aggregates.length, 3);
+const persistedSessionResults = await requestJson(
+  `/api/sessions/${commandSessionId}/results`,
+  { cookie: ownerCookie },
+);
+assert.equal(persistedSessionResults.response.status, 200);
+assert.equal(persistedSessionResults.body.session_id, commandSessionId);
+assert.equal(persistedSessionResults.body.cue_runs.length, 1);
+assert.equal(persistedSessionResults.body.cue_runs[0].interactions.length, 4);
+assert.equal(
+  persistedSessionResults.body.cue_runs[0].interactions.some(
+    (interaction) => interaction.aggregate?.total_responses === 1,
+  ),
+  true,
+);
+assert.equal(persistedSessionResults.body.cue_runs[0].questions.length, 1);
+const endedCommandSession = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:end-session-preserve-results-001",
+  expected_version: 12,
+  command: { type: "end" },
+});
+assert.equal(endedCommandSession.response.status, 200);
+assert.equal(endedCommandSession.body.snapshot.status, "ended");
+const activeCodeReservations = execFileSync(
+  "psql",
+  [
+    databaseUrl,
+    "--no-psqlrc",
+    "--tuples-only",
+    "--no-align",
+    "--command",
+    `SELECT COUNT(*) FROM live_sessions WHERE join_code = '${openedLobby.body.snapshot.join_code}' AND status IN ('lobby', 'live', 'paused');`,
+  ],
+  { encoding: "utf8" },
+).trim();
+assert.equal(activeCodeReservations, "0");
+const endedSessionResults = await requestJson(
+  `/api/sessions/${commandSessionId}/results`,
+  { cookie: ownerCookie },
+);
+assert.equal(endedSessionResults.response.status, 200);
+assert.equal(endedSessionResults.body.status, "ended");
+assert.equal(endedSessionResults.body.cue_runs[0].interactions.length, 4);
+assert.equal(endedSessionResults.body.cue_runs[0].questions.length, 1);
 joinedSocket.close();
 
 const strangerIssue = await issueToken(

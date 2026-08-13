@@ -1,26 +1,219 @@
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     extract::{Path, State},
     http::{HeaderMap, Response, header},
     routing::get,
 };
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    AppState, api_error::ApiError, auth::authenticated_user_id,
-    authorization::require_session_owner,
+    AppState, api_error::ApiError, auth::authenticated_user_id, authorization::require_session_read,
 };
 
 type ResponseRow = (String, String, String, Uuid, String, String);
 type QuestionRow = (String, Uuid, String, String, i64, String);
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route(
-        "/api/sessions/{session_id}/export.csv",
-        get(export_session_csv),
+    Router::new()
+        .route(
+            "/api/sessions/{session_id}/export.csv",
+            get(export_session_csv),
+        )
+        .route("/api/sessions/{session_id}/results", get(session_results))
+}
+
+#[derive(Debug, Serialize)]
+struct SessionResults {
+    session_id: Uuid,
+    status: String,
+    join_code: Option<String>,
+    created_at: String,
+    started_at: Option<String>,
+    ended_at: Option<String>,
+    audience_count: i64,
+    cue_runs: Vec<CueRunResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct CueRunResult {
+    id: Uuid,
+    cue_id: Uuid,
+    cue_name: String,
+    anchor_value: Option<String>,
+    run_number: i32,
+    state: String,
+    created_at: String,
+    opened_at: Option<String>,
+    closed_at: Option<String>,
+    revealed_at: Option<String>,
+    interactions: Vec<InteractionResult>,
+    questions: Vec<QuestionResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct InteractionResult {
+    id: Uuid,
+    interaction_type: String,
+    prompt: String,
+    aggregate: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct QuestionResult {
+    id: Uuid,
+    body: String,
+    status: String,
+    votes: i64,
+    created_at: String,
+}
+
+async fn session_results(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<SessionResults>, ApiError> {
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    require_session_read(&state.database, session_id, user_id).await?;
+    let session = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        r#"
+        SELECT status, RTRIM(join_code), created_at::TEXT, started_at::TEXT, ended_at::TEXT
+        FROM live_sessions WHERE id = $1
+        "#,
     )
+    .bind(session_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    let audience_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM participants WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&state.database)
+            .await
+            .map_err(persistence_error)?;
+    let run_rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            String,
+            Option<String>,
+            i32,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        r#"
+        SELECT cue_runs.id, cue_runs.cue_id, cues.name, cues.anchor_value,
+               cue_runs.run_number, cue_runs.state, cue_runs.created_at::TEXT,
+               cue_runs.opened_at::TEXT, cue_runs.closed_at::TEXT, cue_runs.revealed_at::TEXT
+        FROM cue_runs JOIN cues ON cues.id = cue_runs.cue_id
+        WHERE cue_runs.session_id = $1
+        ORDER BY cue_runs.created_at, cue_runs.id
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    let interaction_rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, Option<Value>)>(
+        r#"
+        SELECT cue_runs.id, interactions.id, interactions.interaction_type,
+               interactions.prompt, response_aggregates.aggregate
+        FROM cue_runs
+        JOIN interactions ON interactions.cue_id = cue_runs.cue_id
+        LEFT JOIN response_aggregates
+          ON response_aggregates.cue_run_id = cue_runs.id
+         AND response_aggregates.interaction_id = interactions.id
+        WHERE cue_runs.session_id = $1
+        ORDER BY cue_runs.created_at, interactions.position, interactions.id
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    let question_rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, i64, String)>(
+        r#"
+        SELECT questions.cue_run_id, questions.id, questions.body, questions.status,
+               COUNT(question_votes.participant_id), questions.created_at::TEXT
+        FROM questions
+        JOIN cue_runs ON cue_runs.id = questions.cue_run_id
+        LEFT JOIN question_votes ON question_votes.question_id = questions.id
+        WHERE cue_runs.session_id = $1
+        GROUP BY questions.id
+        ORDER BY questions.created_at, questions.id
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    let mut interactions: HashMap<Uuid, Vec<InteractionResult>> = HashMap::new();
+    for row in interaction_rows {
+        interactions
+            .entry(row.0)
+            .or_default()
+            .push(InteractionResult {
+                id: row.1,
+                interaction_type: row.2,
+                prompt: row.3,
+                aggregate: row.4,
+            });
+    }
+    let mut questions: HashMap<Uuid, Vec<QuestionResult>> = HashMap::new();
+    for row in question_rows {
+        questions.entry(row.0).or_default().push(QuestionResult {
+            id: row.1,
+            body: row.2,
+            status: row.3,
+            votes: row.4,
+            created_at: row.5,
+        });
+    }
+    let cue_runs = run_rows
+        .into_iter()
+        .map(|row| CueRunResult {
+            id: row.0,
+            cue_id: row.1,
+            cue_name: row.2,
+            anchor_value: row.3,
+            run_number: row.4,
+            state: row.5,
+            created_at: row.6,
+            opened_at: row.7,
+            closed_at: row.8,
+            revealed_at: row.9,
+            interactions: interactions.remove(&row.0).unwrap_or_default(),
+            questions: questions.remove(&row.0).unwrap_or_default(),
+        })
+        .collect();
+    Ok(Json(SessionResults {
+        session_id,
+        status: session.0,
+        join_code: session.1,
+        created_at: session.2,
+        started_at: session.3,
+        ended_at: session.4,
+        audience_count,
+        cue_runs,
+    }))
 }
 
 async fn export_session_csv(
@@ -29,7 +222,7 @@ async fn export_session_csv(
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = authenticated_user_id(&state.database, &headers).await?;
-    require_session_owner(&state.database, session_id, user_id).await?;
+    require_session_read(&state.database, session_id, user_id).await?;
 
     let responses = sqlx::query_as::<_, ResponseRow>(
         r#"

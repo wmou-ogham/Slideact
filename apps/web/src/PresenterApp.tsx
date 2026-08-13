@@ -9,6 +9,7 @@ import type {
   LiveSession,
   Profile,
   Project,
+  SessionResults,
   SessionCommand,
   SessionSnapshot,
 } from "./types";
@@ -80,11 +81,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     setCueId((current) =>
       nextCues.some((item) => item.id === current) ? current : (nextCues[0]?.id ?? ""),
     );
-    setSessionId((current) =>
-      nextSessions.some((item) => item.id === current)
-        ? current
-        : (nextSessions.find((item) => item.status !== "ended")?.id ?? ""),
-    );
+    const selectableSessions = nextSessions.filter((item) => item.status !== "draft");
+    setSessionId((current) => selectableSessions.some((item) => item.id === current)
+      ? current
+      : (selectableSessions.find((item) => item.status !== "ended")?.id
+        ?? selectableSessions[0]?.id
+        ?? ""));
   }, [projectId]);
 
   useEffect(() => {
@@ -863,6 +865,9 @@ function LiveControl({
   const [pairingCode, setPairingCode] = useState("");
   const [remoteLink, setRemoteLink] = useState("");
   const [extensionConnected, setExtensionConnected] = useState<boolean | null>(null);
+  const [results, setResults] = useState<SessionResults | null>(null);
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const [resultsBusy, setResultsBusy] = useState(false);
   useEffect(() => {
     if (!snapshot) return;
     const load = () => apiJson<{ paired: boolean; connected: boolean }>(`/api/sessions/${snapshot.session_id}/extension-status`).then((value) => setExtensionConnected(value.paired ? value.connected : null)).catch(() => undefined);
@@ -874,12 +879,27 @@ function LiveControl({
     if (!snapshot) return [];
     switch (snapshot.status) {
       case "lobby": return [["start", "live.start"]] as const;
-      case "live": return [["end", "live.end"]] as const;
-      case "paused": return [["resume", "live.resume"], ["end", "live.end"]] as const;
+      case "live":
+      case "paused": return [["end", "live.end"]] as const;
       default: return [];
     }
   }, [snapshot]);
   const cueState = snapshot?.current_cue_run?.state;
+  const visibleSessions = sessions.filter((item) => item.status !== "draft");
+  const activeSession = visibleSessions.find((item) => item.status !== "ended");
+  const isControllable = snapshot && snapshot.status !== "ended" && snapshot.status !== "draft";
+  const isLive = snapshot?.status === "live";
+
+  async function showResults() {
+    if (!snapshot) return;
+    setResultsBusy(true);
+    try {
+      setResults(await apiJson<SessionResults>(`/api/sessions/${snapshot.session_id}/results`));
+      setResultsOpen(true);
+    } finally {
+      setResultsBusy(false);
+    }
+  }
 
   async function launchOverlay() {
     if (!snapshot) return;
@@ -940,16 +960,15 @@ function LiveControl({
       <div className="live-summary">
         <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
         <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
-        {snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong><JoinQr code={snapshot.join_code} label={t("live.joinQr")} /></div>}
+        {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong><JoinQr code={snapshot.join_code} label={t("live.joinQr")} /></div>}
       </div>
       <div className="live-actions">
-        <select value={sessionId} onChange={(event) => setSessionId(event.target.value)} disabled={!sessions.length}>
-          <option value="">{t("live.select")}</option>
-          {sessions.map((item) => <option key={item.id} value={item.id}>{t(`statusName.${item.status}`)} · {item.join_code ?? item.id.slice(0, 6)}</option>)}
-        </select>
-        <button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>
+        {visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+          {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
+        </select>}
+        {!activeSession && <button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
         {statusActions.map(([type, key]) => <button disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
-        {snapshot && snapshot.status !== "draft" && snapshot.status !== "ended" && (
+        {isLive && (
           <select
             aria-label={t("live.selectCue")}
             value={snapshot.current_cue_run?.cue_id ?? ""}
@@ -963,17 +982,65 @@ function LiveControl({
         {cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
         {(cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
         {cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
-        {snapshot && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
-        {snapshot && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
-        {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
+        {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
+        {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
+        {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
+        {snapshot && <button className="secondary-link" disabled={resultsBusy} onClick={showResults}>{t("live.results")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
-        {snapshot && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
-        {snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
+        {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
+        {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
       {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
+      {resultsOpen && results && <SessionResultsDialog t={t} results={results} close={() => setResultsOpen(false)} />}
     </section>
   );
+}
+
+function sessionLabel(t: Translate, session: LiveSession) {
+  const date = new Date(session.created_at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  return `${t(`statusName.${session.status}`)} · ${date}${session.status === "ended" ? "" : ` · ${session.join_code ?? ""}`}`;
+}
+
+function SessionResultsDialog({ t, results, close }: { t: Translate; results: SessionResults; close: () => void }) {
+  return (
+    <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <section className="preview-dialog session-results-dialog" role="dialog" aria-modal="true" aria-label={t("history.heading")}>
+        <header><span>{t("history.heading")}</span><button onClick={close} aria-label={t("preview.close")}>×</button></header>
+        <div className="history-summary">
+          <div><small>{t("history.status")}</small><strong>{t(`statusName.${results.status}`)}</strong></div>
+          <div><small>{t("history.audience")}</small><strong>{results.audience_count}</strong></div>
+          <div><small>{t("history.started")}</small><strong>{formatSessionDate(results.started_at ?? results.created_at)}</strong></div>
+        </div>
+        <div className="history-runs">
+          {results.cue_runs.map((run, index) => (
+            <article key={run.id} className="history-run">
+              <div className="history-run-heading"><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{run.cue_name}</h3><small>{run.anchor_value ? t("cue.slide", { slide: run.anchor_value }) : t("cue.manual")}</small></div></div>
+              {run.interactions.map((interaction) => (
+                <section className="history-interaction" key={interaction.id}>
+                  <div><span className="type-badge">{typeName(t, interaction.interaction_type as Interaction["interaction_type"])}</span><h4>{interaction.prompt}</h4></div>
+                  <HistoryAggregate t={t} aggregate={interaction.aggregate} />
+                </section>
+              ))}
+              {run.questions.length > 0 && <div className="history-questions"><h4>{t("qa.heading")}</h4>{run.questions.map((question) => <p key={question.id}>{question.body}<small>{t("qa.votes", { count: question.votes })}</small></p>)}</div>}
+            </article>
+          ))}
+          {!results.cue_runs.length && <p className="empty-copy roomy">{t("history.empty")}</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HistoryAggregate({ t, aggregate }: { t: Translate; aggregate: SessionResults["cue_runs"][number]["interactions"][number]["aggregate"] }) {
+  if (!aggregate || !aggregate.total_responses) return <p className="history-empty">{t("history.noResponses")}</p>;
+  if (aggregate.interaction_type === "understanding") return <div className="history-signals"><span className="signal-green">{t("audience.green")} <b>{aggregate.green ?? 0}</b></span><span className="signal-yellow">{t("audience.yellow")} <b>{aggregate.yellow ?? 0}</b></span><span className="signal-red">{t("audience.red")} <b>{aggregate.red ?? 0}</b></span></div>;
+  if (aggregate.interaction_type === "word_cloud") return <div className="history-words">{aggregate.entries?.map((entry) => <span key={entry.text}>{entry.text} <b>×{entry.count}</b></span>)}</div>;
+  return <div className="history-options">{aggregate.options?.map((option) => <div key={option.option_id}><span>{option.label}</span><b>{option.count}</b></div>)}</div>;
+}
+
+function formatSessionDate(value: string) {
+  return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function PresenterInsights({ t, live }: { t: Translate; live: LiveView }) {

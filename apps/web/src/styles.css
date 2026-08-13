@@ -413,6 +413,28 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .preview-dialog { width: min(860px, 96vw); max-height: 90vh; overflow: auto; background: #f8f6ef; border: 1px solid rgba(255,255,255,.3); border-radius: 26px 26px 7px 26px; box-shadow: 0 30px 100px rgba(0,0,0,.3); }
 .preview-dialog > header { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 9px 14px 9px 20px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .preview-dialog > header button { width: 34px; height: 34px; background: transparent; border: 1px solid var(--line); border-radius: 50%; font-size: 20px; }
+.session-results-dialog { width: min(1040px, 96vw); }
+.history-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 22px; background: #e8f0ec; }
+.history-summary > div { display: grid; gap: 5px; padding: 15px; background: rgba(255,255,255,.72); border-radius: 14px; }
+.history-summary small { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.history-summary strong { font-family: Georgia, serif; font-size: 21px; font-weight: 500; }
+.history-runs { display: grid; gap: 14px; padding: 22px; }
+.history-run { padding: 20px; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
+.history-run-heading { display: flex; gap: 13px; align-items: center; margin-bottom: 16px; }
+.history-run-heading > span { display: grid; width: 38px; height: 38px; place-items: center; color: #fff; background: var(--green); border-radius: 11px; font-size: 11px; font-weight: 850; }
+.history-run-heading h3, .history-interaction h4 { margin: 0; }
+.history-run-heading small { color: var(--muted); font-size: 10px; }
+.history-interaction { display: grid; grid-template-columns: minmax(220px,.7fr) 1fr; gap: 20px; padding: 15px 0; border-top: 1px solid var(--line); }
+.history-interaction h4 { margin-top: 7px; font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
+.history-signals, .history-words { display: flex; flex-wrap: wrap; gap: 7px; align-content: start; }
+.history-signals span, .history-words span { padding: 8px 10px; background: #edf4f0; border-radius: 9px; font-size: 10px; }
+.history-options { display: grid; gap: 6px; }
+.history-options > div { display: flex; justify-content: space-between; padding: 8px 10px; background: #edf4f0; border-radius: 8px; font-size: 11px; }
+.history-empty { margin: 0; color: var(--muted); font-size: 11px; }
+.history-questions { padding-top: 12px; border-top: 1px solid var(--line); }
+.history-questions h4 { margin: 0 0 8px; font-size: 11px; }
+.history-questions p { display: flex; justify-content: space-between; gap: 15px; margin: 5px 0; padding: 10px; background: #f8f6ef; border-radius: 8px; font-size: 11px; }
+.history-questions small { color: var(--muted); white-space: nowrap; }
 .projection-preview { min-height: 470px; padding: 56px; color: #fff; background: var(--ink); }
 .projection-preview small { color: var(--mint); font-weight: 800; letter-spacing: .1em; }
 .projection-preview h2 { max-width: 700px; margin: 50px 0; font-family: Georgia, serif; font-size: clamp(44px, 7vw, 78px); font-weight: 500; letter-spacing: -.05em; line-height: 1; }
