@@ -40,6 +40,44 @@ assert.match(devLogin.headers.get("set-cookie"), /slide_helper_session=/);
 const anonymousProjects = await fetch(`${baseUrl}/api/projects`);
 assert.equal(anonymousProjects.status, 401);
 
+const guestLogin = await fetch(`${baseUrl}/api/auth/guest`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ locale: "zh-TW" }),
+});
+assert.equal(guestLogin.status, 201);
+const guestCookie = guestLogin.headers.get("set-cookie").split(";", 1)[0];
+assert.match(guestCookie, /^slide_helper_session=/);
+const guestBody = await guestLogin.json();
+assert.equal(guestBody.profile.account_type, "guest");
+assert.match(guestBody.vault_id, /^[0-9a-f-]{36}$/);
+assert.equal(guestBody.profile.vault_id, guestBody.vault_id);
+assert.match(guestLogin.headers.get("set-cookie"), /Max-Age=315360000/);
+
+const guestMe = await requestJson("/api/auth/me", { cookie: guestCookie });
+assert.equal(guestMe.response.status, 200);
+assert.equal(guestMe.body.account_type, "guest");
+assert.equal(guestMe.body.vault_id, guestBody.vault_id);
+
+const repeatedGuestLogin = await requestJson("/api/auth/guest", {
+  method: "POST",
+  cookie: guestCookie,
+  body: { locale: "en" },
+});
+assert.equal(repeatedGuestLogin.response.status, 200);
+assert.equal(repeatedGuestLogin.body.vault_id, guestBody.vault_id);
+
+const guestProject = await requestJson("/api/projects", {
+  method: "POST",
+  cookie: guestCookie,
+  body: { title: "Guest Vault demo", default_locale: "zh-TW" },
+});
+assert.equal(guestProject.response.status, 201);
+const guestProjects = await requestJson("/api/projects", { cookie: guestCookie });
+assert.equal(guestProjects.response.status, 200);
+assert.equal(guestProjects.body.length, 1);
+assert.equal(guestProjects.body[0].id, guestProject.body.id);
+
 const createdProject = await requestJson("/api/projects", {
   method: "POST",
   cookie: ownerCookie,
@@ -350,6 +388,35 @@ assert.equal(understood.response.status, 201);
 assert.equal(understood.body.aggregate.total_responses, 1);
 assert.equal(understood.body.aggregate.understood, 1);
 assert.equal(understood.body.aggregate.understood_percent, 100);
+
+const anonymousLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+);
+assert.equal(anonymousLiveView.response.status, 401);
+
+const audienceLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: joinedAudience.body.token },
+);
+assert.equal(audienceLiveView.response.status, 200);
+assert.equal(audienceLiveView.body.audience_count, 1);
+assert.equal(audienceLiveView.body.aggregates.length, 2);
+assert.equal(
+  audienceLiveView.body.snapshot.current_cue_run.interactions[0].options[0].is_correct,
+  null,
+);
+
+const overlayIssue = await requestJson(
+  `/api/sessions/${commandSessionId}/tokens`,
+  { method: "POST", cookie: ownerCookie, body: { role: "overlay" } },
+);
+assert.equal(overlayIssue.response.status, 201);
+const overlayLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: overlayIssue.body.token },
+);
+assert.equal(overlayLiveView.response.status, 200);
+assert.equal(overlayLiveView.body.aggregates[0].aggregate.total_responses, 1);
 joinedSocket.close();
 
 const strangerIssue = await issueToken(
@@ -508,9 +575,10 @@ async function issueToken(role, cookie) {
   return { response, body: await response.json() };
 }
 
-async function requestJson(path, { method = "GET", cookie, body } = {}) {
+async function requestJson(path, { method = "GET", cookie, token, body } = {}) {
   const headers = {};
   if (cookie) headers.cookie = cookie;
+  if (token) headers.authorization = `Bearer ${token}`;
   if (body !== undefined) headers["content-type"] = "application/json";
   const response = await fetch(`${baseUrl}${path}`, {
     method,

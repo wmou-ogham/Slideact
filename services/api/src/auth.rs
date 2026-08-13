@@ -29,6 +29,7 @@ const OAUTH_FLOW_COOKIE: &str = "slide_helper_oauth_flow";
 const SESSION_COOKIE: &str = "slide_helper_session";
 const DEFAULT_FLOW_TTL_SECONDS: u64 = 600;
 const DEFAULT_SESSION_TTL_SECONDS: u64 = 7 * 24 * 60 * 60;
+const GUEST_COOKIE_MAX_AGE_SECONDS: u64 = 10 * 365 * 24 * 60 * 60;
 
 #[derive(Clone)]
 pub(crate) struct GoogleAuth(Arc<GoogleAuthInner>);
@@ -70,6 +71,20 @@ struct AuthenticatedProfile {
     display_name: String,
     locale: String,
     email: Option<String>,
+    account_type: String,
+    vault_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct GuestSessionResponse {
+    vault_id: Uuid,
+    profile: AuthenticatedProfile,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GuestLoginRequest {
+    locale: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,7 +100,131 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/auth/google/callback", get(google_auth_callback))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/me", get(me))
+        .route("/api/auth/guest", post(guest_login))
         .route("/api/auth/dev", post(dev_login))
+}
+
+async fn guest_login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<GuestLoginRequest>,
+) -> Result<Response, ApiError> {
+    validate_locale(&request.locale)?;
+    let secure_cookies = state
+        .google_auth
+        .as_ref()
+        .is_some_and(|auth| auth.0.secure_cookies);
+
+    if let Some(existing_token) = read_cookie(&headers, SESSION_COOKIE)
+        && let Some(existing) = load_guest_session(&state.database, existing_token).await?
+    {
+        sqlx::query("UPDATE guest_vaults SET last_seen_at = NOW() WHERE id = $1")
+            .bind(existing.vault_id)
+            .execute(&state.database)
+            .await
+            .map_err(database_error)?;
+        return guest_response(existing, existing_token, secure_cookies, StatusCode::OK);
+    }
+
+    let user_id = Uuid::new_v4();
+    let vault_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let session_token = random_token();
+    let mut transaction = state.database.begin().await.map_err(database_error)?;
+    sqlx::query("INSERT INTO profiles (id, display_name, locale) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind("Guest")
+        .bind(&request.locale)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+    sqlx::query("INSERT INTO guest_vaults (id, user_id) VALUES ($1, $2)")
+        .bind(vault_id)
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+    sqlx::query(
+        r#"
+        INSERT INTO user_sessions (id, user_id, token_hash, expires_at)
+        VALUES ($1, $2, $3, 'infinity'::timestamptz)
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(hash_secret(&session_token))
+    .execute(&mut *transaction)
+    .await
+    .map_err(database_error)?;
+    transaction.commit().await.map_err(database_error)?;
+
+    let profile = AuthenticatedProfile {
+        id: user_id,
+        display_name: "Guest".to_owned(),
+        locale: request.locale,
+        email: None,
+        account_type: "guest".to_owned(),
+        vault_id: Some(vault_id),
+    };
+    guest_response(
+        GuestSessionResponse { vault_id, profile },
+        &session_token,
+        secure_cookies,
+        StatusCode::CREATED,
+    )
+}
+
+async fn load_guest_session(
+    database: &sqlx::PgPool,
+    token: &str,
+) -> Result<Option<GuestSessionResponse>, ApiError> {
+    let profile = sqlx::query_as::<_, (Uuid, String, String, Uuid)>(
+        r#"
+        SELECT profiles.id, profiles.display_name, profiles.locale, guest_vaults.id
+        FROM user_sessions
+        JOIN profiles ON profiles.id = user_sessions.user_id
+        JOIN guest_vaults ON guest_vaults.user_id = profiles.id
+        WHERE user_sessions.token_hash = $1
+          AND user_sessions.revoked_at IS NULL
+          AND user_sessions.expires_at > NOW()
+        "#,
+    )
+    .bind(hash_secret(token))
+    .fetch_optional(database)
+    .await
+    .map_err(database_error)?;
+    Ok(profile.map(|profile| GuestSessionResponse {
+        vault_id: profile.3,
+        profile: AuthenticatedProfile {
+            id: profile.0,
+            display_name: profile.1,
+            locale: profile.2,
+            email: None,
+            account_type: "guest".to_owned(),
+            vault_id: Some(profile.3),
+        },
+    }))
+}
+
+fn guest_response(
+    payload: GuestSessionResponse,
+    token: &str,
+    secure_cookies: bool,
+    status: StatusCode,
+) -> Result<Response, ApiError> {
+    let mut response = (status, Json(payload)).into_response();
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&build_cookie(
+            SESSION_COOKIE,
+            token,
+            "/",
+            GUEST_COOKIE_MAX_AGE_SECONDS,
+            secure_cookies,
+        ))
+        .expect("generated guest cookie header must be valid"),
+    );
+    Ok(response)
 }
 
 async fn dev_login(
@@ -396,13 +535,15 @@ async fn me(
     let token = read_cookie(&headers, SESSION_COOKIE)
         .ok_or_else(|| ApiError::unauthorized("authentication_required"))?;
     let token_hash = hash_secret(token);
-    let profile = sqlx::query_as::<_, (Uuid, String, String, Option<String>)>(
+    let profile = sqlx::query_as::<_, (Uuid, String, String, Option<String>, Option<Uuid>)>(
         r#"
-        SELECT profiles.id, profiles.display_name, profiles.locale, oauth_identities.email
+        SELECT profiles.id, profiles.display_name, profiles.locale, oauth_identities.email,
+               guest_vaults.id
         FROM user_sessions
         JOIN profiles ON profiles.id = user_sessions.user_id
         LEFT JOIN oauth_identities
           ON oauth_identities.user_id = profiles.id AND oauth_identities.provider = 'google'
+        LEFT JOIN guest_vaults ON guest_vaults.user_id = profiles.id
         WHERE user_sessions.token_hash = $1
           AND user_sessions.revoked_at IS NULL
           AND user_sessions.expires_at > NOW()
@@ -422,6 +563,13 @@ async fn me(
         display_name: profile.1,
         locale: profile.2,
         email: profile.3,
+        account_type: if profile.4.is_some() {
+            "guest"
+        } else {
+            "google"
+        }
+        .to_owned(),
+        vault_id: profile.4,
     }))
 }
 
@@ -690,6 +838,14 @@ fn sanitize_return_to(value: Option<&str>) -> String {
         .filter(|path| path.starts_with('/') && !path.starts_with("//"))
         .unwrap_or("/")
         .to_owned()
+}
+
+fn validate_locale(locale: &str) -> Result<(), ApiError> {
+    if matches!(locale, "en" | "zh-TW") {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request("locale_invalid"))
+    }
 }
 
 fn secrets_equal(left: &str, right: &str) -> bool {

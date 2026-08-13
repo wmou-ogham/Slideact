@@ -3,6 +3,8 @@ export type Profile = {
   display_name: string;
   locale: string;
   email: string | null;
+  account_type: "google" | "guest";
+  vault_id: string | null;
 };
 
 export type Project = {
@@ -67,10 +69,29 @@ export type SessionSnapshot = {
     cue_id: string;
     cue_name: string;
     run_number: number;
-    state: "prepared" | "open" | "closed" | "revealed" | "skipped";
+    state: "ready" | "open" | "closed" | "revealed" | "skipped";
     state_version: number;
     interactions: SnapshotInteraction[];
   };
+};
+
+export type Aggregate = {
+  interaction_type: string;
+  total_responses: number;
+  understood?: number;
+  not_understood?: number;
+  understood_percent?: number;
+  options?: Array<{ option_id: string; label: string; count: number }>;
+};
+
+export type LiveView = {
+  snapshot: SessionSnapshot;
+  audience_count: number;
+  aggregates: Array<{
+    cue_run_id: string;
+    interaction_id: string;
+    aggregate: Aggregate;
+  }>;
 };
 
 export type SessionCommand =

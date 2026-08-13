@@ -213,6 +213,16 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         <a className="primary-button" href="/api/auth/google/start?return_to=/presenter">
           {t("auth.google")}
         </a>
+        <button
+          className="guest-button"
+          onClick={async () => {
+            await postJson("/api/auth/guest", { locale });
+            window.location.reload();
+          }}
+        >
+          {t("auth.guest")}
+        </button>
+        <small className="guest-note">{t("auth.guestNote")}</small>
       </main>
     );
   }
@@ -225,7 +235,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           <h1 className="workspace-title">{t("presenter.heading")}</h1>
         </div>
         <div className="profile-chip">
-          <span>{profile.display_name}</span>
+          <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
           <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
             {t("auth.logout")}
           </button>
@@ -342,7 +352,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   );
 }
 
-async function sendCommand(sessionId: string, expectedVersion: number, command: SessionCommand) {
+export async function sendCommand(sessionId: string, expectedVersion: number, command: SessionCommand) {
   const response = await postJson<{ snapshot: SessionSnapshot }>(
     `/api/sessions/${sessionId}/commands`,
     { idempotency_key: uuid(), expected_version: expectedVersion, command },
@@ -379,6 +389,19 @@ function LiveControl({
   }, [snapshot]);
   const cueState = snapshot?.current_cue_run?.state;
 
+  async function launchOverlay() {
+    if (!snapshot) return;
+    const target = window.open("about:blank", "_blank");
+    try {
+      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "overlay" });
+      const url = `/overlay/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
+      if (target) target.location.href = url;
+      else location.href = url;
+    } catch {
+      target?.close();
+    }
+  }
+
   return (
     <section className="live-dock">
       <div className="live-summary">
@@ -399,11 +422,11 @@ function LiveControl({
             {cues.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
           </select>
         )}
-        {cueState === "prepared" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
+        {cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
         {cueState === "open" && <button onClick={() => send({ type: "close_cue" })}>{t("live.close")}</button>}
         {cueState === "closed" && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
         {snapshot && <a className="secondary-link" href={`/remote/${snapshot.session_id}`}>{t("live.remote")}</a>}
-        {snapshot && <a className="secondary-link" href={`/overlay/${snapshot.session_id}`}>{t("live.overlay")}</a>}
+        {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
       </div>
     </section>
   );

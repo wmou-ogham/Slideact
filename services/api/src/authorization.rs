@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     routing::{delete, post},
 };
 use serde::{Deserialize, Serialize};
@@ -86,6 +86,15 @@ pub(crate) struct SessionActor {
     pub(crate) role: SessionRole,
     pub(crate) participant_id: Option<Uuid>,
     scope: TokenResourceScope,
+}
+
+pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::unauthorized("session_token_required"))
 }
 
 impl SessionActor {

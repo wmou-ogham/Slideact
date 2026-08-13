@@ -8,6 +8,7 @@ import {
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { PresenterApp } from "./PresenterApp";
+import { AudienceApp, OverlayApp, RemoteApp } from "./LiveApps";
 
 export function App() {
   const [locale, setLocale] = useState<SupportedLocale>(() =>
@@ -25,11 +26,15 @@ export function App() {
   }, [locale]);
 
   const path = window.location.pathname;
+  if (path.startsWith("/overlay/")) return <OverlayApp t={t} />;
+  if (path.startsWith("/remote/")) return <div className="app-frame"><RemoteApp t={t} /></div>;
   return (
     <div className="app-frame">
       <Topbar locale={locale} setLocale={setLocale} t={t} />
       {path.startsWith("/presenter") ? (
         <PresenterApp t={t} locale={locale} />
+      ) : path.startsWith("/join") ? (
+        <AudienceApp t={t} locale={locale} />
       ) : (
         <Landing t={t} />
       )}

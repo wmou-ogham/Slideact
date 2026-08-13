@@ -39,11 +39,12 @@
 - [x] 建立 Project、Cue、Interaction 與 Live Session HTTP API
 - [x] 建立講者 authoritative command 與 Snapshot API
 - [x] 建立 Presenter Console
-- [ ] 建立 Presenter Mobile Remote
+- [x] 建立 Presenter Mobile Remote
 - [x] 建立 Audience Join 與匿名 participant token
-- [ ] 建立透明 OBS Overlay
+- [x] 建立透明 OBS Overlay
 - [x] 實作理解度互動
 - [x] 實作單選題互動
+- [x] 建立訪客模式與長效 Guest Vault session
 - [ ] 完成 100 人基準壓測
 
 ## M3：完整 MVP 題型與編輯器
