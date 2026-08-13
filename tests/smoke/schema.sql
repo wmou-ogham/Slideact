@@ -94,6 +94,7 @@ VALUES (
 INSERT INTO responses (
     id,
     cue_run_id,
+    interaction_id,
     participant_id,
     idempotency_key,
     payload
@@ -101,6 +102,7 @@ INSERT INTO responses (
 VALUES (
     '80000000-0000-0000-0000-000000000001',
     '70000000-0000-0000-0000-000000000001',
+    '41000000-0000-0000-0000-000000000001',
     '60000000-0000-0000-0000-000000000001',
     'schema-smoke-response',
     '{"choice":"green"}'
@@ -155,6 +157,7 @@ BEGIN
         INSERT INTO responses (
             id,
             cue_run_id,
+            interaction_id,
             participant_id,
             idempotency_key,
             payload
@@ -162,6 +165,7 @@ BEGIN
         VALUES (
             '80000000-0000-0000-0000-000000000002',
             '70000000-0000-0000-0000-000000000001',
+            '41000000-0000-0000-0000-000000000001',
             '60000000-0000-0000-0000-000000000001',
             'schema-smoke-duplicate-slot',
             '{"choice":"yellow"}'

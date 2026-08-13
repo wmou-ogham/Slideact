@@ -105,6 +105,21 @@ const createdInteraction = await requestJson(
 assert.equal(createdInteraction.response.status, 201);
 assert.equal(createdInteraction.body.options.length, 2);
 
+const createdUnderstanding = await requestJson(
+  `/api/projects/${projectId}/cues/${cueId}/interactions`,
+  {
+    method: "POST",
+    cookie: ownerCookie,
+    body: {
+      interaction_type: "understanding",
+      prompt: "Do you understand this page?",
+      description: "Tap once to update your feedback",
+      options: [],
+    },
+  },
+);
+assert.equal(createdUnderstanding.response.status, 201);
+
 const cues = await requestJson(`/api/projects/${projectId}/cues`, {
   cookie: ownerCookie,
 });
@@ -180,7 +195,7 @@ const preparedCue = await sendCommand(commandSessionId, {
 });
 assert.equal(preparedCue.response.status, 200);
 assert.equal(preparedCue.body.snapshot.current_cue_run.state, "ready");
-assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 1);
+assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 2);
 assert.equal(preparedCue.body.snapshot.current_cue_run.interactions[0].options.length, 2);
 
 const openedCue = await sendCommand(commandSessionId, {
@@ -252,6 +267,81 @@ assert.deepEqual(await joinedSubscribed, {
   type: "subscribed",
   topic: joinedAudience.body.topic,
 });
+
+const unauthenticatedResponse = await requestJson(
+  `/api/audience/interactions/${createdInteraction.body.id}/responses`,
+  {
+    method: "POST",
+    body: {
+      cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+      idempotency_key: "smoke:choice-no-auth-001",
+      payload: { option_id: createdInteraction.body.options[0].id },
+    },
+  },
+);
+assert.equal(unauthenticatedResponse.response.status, 401);
+
+const aggregateEvent = waitForMessage(
+  joinedSocket,
+  (message) =>
+    message.type === "event" &&
+    message.event.event_type === "response.aggregate_updated" &&
+    message.event.event.interaction_id === createdInteraction.body.id,
+  8000,
+);
+const firstChoice = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdInteraction.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:choice-answer-001",
+    payload: { option_id: createdInteraction.body.options[0].id },
+  },
+);
+assert.equal(firstChoice.response.status, 201);
+assert.equal(firstChoice.body.aggregate.total_responses, 1);
+assert.equal(firstChoice.body.aggregate.options[0].count, 1);
+assert.equal((await aggregateEvent).event.event.aggregate.total_responses, 1);
+
+const replayedChoice = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdInteraction.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:choice-answer-001",
+    payload: { option_id: createdInteraction.body.options[0].id },
+  },
+);
+assert.equal(replayedChoice.response.status, 200);
+assert.equal(replayedChoice.body.idempotent, true);
+
+const changedChoice = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdInteraction.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:choice-answer-002",
+    payload: { option_id: createdInteraction.body.options[1].id },
+  },
+);
+assert.equal(changedChoice.response.status, 201);
+assert.equal(changedChoice.body.aggregate.total_responses, 1);
+assert.equal(changedChoice.body.aggregate.options[0].count, 0);
+assert.equal(changedChoice.body.aggregate.options[1].count, 1);
+
+const understood = await submitAudienceResponse(
+  rejoinedAudience.body.token,
+  createdUnderstanding.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:understanding-001",
+    payload: { understood: true },
+  },
+);
+assert.equal(understood.response.status, 201);
+assert.equal(understood.body.aggregate.total_responses, 1);
+assert.equal(understood.body.aggregate.understood, 1);
+assert.equal(understood.body.aggregate.understood_percent, 100);
 joinedSocket.close();
 
 const strangerIssue = await issueToken(
@@ -428,6 +518,21 @@ async function sendCommand(session, body) {
     cookie: ownerCookie,
     body,
   });
+}
+
+async function submitAudienceResponse(token, interactionId, body) {
+  const response = await fetch(
+    `${baseUrl}/api/audience/interactions/${interactionId}/responses`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  return { response, body: await response.json() };
 }
 
 function enqueueAudienceCountEvent() {

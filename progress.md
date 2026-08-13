@@ -42,8 +42,8 @@
 - [ ] 建立 Presenter Mobile Remote
 - [x] 建立 Audience Join 與匿名 participant token
 - [ ] 建立透明 OBS Overlay
-- [ ] 實作理解度互動
-- [ ] 實作單選題互動
+- [x] 實作理解度互動
+- [x] 實作單選題互動
 - [ ] 完成 100 人基準壓測
 
 ## M3：完整 MVP 題型與編輯器
