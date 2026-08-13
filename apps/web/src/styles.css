@@ -184,6 +184,12 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .pairing-code small { color: #76501d; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .pairing-code strong { font-family: Georgia, serif; font-size: 28px; letter-spacing: .16em; }
 .pairing-code span { max-width: 250px; color: #76501d; font-size: 10px; line-height: 1.4; }
+.project-actions { display: flex; gap: 5px; }
+.project-actions button { padding: 5px 7px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; font-size: 9px; }
+.join-qr { position: relative; margin-top: 3px; }
+.join-qr summary { color: #b8d7ce; cursor: pointer; font-size: 8px; white-space: nowrap; }
+.join-qr > div { position: absolute; z-index: 3; right: 0; bottom: calc(100% + 8px); width: 168px; padding: 8px; color: var(--ink); background: #fff; border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.28); }
+.join-qr svg { display: block; width: 100%; height: auto; }
 
 .audience-shell { width: min(760px, 100%); min-height: calc(100vh - 84px); margin: 0 auto; padding: 18px 24px 80px; }
 .audience-header { display: flex; min-height: 38px; align-items: center; justify-content: flex-end; margin-bottom: 36px; }

@@ -88,7 +88,7 @@
 - [x] 講者即時查看人數、回覆數、回覆率與理解警示
 - [x] 結果可見性由 API 與 WebSocket 同步強制執行
 - [x] 公布前禁止 Audience／Overlay 取得受保護的統計 payload
-- [ ] 加入專案複製與封存操作
-- [ ] 顯示觀眾加入 QR Code
+- [x] 加入專案複製與封存操作
+- [x] 顯示觀眾加入 QR Code
 - [ ] 加入觀眾寫入 rate limit 與基本垃圾內容防護
 - [ ] 完成真實 Google Slides 測試 Deck 與 Extension E2E 驗收

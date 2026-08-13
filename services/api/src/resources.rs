@@ -48,6 +48,12 @@ struct UpdateProjectRequest {
     default_locale: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DuplicateProjectRequest {
+    title: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct Cue {
     id: Uuid,
@@ -143,6 +149,10 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/api/projects/{project_id}",
             get(get_project).put(update_project).delete(archive_project),
+        )
+        .route(
+            "/api/projects/{project_id}/duplicate",
+            post(duplicate_project),
         )
         .route(
             "/api/projects/{project_id}/cues",
@@ -284,6 +294,104 @@ async fn archive_project(
     .await
     .map_err(persistence_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn duplicate_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<DuplicateProjectRequest>,
+) -> Result<(StatusCode, Json<Project>), ApiError> {
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    require_project_access(&state.database, project_id, user_id).await?;
+    let source = load_project(&state.database, project_id).await?;
+    let source_cues = load_cues(&state.database, project_id).await?;
+    let title = request
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("{} (copy)", source.title));
+    validate_title(&title)?;
+
+    let duplicate_id = Uuid::new_v4();
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    sqlx::query(
+        "INSERT INTO projects (id, owner_id, title, default_locale) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(duplicate_id)
+    .bind(user_id)
+    .bind(&title)
+    .bind(&source.default_locale)
+    .execute(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    sqlx::query("INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'owner')")
+        .bind(duplicate_id)
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+
+    for cue in source_cues {
+        let duplicate_cue_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO cues (
+                id, project_id, position, name, anchor_type, anchor_value,
+                trigger_mode, delay_seconds
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "#,
+        )
+        .bind(duplicate_cue_id)
+        .bind(duplicate_id)
+        .bind(cue.position)
+        .bind(cue.name)
+        .bind(cue.anchor_type)
+        .bind(cue.anchor_value)
+        .bind(cue.trigger_mode)
+        .bind(cue.delay_seconds)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+
+        for interaction in cue.interactions {
+            let input = InteractionInput {
+                interaction_type: interaction.interaction_type,
+                prompt: interaction.prompt,
+                description: interaction.description,
+                settings: interaction.settings,
+                options: interaction
+                    .options
+                    .into_iter()
+                    .map(|option| InteractionOptionInput {
+                        label: option.label,
+                        is_correct: option.is_correct,
+                    })
+                    .collect(),
+            };
+            insert_interaction(
+                &mut transaction,
+                Uuid::new_v4(),
+                duplicate_cue_id,
+                interaction.position,
+                &input,
+            )
+            .await?;
+        }
+    }
+
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(Project {
+            id: duplicate_id,
+            title,
+            status: "draft".to_owned(),
+            default_locale: source.default_locale,
+        }),
+    ))
 }
 
 async fn list_cues(

@@ -219,6 +219,39 @@ assert.equal(cues.response.status, 200);
 assert.equal(cues.body.length, 1);
 assert.equal(cues.body[0].interactions[0].prompt, "Which explanation is clearest?");
 
+const duplicatedProject = await requestJson(`/api/projects/${projectId}/duplicate`, {
+  method: "POST",
+  cookie: ownerCookie,
+  body: { title: "API smoke project copy" },
+});
+assert.equal(duplicatedProject.response.status, 201);
+assert.notEqual(duplicatedProject.body.id, projectId);
+assert.equal(duplicatedProject.body.title, "API smoke project copy");
+assert.equal(duplicatedProject.body.status, "draft");
+const duplicatedCues = await requestJson(
+  `/api/projects/${duplicatedProject.body.id}/cues`,
+  { cookie: ownerCookie },
+);
+assert.equal(duplicatedCues.response.status, 200);
+assert.equal(duplicatedCues.body.length, 1);
+assert.equal(duplicatedCues.body[0].interactions.length, 4);
+assert.equal(duplicatedCues.body[0].interactions[0].options.length, 2);
+assert.equal(
+  duplicatedCues.body[0].interactions[0].settings.results.audience_visibility,
+  "after_reveal",
+);
+const archivedDuplicate = await requestJson(
+  `/api/projects/${duplicatedProject.body.id}`,
+  { method: "DELETE", cookie: ownerCookie },
+);
+assert.equal(archivedDuplicate.response.status, 204);
+const projectsAfterArchive = await requestJson("/api/projects", { cookie: ownerCookie });
+assert.equal(projectsAfterArchive.response.status, 200);
+assert.equal(
+  projectsAfterArchive.body.find((item) => item.id === duplicatedProject.body.id).status,
+  "archived",
+);
+
 const createdSession = await requestJson(`/api/projects/${projectId}/sessions`, {
   method: "POST",
   cookie: ownerCookie,
@@ -981,7 +1014,10 @@ async function issueToken(role, cookie) {
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ role }),
   });
-  return { response, body: await response.json() };
+  return {
+    response,
+    body: response.status === 204 ? null : await response.json(),
+  };
 }
 
 async function requestJson(path, { method = "GET", cookie, token, body } = {}) {
@@ -994,7 +1030,10 @@ async function requestJson(path, { method = "GET", cookie, token, body } = {}) {
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { response, body: await response.json() };
+  return {
+    response,
+    body: response.status === 204 ? null : await response.json(),
+  };
 }
 
 async function sendCommand(session, body) {

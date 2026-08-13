@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import type {
@@ -197,6 +198,24 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.templateCreated"));
   }
 
+  async function duplicateProject() {
+    if (!project) return;
+    await run(async () => {
+      const duplicate = await postJson<Project>(`/api/projects/${project.id}/duplicate`, {});
+      await refreshProjects();
+      setProjectId(duplicate.id);
+    }, t("notice.projectDuplicated"));
+  }
+
+  async function archiveProject() {
+    if (!project || !window.confirm(t("project.archiveConfirm"))) return;
+    await run(async () => {
+      await apiJson(`/api/projects/${project.id}`, { method: "DELETE" });
+      setProjectId("");
+      await refreshProjects();
+    }, t("notice.projectArchived"));
+  }
+
   async function createCue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId) return;
@@ -326,6 +345,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         <aside className="panel library-panel">
           <div className="panel-heading">
             <div><span className="step">01</span><h2>{t("project.heading")}</h2></div>
+            {project && <div className="project-actions">
+              <button disabled={busy} onClick={duplicateProject}>{t("project.duplicate")}</button>
+              <button disabled={busy} onClick={archiveProject}>{t("project.archive")}</button>
+            </div>}
           </div>
           <form className="inline-form" onSubmit={createProject}>
             <input name="title" required maxLength={200} placeholder={t("project.placeholder")} />
@@ -653,7 +676,7 @@ function LiveControl({
       <div className="live-summary">
         <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
         <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
-        {snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
+        {snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong><JoinQr code={snapshot.join_code} label={t("live.joinQr")} /></div>}
       </div>
       <div className="live-actions">
         <select value={sessionId} onChange={(event) => setSessionId(event.target.value)} disabled={!sessions.length}>
@@ -704,4 +727,14 @@ function PresenterInsights({ t, live }: { t: Translate; live: LiveView }) {
       {needsAttention && <p role="alert">{t("live.attention")}</p>}
     </aside>
   );
+}
+
+function JoinQr({ code, label }: { code: string; label: string }) {
+  const svg = useMemo(() => {
+    const qr = qrcode(0, "M");
+    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
+    qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }, [code]);
+  return <details className="join-qr"><summary>{label}</summary><div aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} /></details>;
 }
