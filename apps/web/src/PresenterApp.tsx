@@ -535,6 +535,7 @@ function LiveControl({
   createSession: () => void;
   send: (command: SessionCommand) => void;
 }) {
+  const [pairingCode, setPairingCode] = useState("");
   const statusActions = useMemo(() => {
     if (!snapshot) return [];
     switch (snapshot.status) {
@@ -557,6 +558,24 @@ function LiveControl({
     } catch {
       target?.close();
     }
+  }
+
+  async function createExtensionPairing() {
+    if (!snapshot) return;
+    const response = await postJson<{ code: string }>(
+      `/api/sessions/${snapshot.session_id}/extension-pairing`,
+      {},
+    );
+    setPairingCode(response.code);
+  }
+
+  async function useManualSync() {
+    if (!snapshot) return;
+    await apiJson(`/api/sessions/${snapshot.session_id}/sync-mode`, {
+      method: "PUT",
+      body: JSON.stringify({ mode: "manual" }),
+    });
+    window.location.reload();
   }
 
   return (
@@ -585,7 +604,10 @@ function LiveControl({
         {snapshot && <a className="secondary-link" href={`/remote/${snapshot.session_id}`}>{t("live.remote")}</a>}
         {snapshot && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
+        {snapshot && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
+        {snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
+      {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
     </section>
   );
 }

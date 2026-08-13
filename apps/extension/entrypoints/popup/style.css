@@ -84,6 +84,11 @@ button {
   cursor: pointer;
 }
 
+form { display: grid; gap: 7px; margin: 12px 0; padding: 12px; background: #fff; border: 1px solid #d7d9cf; border-radius: 14px; }
+label { color: #66736f; font-size: 10px; font-weight: 700; }
+input { width: 100%; padding: 9px 10px; border: 1px solid #d7d9cf; border-radius: 8px; font: inherit; }
+#pair-code { font-weight: 850; letter-spacing: .16em; text-align: center; text-transform: uppercase; }
+
 p {
   margin: 12px 4px 0;
   font-size: 12px;

@@ -21,6 +21,13 @@
           <strong id="position-label"></strong>
         </div>
       </section>
+      <form id="pair-form">
+        <label for="server-url" id="server-label"></label>
+        <input id="server-url" type="url" required />
+        <label for="pair-code" id="pair-label"></label>
+        <input id="pair-code" maxlength="8" autocomplete="one-time-code" required />
+        <button id="pair-button" type="submit"></button>
+      </form>
       <button id="mode-button" type="button"></button>
       <p id="hint"></p>
     </main>

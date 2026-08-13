@@ -256,6 +256,122 @@ pub(crate) async fn snapshot_for_session(
     Ok(snapshot)
 }
 
+pub(crate) async fn apply_follow_position(
+    database: &PgPool,
+    session_id: Uuid,
+    slide_id: Option<&str>,
+    slide_index: Option<u32>,
+    idempotency_key: &str,
+) -> Result<(SessionSnapshot, Option<Uuid>), ApiError> {
+    let mut transaction = database.begin().await.map_err(persistence_error)?;
+    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>)>(
+        r#"
+        SELECT project_id, status, state_version, sync_mode, current_cue_run_id
+        FROM live_sessions WHERE id = $1 FOR UPDATE
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::not_found("session_not_found"))?;
+    let mut locked = LockedSession {
+        project_id: row.0,
+        status: parse_session_state(&row.1)?,
+        state_version: u64::try_from(row.2)
+            .map_err(|_| ApiError::internal("state_version_invalid"))?,
+        sync_mode: row.3,
+        current_cue_run_id: row.4,
+    };
+    if !matches!(
+        locked.status,
+        LiveSessionState::Lobby | LiveSessionState::Live | LiveSessionState::Paused
+    ) {
+        return Err(ApiError::conflict("command_invalid_transition"));
+    }
+
+    let slide_number = slide_index
+        .map(|value| value + 1)
+        .map(|value| value.to_string());
+    let cue = sqlx::query_as::<_, (Uuid, String)>(
+        r#"
+        SELECT id, trigger_mode FROM cues
+        WHERE project_id = $1 AND anchor_type = 'deck_slide'
+          AND (($2::TEXT IS NOT NULL AND anchor_value = $2)
+            OR ($3::TEXT IS NOT NULL AND anchor_value = $3))
+        ORDER BY position, id LIMIT 1
+        "#,
+    )
+    .bind(locked.project_id)
+    .bind(slide_number)
+    .bind(slide_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+
+    let mode_changed = locked.sync_mode != "auto_connected";
+    if mode_changed {
+        locked.sync_mode = "auto_connected".to_owned();
+        sqlx::query("UPDATE live_sessions SET sync_mode = 'auto_connected' WHERE id = $1")
+            .bind(session_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(persistence_error)?;
+    }
+
+    let Some((cue_id, trigger_mode)) = cue else {
+        if mode_changed {
+            increment_session_version(&mut transaction, session_id, &mut locked).await?;
+            emit_event_to_all(
+                &mut transaction,
+                session_id,
+                locked.state_version,
+                json!({"event_type": "sync.mode_changed", "sync_mode": "auto_connected"}),
+                idempotency_key,
+            )
+            .await?;
+        }
+        let snapshot = load_snapshot(&mut transaction, session_id).await?;
+        transaction.commit().await.map_err(persistence_error)?;
+        return Ok((snapshot, None));
+    };
+
+    let current_cue_id = match locked.current_cue_run_id {
+        Some(run_id) => sqlx::query_scalar::<_, Uuid>("SELECT cue_id FROM cue_runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(persistence_error)?,
+        None => None,
+    };
+    if current_cue_id != Some(cue_id) {
+        prepare_cue(
+            &mut transaction,
+            session_id,
+            &mut locked,
+            cue_id,
+            idempotency_key,
+        )
+        .await?;
+        if trigger_mode == "immediate" && locked.status == LiveSessionState::Live {
+            apply_cue_command(
+                &mut transaction,
+                session_id,
+                &mut locked,
+                &SessionCommand::OpenCue,
+                &format!("{idempotency_key}-open"),
+            )
+            .await?;
+        }
+    } else if mode_changed {
+        increment_session_version(&mut transaction, session_id, &mut locked).await?;
+    }
+
+    let snapshot = load_snapshot(&mut transaction, session_id).await?;
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok((snapshot, Some(cue_id)))
+}
+
 async fn lock_authorized_session(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,

@@ -7,6 +7,31 @@ export default defineContentScript({
   matches: ["https://docs.google.com/presentation/*"],
   runAt: "document_idle",
   main() {
+    let overlay: HTMLIFrameElement | null = null;
+    const renderOverlay = (status: { overlayUrl?: string | null }) => {
+      if (!status.overlayUrl) {
+        overlay?.remove();
+        overlay = null;
+        return;
+      }
+      if (!overlay) {
+        overlay = document.createElement("iframe");
+        overlay.id = "slideact-live-overlay";
+        overlay.title = "Slideact live audience overlay";
+        Object.assign(overlay.style, {
+          position: "fixed", inset: "0", width: "100vw", height: "100vh",
+          border: "0", zIndex: "2147483647", pointerEvents: "none", background: "transparent",
+        });
+        document.documentElement.append(overlay);
+      }
+      if (overlay.src !== status.overlayUrl) overlay.src = status.overlayUrl;
+    };
+    void browser.runtime.sendMessage({ type: MESSAGE_TYPES.getStatus }).then(renderOverlay);
+    browser.runtime.onMessage.addListener((message: unknown) => {
+      if (typeof message === "object" && message !== null && "type" in message && message.type === MESSAGE_TYPES.statusUpdated && "payload" in message) {
+        renderOverlay(message.payload as { overlayUrl?: string | null });
+      }
+    });
     const detector = new GoogleSlidesDetector((position) => {
       const message: ExtensionMessage = {
         type: MESSAGE_TYPES.position,

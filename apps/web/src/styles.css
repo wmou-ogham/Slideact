@@ -174,6 +174,10 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .live-actions button { white-space: nowrap; }
 .secondary-link { padding: 9px 10px; color: #b8d7ce; font-size: 11px; font-weight: 720; text-decoration: none; white-space: nowrap; }
 .live-actions button.secondary-link { min-height: auto; padding: 9px 10px; color: #b8d7ce; background: transparent; font-size: 11px; }
+.pairing-code { position: absolute; right: 18px; bottom: calc(100% + 10px); display: grid; gap: 4px; padding: 14px 18px; color: var(--ink); background: #f5cc7d; border: 1px solid #dca957; border-radius: 15px 15px 4px 15px; box-shadow: 0 16px 45px rgba(0,0,0,.2); }
+.pairing-code small { color: #76501d; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.pairing-code strong { font-family: Georgia, serif; font-size: 28px; letter-spacing: .16em; }
+.pairing-code span { max-width: 250px; color: #76501d; font-size: 10px; line-height: 1.4; }
 
 .audience-shell { width: min(760px, 100%); min-height: calc(100vh - 84px); margin: 0 auto; padding: 18px 24px 80px; }
 .audience-header { display: flex; min-height: 38px; align-items: center; justify-content: flex-end; margin-bottom: 36px; }

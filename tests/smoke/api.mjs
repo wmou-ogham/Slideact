@@ -107,8 +107,8 @@ const createdCue = await requestJson(`/api/projects/${projectId}/cues`, {
   cookie: ownerCookie,
   body: {
     name: "Check understanding",
-    anchor_type: "manual",
-    anchor_value: null,
+    anchor_type: "deck_slide",
+    anchor_value: "5",
     trigger_mode: "presenter_confirm",
     delay_seconds: 0,
   },
@@ -290,6 +290,63 @@ const authoritativeSnapshot = await requestJson(
 assert.equal(authoritativeSnapshot.response.status, 200);
 assert.equal(authoritativeSnapshot.body.current_cue_run.state, "open");
 assert.equal(authoritativeSnapshot.body.state_version, 4);
+
+const extensionPairing = await requestJson(
+  `/api/sessions/${commandSessionId}/extension-pairing`,
+  { method: "POST", cookie: ownerCookie, body: {} },
+);
+assert.equal(extensionPairing.response.status, 201);
+assert.match(extensionPairing.body.code, /^[A-Z2-9]{8}$/);
+
+const pairedExtension = await requestJson("/api/extension/pair", {
+  method: "POST",
+  body: { code: extensionPairing.body.code.toLowerCase(), device_id: "ci-extension" },
+});
+assert.equal(pairedExtension.response.status, 200);
+assert.equal(pairedExtension.body.session_id, commandSessionId);
+assert.match(pairedExtension.body.token, /^[A-Za-z0-9_-]{43}$/);
+assert.match(pairedExtension.body.overlay_token, /^[A-Za-z0-9_-]{43}$/);
+
+const reusedPairing = await requestJson("/api/extension/pair", {
+  method: "POST",
+  body: { code: extensionPairing.body.code, device_id: "second-extension" },
+});
+assert.equal(reusedPairing.response.status, 404);
+
+const followedPosition = await requestJson("/api/extension/position", {
+  method: "POST",
+  token: pairedExtension.body.token,
+  body: {
+    deck_id: "ci-google-deck",
+    slide_id: "slide-five",
+    slide_index: 4,
+    detected_at: Date.now(),
+  },
+});
+assert.equal(followedPosition.response.status, 200);
+assert.equal(followedPosition.body.matched, true);
+assert.equal(followedPosition.body.cue_id, cueId);
+assert.equal(followedPosition.body.snapshot.sync_mode, "auto_connected");
+
+const wrongDeckPosition = await requestJson("/api/extension/position", {
+  method: "POST",
+  token: pairedExtension.body.token,
+  body: {
+    deck_id: "another-google-deck",
+    slide_id: "slide-five",
+    slide_index: 4,
+    detected_at: Date.now() + 1,
+  },
+});
+assert.equal(wrongDeckPosition.response.status, 409);
+assert.deepEqual(wrongDeckPosition.body, { code: "deck_not_paired" });
+
+const manualSync = await requestJson(
+  `/api/sessions/${commandSessionId}/sync-mode`,
+  { method: "PUT", cookie: ownerCookie, body: { mode: "manual" } },
+);
+assert.equal(manualSync.response.status, 200);
+assert.equal(manualSync.body.sync_mode, "manual");
 
 const invalidJoin = await requestJson("/api/audience/join", {
   method: "POST",

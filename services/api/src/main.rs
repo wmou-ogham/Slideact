@@ -11,6 +11,7 @@ mod live_views;
 mod questions;
 mod realtime;
 mod resources;
+mod sync;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -30,7 +31,7 @@ use slide_helper_protocol::{
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::{net::TcpListener, signal, sync::broadcast};
-use tower_http::trace::TraceLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{info, info_span, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -96,7 +97,9 @@ async fn main() -> Result<()> {
         .merge(live_views::router())
         .merge(questions::router())
         .merge(resources::router())
+        .merge(sync::router())
         .with_state(state)
+        .layer(CorsLayer::permissive())
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
                 info_span!(

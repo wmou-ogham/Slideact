@@ -58,10 +58,10 @@
 
 ## M4：Google Slides 自動跟隨
 
-- [ ] 實作 Extension pairing
-- [ ] 實作 Deck／Slide mapping
-- [ ] 實作自動 position command
-- [ ] 注入 Overlay iframe
+- [x] 實作 Extension pairing
+- [x] 實作 Deck／Slide mapping
+- [x] 實作自動 position command
+- [x] 注入 Overlay iframe
 - [ ] 實作 Extension heartbeat、暫停與診斷
 - [ ] 完成自動跟隨相容性矩陣
 
