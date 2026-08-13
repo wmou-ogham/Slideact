@@ -595,9 +595,16 @@ const strangerErrors = await requestJson("/api/diagnostics/client-errors", {
 assert.equal(strangerErrors.response.status, 200);
 assert.equal(strangerErrors.body.length, 0);
 
-const invalidJoin = await requestJson("/api/audience/join", {
+const missingGrandfatheredJoin = await requestJson("/api/audience/join", {
   method: "POST",
   body: { join_code: "ABC23D", locale: "en", participant_key: null },
+});
+assert.equal(missingGrandfatheredJoin.response.status, 404);
+assert.deepEqual(missingGrandfatheredJoin.body, { code: "join_code_not_found" });
+
+const invalidJoin = await requestJson("/api/audience/join", {
+  method: "POST",
+  body: { join_code: "AB-23D", locale: "en", participant_key: null },
 });
 assert.equal(invalidJoin.response.status, 400);
 assert.deepEqual(invalidJoin.body, { code: "join_code_invalid" });

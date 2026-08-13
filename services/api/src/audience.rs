@@ -170,8 +170,10 @@ async fn upsert_participant(
 }
 
 fn normalize_join_code(value: &str) -> Result<String, ApiError> {
-    let value = value.trim().to_owned();
-    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+    // New sessions issue digits only. Keep accepting the previous A-Z/0-9
+    // format until any already-shared live rooms have naturally ended.
+    let value = value.trim().to_ascii_uppercase();
+    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
         return Err(ApiError::bad_request("join_code_invalid"));
     }
     Ok(value)
@@ -206,9 +208,10 @@ mod tests {
     use super::{normalize_join_code, validate_participant_key};
 
     #[test]
-    fn join_codes_accept_exactly_six_digits() {
+    fn join_codes_accept_numeric_and_grandfathered_live_formats() {
         assert_eq!(normalize_join_code(" 234567 ").unwrap(), "234567");
-        assert!(normalize_join_code("AB2345").is_err());
+        assert_eq!(normalize_join_code(" ab2345 ").unwrap(), "AB2345");
+        assert!(normalize_join_code("AB-345").is_err());
         assert!(normalize_join_code("short").is_err());
     }
 

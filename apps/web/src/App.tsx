@@ -88,7 +88,7 @@ function Landing({ t }: { t: (key: MessageKey) => string }) {
           <div className="hero-actions">
             <a className="primary-button" href="/presenter">{t("landing.presenterCta")}</a>
             <form className="join-form" onSubmit={join}>
-              <input inputMode="numeric" pattern="[0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
+              <input inputMode="text" autoCapitalize="characters" pattern="[A-Za-z0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
               <button>{t("landing.join")}</button>
             </form>
           </div>

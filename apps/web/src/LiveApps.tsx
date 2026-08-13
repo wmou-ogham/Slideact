@@ -162,7 +162,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
         <h1>{t("audience.joinHeading")}</h1>
         <p>{t("audience.joinCopy")}</p>
         <form onSubmit={join}>
-          <input autoFocus inputMode="numeric" pattern="[0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
+          <input autoFocus inputMode="text" autoCapitalize="characters" pattern="[A-Za-z0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
           <button className="primary-button" disabled={busy || code.length !== 6}>{t("landing.join")}</button>
         </form>
         {error && <p className="form-error" role="alert">{error}</p>}
