@@ -85,6 +85,16 @@ export type Aggregate = {
   entries?: Array<{ text: string; count: number }>;
 };
 
+export type Question = {
+  id: string;
+  cue_run_id: string;
+  body: string;
+  status: "pending" | "visible" | "answered" | "hidden" | "pinned";
+  votes: number;
+  voted_by_me: boolean;
+  created_at: string;
+};
+
 export type LiveView = {
   snapshot: SessionSnapshot;
   audience_count: number;
@@ -93,6 +103,7 @@ export type LiveView = {
     interaction_id: string;
     aggregate: Aggregate;
   }>;
+  questions: Question[];
 };
 
 export type SessionCommand =

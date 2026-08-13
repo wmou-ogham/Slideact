@@ -181,6 +181,21 @@ const createdWordCloud = await requestJson(
 );
 assert.equal(createdWordCloud.response.status, 201);
 
+const createdQa = await requestJson(
+  `/api/projects/${projectId}/cues/${cueId}/interactions`,
+  {
+    method: "POST",
+    cookie: ownerCookie,
+    body: {
+      interaction_type: "qa",
+      prompt: "What would you like the presenter to clarify?",
+      description: "Ask and upvote audience questions",
+      options: [],
+    },
+  },
+);
+assert.equal(createdQa.response.status, 201);
+
 const cues = await requestJson(`/api/projects/${projectId}/cues`, {
   cookie: ownerCookie,
 });
@@ -256,7 +271,7 @@ const preparedCue = await sendCommand(commandSessionId, {
 });
 assert.equal(preparedCue.response.status, 200);
 assert.equal(preparedCue.body.snapshot.current_cue_run.state, "ready");
-assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 3);
+assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 4);
 assert.equal(preparedCue.body.snapshot.current_cue_run.interactions[0].options.length, 2);
 
 const openedCue = await sendCommand(commandSessionId, {
@@ -418,6 +433,55 @@ assert.equal(wordCloud.body.aggregate.interaction_type, "word_cloud");
 assert.equal(wordCloud.body.aggregate.total_responses, 1);
 assert.equal(wordCloud.body.aggregate.entries[0].text, "clarity");
 
+const submittedQuestion = await requestJson("/api/audience/questions", {
+  method: "POST",
+  token: joinedAudience.body.token,
+  body: {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    body: "Could you show another real-world example?",
+  },
+});
+assert.equal(submittedQuestion.response.status, 201);
+assert.equal(submittedQuestion.body.status, "visible");
+assert.equal(submittedQuestion.body.votes, 0);
+
+const votedQuestion = await requestJson(
+  `/api/audience/questions/${submittedQuestion.body.id}/vote`,
+  { method: "POST", token: joinedAudience.body.token },
+);
+assert.equal(votedQuestion.response.status, 200);
+assert.deepEqual(votedQuestion.body, { voted: true, votes: 1 });
+
+const unvotedQuestion = await requestJson(
+  `/api/audience/questions/${submittedQuestion.body.id}/vote`,
+  { method: "POST", token: joinedAudience.body.token },
+);
+assert.equal(unvotedQuestion.response.status, 200);
+assert.deepEqual(unvotedQuestion.body, { voted: false, votes: 0 });
+
+const revotedQuestion = await requestJson(
+  `/api/audience/questions/${submittedQuestion.body.id}/vote`,
+  { method: "POST", token: rejoinedAudience.body.token },
+);
+assert.equal(revotedQuestion.response.status, 200);
+assert.deepEqual(revotedQuestion.body, { voted: true, votes: 1 });
+
+const presenterQuestions = await requestJson(
+  `/api/sessions/${commandSessionId}/questions`,
+  { cookie: ownerCookie },
+);
+assert.equal(presenterQuestions.response.status, 200);
+assert.equal(presenterQuestions.body.length, 1);
+assert.equal(presenterQuestions.body[0].body, submittedQuestion.body.body);
+
+const pinnedQuestion = await requestJson(
+  `/api/sessions/${commandSessionId}/questions/${submittedQuestion.body.id}`,
+  { method: "PATCH", cookie: ownerCookie, body: { status: "pinned" } },
+);
+assert.equal(pinnedQuestion.response.status, 200);
+assert.equal(pinnedQuestion.body.status, "pinned");
+assert.equal(pinnedQuestion.body.votes, 1);
+
 const anonymousLiveView = await requestJson(
   `/api/live/sessions/${commandSessionId}`,
 );
@@ -430,6 +494,9 @@ const audienceLiveView = await requestJson(
 assert.equal(audienceLiveView.response.status, 200);
 assert.equal(audienceLiveView.body.audience_count, 1);
 assert.equal(audienceLiveView.body.aggregates.length, 3);
+assert.equal(audienceLiveView.body.questions.length, 1);
+assert.equal(audienceLiveView.body.questions[0].status, "pinned");
+assert.equal(audienceLiveView.body.questions[0].voted_by_me, true);
 assert.equal(
   audienceLiveView.body.snapshot.current_cue_run.interactions[0].options[0].is_correct,
   null,

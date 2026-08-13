@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import { sendCommand } from "./PresenterApp";
-import type { Cue, LiveView, SessionCommand, SessionSnapshot, SnapshotInteraction } from "./types";
+import type { Cue, LiveView, Question, SessionCommand, SessionSnapshot, SnapshotInteraction } from "./types";
 
 type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
@@ -53,7 +53,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       });
       localStorage.setItem("slide-helper-participant-key", response.participant_key);
       setJoined(response);
-      setLive({ snapshot: response.snapshot, audience_count: 1, aggregates: [] });
+      setLive({ snapshot: response.snapshot, audience_count: 1, aggregates: [], questions: [] });
       history.replaceState(null, "", `/join/${code.toUpperCase()}`);
     } catch (cause) {
       setError(
@@ -81,6 +81,41 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
         }),
       });
       setAnswers((current) => ({ ...current, [interaction.id]: label }));
+      await refresh();
+    } catch (cause) {
+      setError(t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitQuestion(body: string) {
+    if (!joined || !live?.snapshot.current_cue_run) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiJson("/api/audience/questions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.token}` },
+        body: JSON.stringify({ cue_run_id: live.snapshot.current_cue_run.id, body }),
+      });
+      await refresh();
+    } catch (cause) {
+      setError(t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function voteQuestion(questionId: string) {
+    if (!joined) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiJson(`/api/audience/questions/${questionId}/vote`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${joined.token}` },
+      });
       await refresh();
     } catch (cause) {
       setError(t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" }));
@@ -127,6 +162,9 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
                   answer={answers[interaction.id]}
                   busy={busy}
                   submit={(payload, label) => answer(interaction, payload, label)}
+                  questions={live?.questions ?? []}
+                  submitQuestion={submitQuestion}
+                  voteQuestion={voteQuestion}
                 />
               ))}
             </div>
@@ -150,14 +188,18 @@ function WaitingState({ t, status }: { t: Translate; status: string }) {
   );
 }
 
-function AudienceInteraction({ t, interaction, answer, busy, submit }: {
+function AudienceInteraction({ t, interaction, answer, busy, submit, questions, submitQuestion, voteQuestion }: {
   t: Translate;
   interaction: SnapshotInteraction;
   answer?: string;
   busy: boolean;
   submit: (payload: Record<string, unknown>, label: string) => void;
+  questions: Question[];
+  submitQuestion: (body: string) => Promise<void>;
+  voteQuestion: (questionId: string) => Promise<void>;
 }) {
   const [text, setText] = useState("");
+  const [questionBody, setQuestionBody] = useState("");
 
   return (
     <article className="audience-question">
@@ -196,7 +238,28 @@ function AudienceInteraction({ t, interaction, answer, busy, submit }: {
           <button disabled={busy || !text.trim()}>{t("audience.send")}</button>
         </form>
       )}
-      {interaction.interaction_type === "qa" && <p className="pending-type">{t("audience.typeSoon")}</p>}
+      {interaction.interaction_type === "qa" && (
+        <div className="qa-audience">
+          <form className="text-response" onSubmit={async (event) => {
+            event.preventDefault();
+            const value = questionBody.trim();
+            if (!value) return;
+            await submitQuestion(value);
+            setQuestionBody("");
+          }}>
+            <textarea
+              value={questionBody}
+              onChange={(event) => setQuestionBody(event.target.value)}
+              maxLength={500}
+              placeholder={t("qa.placeholder")}
+              disabled={busy}
+              rows={3}
+            />
+            <button disabled={busy || !questionBody.trim()}>{t("qa.ask")}</button>
+          </form>
+          <QuestionList t={t} questions={questions} busy={busy} onVote={voteQuestion} />
+        </div>
+      )}
       {answer && <p className="answer-saved">{t("audience.saved")}</p>}
     </article>
   );
@@ -208,6 +271,37 @@ function ResultsView({ t, live, cueName, state }: { t: Translate; live: LiveView
       <p className="eyebrow">{state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
       <h1>{cueName}</h1>
       {live?.aggregates.map((item) => <AggregateBars key={item.interaction_id} aggregate={item.aggregate} />)}
+      {live?.questions.length ? <QuestionList t={t} questions={live.questions} busy /> : null}
+    </div>
+  );
+}
+
+function QuestionList({ t, questions, busy, onVote }: {
+  t: Translate;
+  questions: Question[];
+  busy: boolean;
+  onVote?: (questionId: string) => Promise<void>;
+}) {
+  if (!questions.length) return <p className="qa-empty">{t("qa.empty")}</p>;
+  return (
+    <div className="question-list">
+      {questions.map((question) => (
+        <article className={`question-card question-${question.status}`} key={question.id}>
+          <div>
+            {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
+            <p>{question.body}</p>
+            {question.status === "answered" && <small>{t("qa.answered")}</small>}
+          </div>
+          <button
+            className={question.voted_by_me ? "question-vote selected" : "question-vote"}
+            disabled={busy || !onVote}
+            onClick={() => onVote?.(question.id)}
+            aria-label={t("qa.votes", { count: question.votes })}
+          >
+            <b>▲</b>{question.votes}
+          </button>
+        </article>
+      ))}
     </div>
   );
 }
@@ -238,13 +332,19 @@ export function RemoteApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [cues, setCues] = useState<Cue[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     const next = await apiJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`);
     setSnapshot(next);
-    setCues(await apiJson<Cue[]>(`/api/projects/${next.project_id}/cues`));
+    const [nextCues, nextQuestions] = await Promise.all([
+      apiJson<Cue[]>(`/api/projects/${next.project_id}/cues`),
+      apiJson<Question[]>(`/api/sessions/${sessionId}/questions`),
+    ]);
+    setCues(nextCues);
+    setQuestions(nextQuestions);
   }, [sessionId]);
 
   useEffect(() => {
@@ -262,6 +362,22 @@ export function RemoteApp({ t }: { t: Translate }) {
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
       await refresh().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateQuestion(questionId: string, status: Question["status"]) {
+    setBusy(true);
+    try {
+      await apiJson(`/api/sessions/${sessionId}/questions/${questionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await refresh();
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.code : "network_error");
     } finally {
       setBusy(false);
     }
@@ -289,6 +405,27 @@ export function RemoteApp({ t }: { t: Translate }) {
         <h2>{t("remote.cues")}</h2>
         {cues.map((cue) => <button disabled={busy} key={cue.id} onClick={() => send({ type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{cue.name}<small>{cue.anchor_value ? t("cue.slide", { slide: cue.anchor_value }) : t("cue.manual")}</small></button>)}
       </section>
+      {questions.length > 0 && (
+        <section className="remote-questions">
+          <h2>{t("qa.heading")}</h2>
+          <div className="question-list">
+            {questions.map((question) => (
+              <article className={`question-card question-${question.status}`} key={question.id}>
+                <div>
+                  {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
+                  <p>{question.body}</p>
+                  <small>{t("qa.votes", { count: question.votes })}</small>
+                </div>
+                <div className="question-actions">
+                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
+                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.restore") : t("qa.markAnswered")}</button>
+                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       {error && error !== "auth" && <p className="form-error">{t("error.generic", { code: error })}</p>}
     </main>
   );
@@ -323,12 +460,14 @@ export function OverlayApp({ t }: { t: Translate }) {
   if (!live) return <main className="overlay-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
   if (!cueRun || cueRun.state === "ready") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("live.joinCode")}</small><strong>{live.snapshot.join_code}</strong></div></main>;
+  const pinnedQuestion = live.questions.find((question) => question.status === "pinned");
   return (
     <main className="overlay-root">
       <section className="overlay-card">
         <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
         <h1>{cueRun.interactions[0]?.prompt ?? cueRun.cue_name}</h1>
         {live.aggregates.length ? live.aggregates.map((item) => <AggregateBars key={item.interaction_id} aggregate={item.aggregate} />) : <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
+        {pinnedQuestion && <div className="overlay-question"><span>{t("qa.pinned")}</span><p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>}
       </section>
     </main>
   );

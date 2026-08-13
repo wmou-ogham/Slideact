@@ -7,6 +7,7 @@ mod auth;
 mod authorization;
 mod commands;
 mod live_views;
+mod questions;
 mod realtime;
 mod resources;
 
@@ -91,6 +92,7 @@ async fn main() -> Result<()> {
         .merge(authorization::router())
         .merge(commands::router())
         .merge(live_views::router())
+        .merge(questions::router())
         .merge(resources::router())
         .with_state(state)
         .layer(

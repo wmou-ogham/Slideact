@@ -21,6 +21,8 @@
 /test-results/
 /playwright-report/
 /.turbo/
+/logs/
+/.codex-sync/
 
 # Local volumes and generated files
 /.data/

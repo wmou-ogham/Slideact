@@ -14,6 +14,7 @@ use crate::{
     api_error::ApiError,
     authorization::{SessionRole, authenticate_session_token, bearer_token},
     commands::{SessionSnapshot, snapshot_for_session},
+    questions::{QuestionView, load_questions},
 };
 
 #[derive(Debug, Serialize)]
@@ -21,6 +22,7 @@ struct LiveView {
     snapshot: SessionSnapshot,
     audience_count: i64,
     aggregates: Vec<AggregateView>,
+    questions: Vec<QuestionView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,11 +81,22 @@ async fn get_live_view(
         aggregate: row.2,
     })
     .collect();
+    let questions = load_questions(
+        &state.database,
+        session_id,
+        actor.participant_id,
+        matches!(
+            actor.role,
+            SessionRole::Owner | SessionRole::Presenter | SessionRole::Controller
+        ),
+    )
+    .await?;
 
     Ok(Json(LiveView {
         snapshot,
         audience_count,
         aggregates,
+        questions,
     }))
 }
 

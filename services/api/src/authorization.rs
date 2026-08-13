@@ -298,7 +298,7 @@ pub(crate) async fn session_actor_is_active(
     .map_err(persistence_error)
 }
 
-async fn require_session_owner(
+pub(crate) async fn require_session_owner(
     database: &sqlx::PgPool,
     session_id: Uuid,
     user_id: Uuid,
