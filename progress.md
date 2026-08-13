@@ -107,3 +107,13 @@
 - [x] 使用正式文字雲排版套件並改善對比
 - [x] 手機遙控器加入活動限定 controller token 與 QR Code（不暴露 Vault 憑證）
 - [x] 手機遙控器加入上一頁、下一頁與狀態感知作答控制
+
+## Beta 交付稽核
+
+- [x] 建立可重現的 Beta 交付狀態與測試證據文件
+- [x] 確認六個部署服務健康、Extension 產物 checksum 與 commit 簽章
+- [x] 確認 GitHub Actions workflow 已納入程式庫並保存完整 CI log artifact
+- [ ] 注入正式 Google OAuth 憑證並以 HTTPS callback 驗收
+- [ ] 使用已登入 Google 的 Chrome 與真實 Slides deck 完成 Extension E2E
+- [ ] 由 5～10 位真人講者完成封閉 Beta 腳本
+- [ ] 使用 GitHub 管理權限設定 About description 並確認雲端 Actions run
