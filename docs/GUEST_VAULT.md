@@ -1,6 +1,6 @@
 # Guest Vault
 
-訪客模式讓講者不必先完成 Google OAuth 就能開始使用 Slide Helper。第一次按下「以訪客模式繼續」時，API 會在同一個 transaction 中建立：
+訪客模式讓講者不必先完成 Google OAuth 就能開始使用 Slideact。第一次按下「以訪客模式繼續」時，API 會在同一個 transaction 中建立：
 
 - 一個沒有 email 的 guest profile
 - 一個與該 profile 一對一的 `guest_vaults` 記錄

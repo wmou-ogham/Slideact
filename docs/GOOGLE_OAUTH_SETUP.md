@@ -1,6 +1,6 @@
 # Google OAuth 設定
 
-Slide Helper 使用 Google OpenID Connect Authorization Code Flow、PKCE、state 與 nonce 登入。應用程式只保存 Google `sub` 對應、基本個人資料與 Slide Helper 自己的雜湊 session token，不保存 Google access token 或 refresh token。
+Slideact 使用 Google OpenID Connect Authorization Code Flow、PKCE、state 與 nonce 登入。應用程式只保存 Google `sub` 對應、基本個人資料與 Slideact 自己的雜湊 session token，不保存 Google access token 或 refresh token。
 
 ## Google Cloud 設定
 

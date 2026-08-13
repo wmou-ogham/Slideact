@@ -1,6 +1,6 @@
 # Session Token 與即時權限
 
-Slide Helper 將 Google 登入 session 與直播場次 token 分開：
+Slideact 將 Google 登入 session 與直播場次 token 分開：
 
 - Google 登入後的 `user_sessions` cookie 用來管理專案與發行場次 token。
 - Presenter、Remote、Audience、Overlay 與 Extension 使用短效、單一 session 範圍的 opaque token。

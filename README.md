@@ -1,4 +1,6 @@
-# Slide Helper
+# Slideact
+
+A Slido alternative for live polls, quizzes, word clouds, Q&A, and real-time audience feedback that works with Google Slides and more.
 
 跨 Google Slides、PowerPoint、Keynote 與 OBS 的即時觀眾互動層。
 
@@ -13,6 +15,7 @@
 - [隱私與資料刪除](docs/PRIVACY.md)
 - [系統診斷與錯誤追蹤](docs/DIAGNOSTICS.md)
 - [無障礙與中英文驗收](docs/ACCESSIBILITY_I18N.md)
+- [5～10 位講者封閉 Beta 腳本](docs/BETA_TEST.md)
 
 ## 啟動開發堆疊
 

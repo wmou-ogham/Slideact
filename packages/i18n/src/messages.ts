@@ -1,5 +1,5 @@
 const en = {
-  "app.name": "Slide Helper",
+  "app.name": "Slideact",
   "app.tagline": "Live audience interaction that follows your presentation.",
   "language.label": "Language",
   "locale.en": "English",
@@ -158,7 +158,7 @@ export type MessageKey = keyof typeof en;
 type Catalog = Record<MessageKey, string>;
 
 const zhTW: Catalog = {
-  "app.name": "Slide Helper",
+  "app.name": "Slideact",
   "app.tagline": "跟著簡報前進的即時觀眾互動層。",
   "language.label": "語言",
   "locale.en": "English",
