@@ -52,6 +52,12 @@ Topic authorization remains independent of the event type:
 The database function, Worker, API Redis subscriber, replay loader, and
 WebSocket actor all validate that the topic belongs to the same session.
 
+## Client recovery contract
+
+Clients store the highest applied sequence per topic. After reconnecting they subscribe with `after_sequence`; the API replays persisted events in order. Duplicate `event_id` or sequence values are ignored. If the server returns `snapshot_required`, or the in-memory channel reports `event_gap`, the client fetches its role-authorized live Snapshot and treats it as authoritative before resubscribing. Audience, presenter and overlay web surfaces also poll their Snapshot as a low-frequency fallback when a browser suspends a WebSocket.
+
+Commands are optimistic and serialized by the locked live-session row. Two commands sent with the same `expected_version` cannot both succeed: the winner advances `state_version`, while the other receives `state_version_conflict` and must reload the Snapshot before deciding whether to retry. Idempotency receipts make a replay of the exact winning command safe.
+
 ## Worker configuration
 
 | Variable | Default | Purpose |

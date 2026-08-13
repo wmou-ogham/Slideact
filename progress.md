@@ -70,8 +70,8 @@
 - [x] 實作五種 Sync State
 - [x] 實作 Auto → Manual 無損接手
 - [x] 實作 Extension 恢復後 Resync 確認
-- [ ] 實作 Snapshot／event gap recovery
-- [ ] 完成 Command 競態測試
+- [x] 實作 Snapshot／event gap recovery
+- [x] 完成 Command 競態測試
 
 ## M6：封閉 Beta
 

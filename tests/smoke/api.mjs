@@ -823,6 +823,38 @@ await assert.rejects(
 
 presenter.close();
 audience.close();
+
+const raceProject = await requestJson("/api/projects", {
+  method: "POST",
+  cookie: ownerCookie,
+  body: { title: "Command race fixture", default_locale: "en" },
+});
+assert.equal(raceProject.response.status, 201);
+const raceSession = await requestJson(
+  `/api/projects/${raceProject.body.id}/sessions`,
+  { method: "POST", cookie: ownerCookie, body: { locale: "en" } },
+);
+assert.equal(raceSession.response.status, 201);
+const raceResults = await Promise.all([
+  sendCommand(raceSession.body.id, {
+    idempotency_key: "smoke:race-open-lobby-a",
+    expected_version: 0,
+    command: { type: "open_lobby" },
+  }),
+  sendCommand(raceSession.body.id, {
+    idempotency_key: "smoke:race-open-lobby-b",
+    expected_version: 0,
+    command: { type: "open_lobby" },
+  }),
+]);
+assert.deepEqual(
+  raceResults.map((result) => result.response.status).sort(),
+  [200, 409],
+);
+assert.equal(
+  raceResults.find((result) => result.response.status === 409).body.code,
+  "state_version_conflict",
+);
 console.log("API and WebSocket smoke test passed");
 
 async function issueToken(role, cookie) {
