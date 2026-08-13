@@ -9,6 +9,7 @@
 - [Session Token 與即時權限](docs/AUTHORIZATION.md)
 - [Realtime Events 與 Transactional Outbox](docs/REALTIME_EVENTS.md)
 - [Google Slides Extension 安裝與相容性](docs/GOOGLE_SLIDES_EXTENSION.md)
+- [100 人效能基準](docs/PERFORMANCE.md)
 
 ## 啟動開發堆疊
 

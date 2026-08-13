@@ -56,6 +56,11 @@ async fn submit_response(
         .ok_or_else(|| ApiError::forbidden("participant_token_required"))?;
 
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::TEXT, 0))")
+        .bind(request.cue_run_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
     let interaction = sqlx::query_as::<_, (String, String, i64)>(
         r#"
         SELECT interactions.interaction_type, cue_runs.state, live_sessions.state_version

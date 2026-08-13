@@ -6,6 +6,7 @@ RUN apt-get update \
 
 WORKDIR /tests
 COPY tests/smoke/api.mjs ./api.mjs
+COPY tests/load/audience.mjs ./load.mjs
 
 USER node:node
 CMD ["node", "/tests/api.mjs"]

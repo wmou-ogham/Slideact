@@ -40,3 +40,4 @@ ci_compose exec --no-TTY postgres \
 ci_compose exec --no-TTY postgres \
   psql --username slide_helper --dbname slide_helper --file /dev/stdin < tests/smoke/authorization.sql
 ci_compose --profile test run --rm --no-deps smoke
+ci_compose --profile test run --rm --no-deps smoke node /tests/load.mjs

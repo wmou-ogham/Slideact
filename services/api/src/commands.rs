@@ -647,6 +647,11 @@ pub(crate) async fn emit_event_to_all(
     event: Value,
     idempotency_key: &str,
 ) -> Result<(), ApiError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::TEXT, 0))")
+        .bind(session_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(persistence_error)?;
     let event_type = event
         .get("event_type")
         .and_then(Value::as_str)
