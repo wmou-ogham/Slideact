@@ -273,6 +273,11 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
             {t("auth.logout")}
           </button>
+          <button className="delete-account" onClick={async () => {
+            if (!window.confirm(t("auth.deleteConfirm"))) return;
+            await apiJson("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
+            location.assign("/");
+          }}>{t("auth.delete")}</button>
         </div>
       </header>
 

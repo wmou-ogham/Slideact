@@ -6,7 +6,7 @@ use axum::{
     extract::{Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use openidconnect::{
@@ -94,14 +94,63 @@ struct DevLoginRequest {
     locale: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteAccountRequest {
+    confirmation: String,
+}
+
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/auth/google/start", get(start_google_auth))
         .route("/api/auth/google/callback", get(google_auth_callback))
         .route("/api/auth/logout", post(logout))
+        .route("/api/auth/account", delete(delete_account))
         .route("/api/auth/me", get(me))
         .route("/api/auth/guest", post(guest_login))
         .route("/api/auth/dev", post(dev_login))
+}
+
+async fn delete_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<DeleteAccountRequest>,
+) -> Result<Response, ApiError> {
+    if request.confirmation != "DELETE" {
+        return Err(ApiError::bad_request(
+            "account_deletion_confirmation_invalid",
+        ));
+    }
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    let mut transaction = state.database.begin().await.map_err(database_error)?;
+    sqlx::query("DELETE FROM projects WHERE owner_id = $1")
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+    let deleted = sqlx::query("DELETE FROM profiles WHERE id = $1")
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(database_error)?
+        .rows_affected();
+    if deleted != 1 {
+        return Err(ApiError::not_found("account_not_found"));
+    }
+    transaction.commit().await.map_err(database_error)?;
+    info!(%user_id, "account and owned presentation data deleted");
+
+    let secure = state
+        .google_auth
+        .as_ref()
+        .is_none_or(|auth| auth.0.secure_cookies);
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&clear_cookie(SESSION_COOKIE, "/", secure))
+            .expect("generated cookie header must be valid"),
+    );
+    Ok(response)
 }
 
 async fn guest_login(

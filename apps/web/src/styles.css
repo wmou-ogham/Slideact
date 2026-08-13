@@ -104,6 +104,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .workspace-title { max-width: 760px; margin: 0; color: var(--ink); font-family: Georgia, serif; font-size: clamp(40px, 5vw, 72px); font-weight: 500; letter-spacing: -.06em; line-height: .98; }
 .profile-chip { display: flex; align-items: center; gap: 12px; padding: 5px 5px 5px 14px; background: rgba(255,255,255,.65); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 700; }
 .profile-chip button { padding: 8px 12px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; }
+.profile-chip button.delete-account { color: #8a302b; border-color: rgba(138,48,43,.22); }
 .notice { margin-bottom: 16px; padding: 12px 16px; color: #694211; background: #f6dba8; border: 1px solid #eabf78; border-radius: 12px; font-size: 13px; }
 
 .studio-grid { display: grid; grid-template-columns: minmax(190px, .66fr) minmax(320px, 1fr) minmax(360px, 1.3fr); min-height: 690px; overflow: hidden; background: rgba(255,255,255,.42); border: 1px solid var(--line); border-radius: 28px 28px 8px 28px; box-shadow: 0 22px 70px rgba(27,65,58,.08); }

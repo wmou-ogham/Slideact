@@ -855,6 +855,35 @@ assert.equal(
   raceResults.find((result) => result.response.status === 409).body.code,
   "state_version_conflict",
 );
+
+const deletionGuest = await fetch(`${baseUrl}/api/auth/guest`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ locale: "en" }),
+});
+assert.equal(deletionGuest.status, 201);
+const deletionCookie = deletionGuest.headers.get("set-cookie").split(";", 1)[0];
+const deletionProject = await requestJson("/api/projects", {
+  method: "POST",
+  cookie: deletionCookie,
+  body: { title: "Delete me", default_locale: "en" },
+});
+assert.equal(deletionProject.response.status, 201);
+const invalidDeletion = await requestJson("/api/auth/account", {
+  method: "DELETE",
+  cookie: deletionCookie,
+  body: { confirmation: "delete" },
+});
+assert.equal(invalidDeletion.response.status, 400);
+const deletedAccount = await fetch(`${baseUrl}/api/auth/account`, {
+  method: "DELETE",
+  headers: { cookie: deletionCookie, "content-type": "application/json" },
+  body: JSON.stringify({ confirmation: "DELETE" }),
+});
+assert.equal(deletedAccount.status, 204);
+assert.match(deletedAccount.headers.get("set-cookie"), /Max-Age=0/);
+const deletedMe = await requestJson("/api/auth/me", { cookie: deletionCookie });
+assert.equal(deletedMe.response.status, 401);
 console.log("API and WebSocket smoke test passed");
 
 async function issueToken(role, cookie) {
