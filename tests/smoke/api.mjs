@@ -127,6 +127,79 @@ const loadedSession = await requestJson(`/api/sessions/${createdSession.body.id}
 assert.equal(loadedSession.response.status, 200);
 assert.equal(loadedSession.body.project_id, projectId);
 
+const commandSessionId = createdSession.body.id;
+const openedLobby = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:open-lobby-001",
+  expected_version: 0,
+  command: { type: "open_lobby" },
+});
+assert.equal(openedLobby.response.status, 200);
+assert.equal(openedLobby.body.idempotent, false);
+assert.equal(openedLobby.body.snapshot.status, "lobby");
+assert.match(openedLobby.body.snapshot.join_code, /^[A-Z2-9]{6}$/);
+assert.equal(openedLobby.body.snapshot.state_version, 1);
+
+const replayedLobby = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:open-lobby-001",
+  expected_version: 0,
+  command: { type: "open_lobby" },
+});
+assert.equal(replayedLobby.response.status, 200);
+assert.equal(replayedLobby.body.idempotent, true);
+assert.equal(replayedLobby.body.snapshot.state_version, 1);
+
+const reusedKey = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:open-lobby-001",
+  expected_version: 0,
+  command: { type: "start" },
+});
+assert.equal(reusedKey.response.status, 409);
+assert.deepEqual(reusedKey.body, { code: "idempotency_key_reused" });
+
+const staleStart = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:stale-start-001",
+  expected_version: 0,
+  command: { type: "start" },
+});
+assert.equal(staleStart.response.status, 409);
+assert.deepEqual(staleStart.body, { code: "state_version_conflict" });
+
+const startedSession = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:start-session-001",
+  expected_version: 1,
+  command: { type: "start" },
+});
+assert.equal(startedSession.response.status, 200);
+assert.equal(startedSession.body.snapshot.status, "live");
+assert.equal(startedSession.body.snapshot.state_version, 2);
+
+const preparedCue = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:prepare-cue-001",
+  expected_version: 2,
+  command: { type: "prepare_cue", cue_id: cueId },
+});
+assert.equal(preparedCue.response.status, 200);
+assert.equal(preparedCue.body.snapshot.current_cue_run.state, "ready");
+assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 1);
+assert.equal(preparedCue.body.snapshot.current_cue_run.interactions[0].options.length, 2);
+
+const openedCue = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:open-cue-001",
+  expected_version: 3,
+  command: { type: "open_cue" },
+});
+assert.equal(openedCue.response.status, 200);
+assert.equal(openedCue.body.snapshot.current_cue_run.state, "open");
+assert.equal(openedCue.body.snapshot.state_version, 4);
+
+const authoritativeSnapshot = await requestJson(
+  `/api/sessions/${commandSessionId}/snapshot`,
+  { cookie: ownerCookie },
+);
+assert.equal(authoritativeSnapshot.response.status, 200);
+assert.equal(authoritativeSnapshot.body.current_cue_run.state, "open");
+assert.equal(authoritativeSnapshot.body.state_version, 4);
+
 const strangerIssue = await issueToken(
   "presenter",
   "slide_helper_session=ci-stranger-session",
@@ -293,6 +366,14 @@ async function requestJson(path, { method = "GET", cookie, body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { response, body: await response.json() };
+}
+
+async function sendCommand(session, body) {
+  return requestJson(`/api/sessions/${session}/commands`, {
+    method: "POST",
+    cookie: ownerCookie,
+    body,
+  });
 }
 
 function enqueueAudienceCountEvent() {

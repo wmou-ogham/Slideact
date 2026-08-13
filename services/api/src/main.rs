@@ -3,6 +3,7 @@ use std::{env, net::SocketAddr, time::Duration};
 mod api_error;
 mod auth;
 mod authorization;
+mod commands;
 mod realtime;
 mod resources;
 
@@ -83,6 +84,7 @@ async fn main() -> Result<()> {
         .route("/api/ws", get(websocket))
         .merge(auth::router())
         .merge(authorization::router())
+        .merge(commands::router())
         .merge(resources::router())
         .with_state(state)
         .layer(
