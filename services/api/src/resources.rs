@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -87,6 +89,12 @@ struct UpdateCueRequest {
     delay_seconds: i32,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReorderCuesRequest {
+    cue_ids: Vec<Uuid>,
+}
+
 #[derive(Debug, Serialize)]
 struct Interaction {
     id: Uuid,
@@ -158,6 +166,7 @@ pub(crate) fn router() -> Router<AppState> {
             "/api/projects/{project_id}/cues",
             get(list_cues).post(create_cue),
         )
+        .route("/api/projects/{project_id}/cues/reorder", put(reorder_cues))
         .route(
             "/api/projects/{project_id}/cues/{cue_id}",
             put(update_cue).delete(delete_cue),
@@ -448,6 +457,63 @@ async fn create_cue(
         StatusCode::CREATED,
         Json(load_cue(&state.database, id).await?),
     ))
+}
+
+async fn reorder_cues(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<ReorderCuesRequest>,
+) -> Result<Json<Vec<Cue>>, ApiError> {
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    require_project_write(&state.database, project_id, user_id).await?;
+    let existing = sqlx::query_as::<_, (Uuid, i32)>(
+        "SELECT id, position FROM cues WHERE project_id = $1 ORDER BY position, id",
+    )
+    .bind(project_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    let requested = request.cue_ids.iter().copied().collect::<HashSet<_>>();
+    let expected = existing.iter().map(|row| row.0).collect::<HashSet<_>>();
+    if request.cue_ids.len() != requested.len() || requested != expected {
+        return Err(ApiError::bad_request("cue_order_invalid"));
+    }
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    let temporary_start = existing
+        .iter()
+        .map(|row| row.1)
+        .max()
+        .unwrap_or(-1)
+        .checked_add(1)
+        .ok_or_else(|| ApiError::bad_request("cue_order_invalid"))?;
+    for (offset, cue_id) in request.cue_ids.iter().copied().enumerate() {
+        let temporary_position = temporary_start
+            .checked_add(
+                i32::try_from(offset).map_err(|_| ApiError::bad_request("cue_order_invalid"))?,
+            )
+            .ok_or_else(|| ApiError::bad_request("cue_order_invalid"))?;
+        sqlx::query("UPDATE cues SET position = $3 WHERE id = $1 AND project_id = $2")
+            .bind(cue_id)
+            .bind(project_id)
+            .bind(temporary_position)
+            .execute(&mut *transaction)
+            .await
+            .map_err(persistence_error)?;
+    }
+    for (position, cue_id) in request.cue_ids.into_iter().enumerate() {
+        sqlx::query(
+            "UPDATE cues SET position = $3, updated_at = NOW() WHERE id = $1 AND project_id = $2",
+        )
+        .bind(cue_id)
+        .bind(project_id)
+        .bind(i32::try_from(position).map_err(|_| ApiError::bad_request("cue_order_invalid"))?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+    }
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok(Json(load_cues(&state.database, project_id).await?))
 }
 
 async fn update_cue(

@@ -219,6 +219,46 @@ assert.equal(cues.response.status, 200);
 assert.equal(cues.body.length, 1);
 assert.equal(cues.body[0].interactions[0].prompt, "Which explanation is clearest?");
 
+const reorderCue = await requestJson(`/api/projects/${projectId}/cues`, {
+  method: "POST",
+  cookie: ownerCookie,
+  body: {
+    name: "Temporary reorder cue",
+    anchor_type: "manual",
+    anchor_value: null,
+    trigger_mode: "presenter_confirm",
+    delay_seconds: 0,
+  },
+});
+assert.equal(reorderCue.response.status, 201);
+const invalidCueOrder = await requestJson(`/api/projects/${projectId}/cues/reorder`, {
+  method: "PUT",
+  cookie: ownerCookie,
+  body: { cue_ids: [cueId] },
+});
+assert.equal(invalidCueOrder.response.status, 400);
+assert.deepEqual(invalidCueOrder.body, { code: "cue_order_invalid" });
+const reorderedCues = await requestJson(`/api/projects/${projectId}/cues/reorder`, {
+  method: "PUT",
+  cookie: ownerCookie,
+  body: { cue_ids: [reorderCue.body.id, cueId] },
+});
+assert.equal(reorderedCues.response.status, 200);
+assert.equal(reorderedCues.body[0].id, reorderCue.body.id);
+assert.equal(reorderedCues.body[0].position, 0);
+assert.equal(reorderedCues.body[1].id, cueId);
+const restoredCues = await requestJson(`/api/projects/${projectId}/cues/reorder`, {
+  method: "PUT",
+  cookie: ownerCookie,
+  body: { cue_ids: [cueId, reorderCue.body.id] },
+});
+assert.equal(restoredCues.response.status, 200);
+const deletedReorderCue = await requestJson(
+  `/api/projects/${projectId}/cues/${reorderCue.body.id}`,
+  { method: "DELETE", cookie: ownerCookie },
+);
+assert.equal(deletedReorderCue.response.status, 204);
+
 const duplicatedProject = await requestJson(`/api/projects/${projectId}/duplicate`, {
   method: "POST",
   cookie: ownerCookie,

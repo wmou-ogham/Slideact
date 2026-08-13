@@ -26,6 +26,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [presenterLive, setPresenterLive] = useState<LiveView | null>(null);
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
+  const [interactionPurpose, setInteractionPurpose] = useState<InteractionPurpose>("understanding");
+  const [interactionType, setInteractionType] = useState<Interaction["interaction_type"]>("understanding");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -236,6 +238,23 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.cueCreated"));
   }
 
+  async function reorderCue(targetId: string, direction: -1 | 1) {
+    if (!projectId) return;
+    const ordered = [...cues].sort((left, right) => left.position - right.position);
+    const index = ordered.findIndex((item) => item.id === targetId);
+    const swapIndex = index + direction;
+    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
+    [ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]];
+    await run(async () => {
+      const next = await apiJson<Cue[]>(`/api/projects/${projectId}/cues/reorder`, {
+        method: "PUT",
+        body: JSON.stringify({ cue_ids: ordered.map((item) => item.id) }),
+      });
+      setCues(next);
+      setCueId(targetId);
+    }, t("notice.cuesReordered"));
+  }
+
   async function createInteraction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId || !cueId) return;
@@ -255,6 +274,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           description: null,
           settings: {
             schema_version: 1,
+            purpose: data.get("interaction_purpose"),
             results: { audience_visibility: data.get("audience_visibility") },
             response: { allow_change: true },
           },
@@ -394,15 +414,20 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
               </form>
               <div className="cue-list">
                 {cues.map((item) => (
-                  <button
-                    key={item.id}
-                    className={item.id === cueId ? "cue-card selected" : "cue-card"}
-                    onClick={() => setCueId(item.id)}
-                  >
-                    <span className="cue-position">{String(item.position + 1).padStart(2, "0")}</span>
-                    <span><strong>{item.name}</strong><small>{item.anchor_value ? t("cue.slide", { slide: item.anchor_value }) : t("cue.manual")}</small></span>
-                    <span className="interaction-count">{item.interactions.length}</span>
-                  </button>
+                  <div className="cue-row" key={item.id}>
+                    <button
+                      className={item.id === cueId ? "cue-card selected" : "cue-card"}
+                      onClick={() => setCueId(item.id)}
+                    >
+                      <span className="cue-position">{String(item.position + 1).padStart(2, "0")}</span>
+                      <span><strong>{item.name}</strong><small>{item.anchor_value ? t("cue.slide", { slide: item.anchor_value }) : t("cue.manual")}</small></span>
+                      <span className="interaction-count">{item.interactions.length}</span>
+                    </button>
+                    <span className="cue-order-actions">
+                      <button disabled={busy || item.position === 0} onClick={() => reorderCue(item.id, -1)} aria-label={t("cue.moveUp", { name: item.name })}>↑</button>
+                      <button disabled={busy || item.position === cues.length - 1} onClick={() => reorderCue(item.id, 1)} aria-label={t("cue.moveDown", { name: item.name })}>↓</button>
+                    </span>
+                  </div>
                 ))}
                 {!cues.length && <p className="empty-copy">{t("cue.empty")}</p>}
               </div>
@@ -422,13 +447,24 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           {cue ? (
             <>
               <form className="form-stack interaction-form" onSubmit={createInteraction}>
-                <select name="interaction_type" defaultValue="understanding">
+                <label className="field-label">
+                  <span>{t("interaction.purpose")}</span>
+                  <select name="interaction_purpose" value={interactionPurpose} onChange={(event) => {
+                    const purpose = event.target.value as InteractionPurpose;
+                    setInteractionPurpose(purpose);
+                    setInteractionType(purposeRecommendation(locale, purpose).type);
+                  }}>
+                    {interactionPurposes.map((purpose) => <option value={purpose} key={purpose}>{t(`purpose.${purpose}`)}</option>)}
+                  </select>
+                </label>
+                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(locale, interactionPurpose).type) })}</small>
+                <select name="interaction_type" value={interactionType} onChange={(event) => setInteractionType(event.target.value as Interaction["interaction_type"])}>
                   <option value="understanding">{t("interaction.understanding")}</option>
                   <option value="single_choice">{t("interaction.choice")}</option>
                   <option value="word_cloud">{t("interaction.wordCloud")}</option>
                   <option value="qa">{t("interaction.qa")}</option>
                 </select>
-                <textarea name="prompt" required maxLength={500} placeholder={t("interaction.promptPlaceholder")} />
+                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(locale, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
                 <textarea name="options" placeholder={t("interaction.optionsPlaceholder")} />
                 <label className="field-label">
                   <span>{t("interaction.visibility")}</span>
@@ -476,6 +512,24 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 }
 
 type TemplateKind = "teaching" | "lightning" | "demo";
+type InteractionPurpose = "understanding" | "knowledge" | "opinions" | "questions" | "next" | "mood" | "priorities" | "ideas";
+const interactionPurposes: InteractionPurpose[] = ["understanding", "knowledge", "opinions", "questions", "next", "mood", "priorities", "ideas"];
+
+function purposeRecommendation(locale: string, purpose: InteractionPurpose): { type: Interaction["interaction_type"]; prompt: string } {
+  const zh = locale === "zh-TW";
+  const recommendations: Record<InteractionPurpose, { type: Interaction["interaction_type"]; prompt: string }> = {
+    understanding: { type: "understanding", prompt: zh ? "目前為止都理解了嗎？" : "How clear is this so far?" },
+    knowledge: { type: "single_choice", prompt: zh ? "哪一個選項最符合剛才的重點？" : "Which option best matches the key idea?" },
+    opinions: { type: "single_choice", prompt: zh ? "你最認同哪一個方向？" : "Which direction do you agree with most?" },
+    questions: { type: "qa", prompt: zh ? "你希望我進一步說明什麼？" : "What would you like me to clarify?" },
+    next: { type: "single_choice", prompt: zh ? "接下來最想先看哪個內容？" : "What should we explore next?" },
+    mood: { type: "word_cloud", prompt: zh ? "用一個詞描述你現在的感受。" : "Describe the room in one word." },
+    priorities: { type: "single_choice", prompt: zh ? "哪一項最值得優先處理？" : "What should be the top priority?" },
+    ideas: { type: "word_cloud", prompt: zh ? "用一個短詞分享你的想法。" : "Share one short idea." },
+  };
+  return recommendations[purpose];
+}
+
 type TemplateInteraction = {
   type: Interaction["interaction_type"];
   prompt: string;
