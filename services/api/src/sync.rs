@@ -208,6 +208,13 @@ async fn redeem_pairing_code(
     .execute(&mut *transaction)
     .await
     .map_err(persistence_error)?;
+    sqlx::query(
+        "UPDATE live_sessions SET sync_mode = 'auto_connected', state_version = state_version + 1 WHERE id = $1",
+    )
+    .bind(session_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
     transaction.commit().await.map_err(persistence_error)?;
     info!(%session_id, "Google Slides extension paired");
     Ok(Json(RedeemPairingResponse {
@@ -241,6 +248,22 @@ async fn report_position(
         None,
     )
     .await?;
+    let sync_mode =
+        sqlx::query_scalar::<_, String>("SELECT sync_mode FROM live_sessions WHERE id = $1")
+            .bind(actor.session_id)
+            .fetch_one(&state.database)
+            .await
+            .map_err(persistence_error)?;
+    if matches!(sync_mode.as_str(), "manual" | "auto_paused") {
+        return Ok(Json(PositionResponse {
+            matched: false,
+            cue_id: None,
+            snapshot: snapshot_for_session(&state.database, actor.session_id).await?,
+        }));
+    }
+    if matches!(sync_mode.as_str(), "disconnected" | "resync_required") {
+        return Err(ApiError::conflict("sync_resync_required"));
+    }
     let (snapshot, cue_id) = apply_follow_position(
         &state.database,
         actor.session_id,
@@ -283,12 +306,21 @@ async fn extension_heartbeat(
         request.last_error.as_deref(),
     )
     .await?;
-    let sync_mode =
+    let mut sync_mode =
         sqlx::query_scalar::<_, String>("SELECT sync_mode FROM live_sessions WHERE id = $1")
             .bind(actor.session_id)
             .fetch_one(&state.database)
             .await
             .map_err(persistence_error)?;
+    if sync_mode == "disconnected" {
+        sync_mode = transition_sync_mode(
+            &state.database,
+            actor.session_id,
+            "resync_required",
+            "extension-reconnected",
+        )
+        .await?;
+    }
     Ok(Json(HeartbeatResponse {
         connected: true,
         sync_mode,
@@ -302,20 +334,21 @@ async fn extension_status(
 ) -> Result<Json<ExtensionStatusResponse>, ApiError> {
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     require_session_owner(&state.database, session_id, user_id).await?;
-    let row = sqlx::query_as::<_, (String, serde_json::Value, String, bool)>(
+    let row = sqlx::query_as::<_, (String, serde_json::Value, String, bool, String)>(
         r#"
         SELECT connection_key, metadata, heartbeat_at::TEXT,
-               heartbeat_at > NOW() - INTERVAL '70 seconds'
+               heartbeat_at > NOW() - INTERVAL '70 seconds', live_sessions.sync_mode
         FROM controller_connections
-        WHERE session_id = $1 AND controller_type = 'extension'
-        ORDER BY heartbeat_at DESC LIMIT 1
+        JOIN live_sessions ON live_sessions.id = controller_connections.session_id
+        WHERE controller_connections.session_id = $1 AND controller_type = 'extension'
+        ORDER BY controller_connections.heartbeat_at DESC LIMIT 1
         "#,
     )
     .bind(session_id)
     .fetch_optional(&state.database)
     .await
     .map_err(persistence_error)?;
-    let Some((device_id, metadata, heartbeat_at, connected)) = row else {
+    let Some((device_id, metadata, heartbeat_at, connected, sync_mode)) = row else {
         return Ok(Json(ExtensionStatusResponse {
             paired: false,
             connected: false,
@@ -327,6 +360,15 @@ async fn extension_status(
             heartbeat_at: None,
         }));
     };
+    if !connected && matches!(sync_mode.as_str(), "auto_connected" | "auto_paused") {
+        transition_sync_mode(
+            &state.database,
+            session_id,
+            "disconnected",
+            "extension-heartbeat-timeout",
+        )
+        .await?;
+    }
     Ok(Json(ExtensionStatusResponse {
         paired: true,
         connected,
@@ -357,7 +399,10 @@ async fn update_sync_mode(
     headers: HeaderMap,
     Json(request): Json<SyncModeRequest>,
 ) -> Result<Json<SessionSnapshot>, ApiError> {
-    if request.mode != "manual" && request.mode != "auto_connected" {
+    if !matches!(
+        request.mode.as_str(),
+        "auto_connected" | "auto_paused" | "manual" | "disconnected" | "resync_required"
+    ) {
         return Err(ApiError::bad_request("sync_mode_invalid"));
     }
     let user_id = authenticated_user_id(&state.database, &headers).await?;
@@ -386,6 +431,39 @@ async fn update_sync_mode(
     Ok(Json(
         snapshot_for_session(&state.database, session_id).await?,
     ))
+}
+
+async fn transition_sync_mode(
+    database: &sqlx::PgPool,
+    session_id: Uuid,
+    mode: &str,
+    event_key: &str,
+) -> Result<String, ApiError> {
+    let mut transaction = database.begin().await.map_err(persistence_error)?;
+    let state_version = sqlx::query_scalar::<_, i64>(
+        r#"
+        UPDATE live_sessions SET sync_mode = $2, state_version = state_version + 1
+        WHERE id = $1 AND sync_mode <> $2 RETURNING state_version
+        "#,
+    )
+    .bind(session_id)
+    .bind(mode)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    if let Some(state_version) = state_version {
+        emit_event_to_all(
+            &mut transaction,
+            session_id,
+            u64::try_from(state_version)
+                .map_err(|_| ApiError::internal("state_version_invalid"))?,
+            json!({"event_type": "sync.mode_changed", "sync_mode": mode}),
+            &format!("{event_key}-{state_version}"),
+        )
+        .await?;
+    }
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok(mode.to_owned())
 }
 
 async fn insert_session_token(

@@ -33,3 +33,13 @@ Google Slides DOM selectors are not a public API and can change. The detector th
 ## Diagnostics
 
 The extension sends a heartbeat every 30 seconds. The presenter status considers it disconnected after 70 seconds without a heartbeat. Diagnostics contain only the extension device UUID, deck ID, slide ID/index and the last transport error; they do not contain response data, OAuth credentials or presenter cookies.
+
+## Sync recovery states
+
+- `auto_connected`: position reports can prepare or open mapped cues.
+- `auto_paused`: the live session is paused; positions update diagnostics but not cues.
+- `manual`: presenter controls remain authoritative and extension positions are ignored.
+- `disconnected`: the heartbeat freshness window expired.
+- `resync_required`: the extension returned after a disconnect; position commands remain blocked until the presenter confirms auto-follow again.
+
+Switching to manual, disconnecting or waiting for resync never closes, replaces or reopens the current CueRun. This makes auto-to-manual handoff lossless and prevents a recovered browser tab from jumping the audience to a stale slide.

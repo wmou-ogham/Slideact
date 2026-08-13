@@ -375,6 +375,63 @@ const manualSync = await requestJson(
 assert.equal(manualSync.response.status, 200);
 assert.equal(manualSync.body.sync_mode, "manual");
 
+const ignoredManualPosition = await requestJson("/api/extension/position", {
+  method: "POST",
+  token: pairedExtension.body.token,
+  body: {
+    device_id: "ci-extension",
+    deck_id: "ci-google-deck",
+    slide_id: "slide-five",
+    slide_index: 4,
+    detected_at: Date.now() + 2,
+  },
+});
+assert.equal(ignoredManualPosition.response.status, 200);
+assert.equal(ignoredManualPosition.body.matched, false);
+assert.equal(ignoredManualPosition.body.snapshot.sync_mode, "manual");
+
+const markedDisconnected = await requestJson(
+  `/api/sessions/${commandSessionId}/sync-mode`,
+  { method: "PUT", cookie: ownerCookie, body: { mode: "disconnected" } },
+);
+assert.equal(markedDisconnected.response.status, 200);
+assert.equal(markedDisconnected.body.sync_mode, "disconnected");
+
+const recoveryHeartbeat = await requestJson("/api/extension/heartbeat", {
+  method: "POST",
+  token: pairedExtension.body.token,
+  body: {
+    device_id: "ci-extension",
+    deck_id: "ci-google-deck",
+    slide_id: "slide-five",
+    slide_index: 4,
+    last_error: null,
+  },
+});
+assert.equal(recoveryHeartbeat.response.status, 200);
+assert.equal(recoveryHeartbeat.body.sync_mode, "resync_required");
+
+const blockedBeforeResync = await requestJson("/api/extension/position", {
+  method: "POST",
+  token: pairedExtension.body.token,
+  body: {
+    device_id: "ci-extension",
+    deck_id: "ci-google-deck",
+    slide_id: "slide-five",
+    slide_index: 4,
+    detected_at: Date.now() + 3,
+  },
+});
+assert.equal(blockedBeforeResync.response.status, 409);
+assert.deepEqual(blockedBeforeResync.body, { code: "sync_resync_required" });
+
+const confirmedResync = await requestJson(
+  `/api/sessions/${commandSessionId}/sync-mode`,
+  { method: "PUT", cookie: ownerCookie, body: { mode: "auto_connected" } },
+);
+assert.equal(confirmedResync.response.status, 200);
+assert.equal(confirmedResync.body.sync_mode, "auto_connected");
+
 const invalidJoin = await requestJson("/api/audience/join", {
   method: "POST",
   body: { join_code: "ABC23D", locale: "en", participant_key: null },

@@ -309,28 +309,7 @@ pub(crate) async fn apply_follow_position(
     .await
     .map_err(persistence_error)?;
 
-    let mode_changed = locked.sync_mode != "auto_connected";
-    if mode_changed {
-        locked.sync_mode = "auto_connected".to_owned();
-        sqlx::query("UPDATE live_sessions SET sync_mode = 'auto_connected' WHERE id = $1")
-            .bind(session_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(persistence_error)?;
-    }
-
     let Some((cue_id, trigger_mode)) = cue else {
-        if mode_changed {
-            increment_session_version(&mut transaction, session_id, &mut locked).await?;
-            emit_event_to_all(
-                &mut transaction,
-                session_id,
-                locked.state_version,
-                json!({"event_type": "sync.mode_changed", "sync_mode": "auto_connected"}),
-                idempotency_key,
-            )
-            .await?;
-        }
         let snapshot = load_snapshot(&mut transaction, session_id).await?;
         transaction.commit().await.map_err(persistence_error)?;
         return Ok((snapshot, None));
@@ -363,8 +342,6 @@ pub(crate) async fn apply_follow_position(
             )
             .await?;
         }
-    } else if mode_changed {
-        increment_session_version(&mut transaction, session_id, &mut locked).await?;
     }
 
     let snapshot = load_snapshot(&mut transaction, session_id).await?;
@@ -476,6 +453,11 @@ async fn apply_session_command(
         UPDATE live_sessions SET
             status = $2,
             state_version = $3,
+            sync_mode = CASE
+                WHEN $2 = 'paused' AND sync_mode = 'auto_connected' THEN 'auto_paused'
+                WHEN $2 = 'live' AND sync_mode = 'auto_paused' THEN 'auto_connected'
+                ELSE sync_mode
+            END,
             join_code = COALESCE($4, join_code),
             started_at = CASE WHEN $2 = 'live' AND started_at IS NULL THEN NOW() ELSE started_at END,
             ended_at = CASE WHEN $2 = 'ended' THEN NOW() ELSE ended_at END
@@ -491,6 +473,11 @@ async fn apply_session_command(
     .map_err(persistence_error)?;
     locked.status = transition.current;
     locked.state_version = transition.state_version;
+    if status == "paused" && locked.sync_mode == "auto_connected" {
+        locked.sync_mode = "auto_paused".to_owned();
+    } else if status == "live" && locked.sync_mode == "auto_paused" {
+        locked.sync_mode = "auto_connected".to_owned();
+    }
     emit_event_to_all(
         transaction,
         session_id,
