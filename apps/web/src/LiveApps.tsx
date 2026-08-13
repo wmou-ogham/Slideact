@@ -16,6 +16,13 @@ type JoinResponse = {
   snapshot: SessionSnapshot;
 };
 
+type PendingAnswer = {
+  interaction: SnapshotInteraction;
+  payload: Record<string, unknown>;
+  label: string;
+  idempotencyKey: string;
+};
+
 export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   const pathCode = decodeURIComponent(location.pathname.split("/")[2] ?? "");
   const [code, setCode] = useState(pathCode);
@@ -24,6 +31,19 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pendingAnswer, setPendingAnswer] = useState<PendingAnswer | null>(null);
+  const [online, setOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const connected = () => setOnline(true);
+    const disconnected = () => setOnline(false);
+    window.addEventListener("online", connected);
+    window.addEventListener("offline", disconnected);
+    return () => {
+      window.removeEventListener("online", connected);
+      window.removeEventListener("offline", disconnected);
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!joined) return;
@@ -66,24 +86,34 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
     }
   }
 
-  async function answer(interaction: SnapshotInteraction, payload: Record<string, unknown>, label: string) {
+  async function answer(
+    interaction: SnapshotInteraction,
+    payload: Record<string, unknown>,
+    label: string,
+    idempotencyKey = uuid(),
+  ) {
     if (!joined || !live?.snapshot.current_cue_run) return;
     setBusy(true);
     setError("");
+    setPendingAnswer(null);
     try {
       await apiJson(`/api/audience/interactions/${interaction.id}/responses`, {
         method: "POST",
         headers: { authorization: `Bearer ${joined.token}` },
         body: JSON.stringify({
           cue_run_id: live.snapshot.current_cue_run.id,
-          idempotency_key: uuid(),
+          idempotency_key: idempotencyKey,
           payload,
         }),
       });
       setAnswers((current) => ({ ...current, [interaction.id]: label }));
+      setPendingAnswer(null);
       await refresh();
     } catch (cause) {
       setError(audienceError(t, cause));
+      if (!(cause instanceof ApiError) || cause.status >= 500) {
+        setPendingAnswer({ interaction, payload, label, idempotencyKey });
+      }
     } finally {
       setBusy(false);
     }
@@ -144,6 +174,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   return (
     <main className="audience-shell">
       <header className="audience-header">
+        <span className={online ? "connection-state online" : "connection-state offline"}>{online ? t("audience.online") : t("audience.offline")}</span>
         <span className="audience-count">{t("audience.people", { count: live?.audience_count ?? 1 })}</span>
       </header>
       <section className="audience-stage">
@@ -172,7 +203,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
         ) : (
           <ResultsView t={t} live={live} cueName={cueRun.cue_name} state={cueRun.state} />
         )}
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {error && <div className="audience-error"><p className="form-error" role="alert">{error}</p>{pendingAnswer && <button disabled={busy} onClick={() => answer(pendingAnswer.interaction, pendingAnswer.payload, pendingAnswer.label, pendingAnswer.idempotencyKey)}>{t("audience.retry")}</button>}</div>}
       </section>
     </main>
   );

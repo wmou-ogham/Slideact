@@ -15,7 +15,10 @@ use sqlx::{PgPool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::{AppState, api_error::ApiError, auth::authenticated_user_id};
+use crate::{
+    AppState, api_error::ApiError, auth::authenticated_user_id,
+    rate_limit::check as check_rate_limit,
+};
 
 const JOIN_CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
@@ -142,6 +145,14 @@ async fn command(
 ) -> Result<Json<CommandResponse>, ApiError> {
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     validate_idempotency_key(&request.idempotency_key)?;
+    check_rate_limit(
+        &state.redis,
+        "presenter-command",
+        &format!("{session_id}:{user_id}"),
+        120,
+        60,
+    )
+    .await?;
     let actor_scope = format!("user:{user_id}");
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     let mut locked = lock_authorized_session(&mut transaction, session_id, user_id).await?;

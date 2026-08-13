@@ -197,8 +197,14 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .join-qr svg { display: block; width: 100%; height: auto; }
 
 .audience-shell { width: min(760px, 100%); min-height: calc(100vh - 84px); margin: 0 auto; padding: 18px 24px 80px; }
-.audience-header { display: flex; min-height: 38px; align-items: center; justify-content: flex-end; margin-bottom: 36px; }
+.audience-header { display: flex; min-height: 38px; align-items: center; justify-content: flex-end; gap: 7px; margin-bottom: 36px; }
 .audience-count { padding: 7px 11px; color: var(--green); background: #dceee5; border-radius: 999px; font-size: 11px; font-weight: 780; }
+.connection-state { padding: 7px 10px; border-radius: 999px; font-size: 9px; font-weight: 800; }
+.connection-state.online { color: #235f4e; background: #e7f2ec; }
+.connection-state.offline { color: #7b2d28; background: #f6dedb; }
+.audience-error { display: flex; align-items: center; gap: 8px; margin-top: 15px; }
+.audience-error .form-error { flex: 1; margin: 0; }
+.audience-error button { padding: 10px 13px; color: #fff; background: var(--ink); border: 0; border-radius: 10px; font-size: 11px; font-weight: 800; }
 .audience-stage > h1, .join-card h1, .waiting-state h1, .audience-results > h1 { margin: 0; color: var(--ink); font-family: Georgia, serif; font-size: clamp(42px, 8vw, 70px); font-weight: 500; letter-spacing: -.055em; line-height: 1; }
 .join-card { display: grid; min-height: calc(100vh - 88px); align-content: center; justify-items: start; max-width: 600px; }
 .join-card > p:not(.eyebrow) { max-width: 430px; color: var(--muted); line-height: 1.6; }

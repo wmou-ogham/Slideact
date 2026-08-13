@@ -10,6 +10,7 @@ Slideact applies server-side authorization, validation, and fixed-window rate li
 | Interaction response | Participant | 20 / 60 seconds |
 | Create Q&A question | Participant | 5 / 60 seconds |
 | Toggle Q&A vote | Participant | 120 / 60 seconds |
+| Presenter command | Session + presenter | 120 / 60 seconds |
 
 The join allowance intentionally supports the documented 100-person baseline from one venue network. Exceeding a limit returns HTTP `429` with `rate_limit_exceeded`; the bilingual audience client asks the participant to wait and retry.
 
