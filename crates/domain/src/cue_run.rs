@@ -45,6 +45,15 @@ impl CueRunMachine {
         }
     }
 
+    /// Reconstructs an authoritative machine from persisted state.
+    #[must_use]
+    pub const fn from_parts(state: CueRunState, state_version: u64) -> Self {
+        Self {
+            state,
+            state_version,
+        }
+    }
+
     #[must_use]
     pub const fn state(&self) -> CueRunState {
         self.state
@@ -175,5 +184,16 @@ mod tests {
         ));
         assert_eq!(cue.state(), CueRunState::Idle);
         assert_eq!(cue.state_version(), 0);
+    }
+
+    #[test]
+    fn persisted_state_can_be_rehydrated() {
+        let mut cue = CueRunMachine::from_parts(CueRunState::Closed, 8);
+
+        assert_eq!(
+            cue.apply(8, CueRunAction::Reopen).unwrap().current,
+            CueRunState::Open
+        );
+        assert_eq!(cue.state_version(), 9);
     }
 }

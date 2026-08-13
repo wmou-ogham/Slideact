@@ -52,6 +52,15 @@ impl SyncModeMachine {
         }
     }
 
+    /// Reconstructs an authoritative machine from persisted state.
+    #[must_use]
+    pub const fn from_parts(state: SyncModeState, state_version: u64) -> Self {
+        Self {
+            state,
+            state_version,
+        }
+    }
+
     #[must_use]
     pub const fn state(&self) -> SyncModeState {
         self.state
@@ -211,5 +220,18 @@ mod tests {
         ));
         assert_eq!(sync.state(), SyncModeState::Manual);
         assert_eq!(sync.state_version(), 0);
+    }
+
+    #[test]
+    fn persisted_state_can_be_rehydrated() {
+        let mut sync = SyncModeMachine::from_parts(SyncModeState::Disconnected, 4);
+
+        assert_eq!(
+            sync.apply(4, SyncModeAction::SwitchToManual)
+                .unwrap()
+                .current,
+            SyncModeState::Manual
+        );
+        assert_eq!(sync.state_version(), 5);
     }
 }

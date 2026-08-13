@@ -43,6 +43,15 @@ impl LiveSessionMachine {
         }
     }
 
+    /// Reconstructs an authoritative machine from persisted state.
+    #[must_use]
+    pub const fn from_parts(state: LiveSessionState, state_version: u64) -> Self {
+        Self {
+            state,
+            state_version,
+        }
+    }
+
     #[must_use]
     pub const fn state(&self) -> LiveSessionState {
         self.state
@@ -189,5 +198,19 @@ mod tests {
             })
         );
         assert_eq!(session.state(), LiveSessionState::Lobby);
+    }
+
+    #[test]
+    fn persisted_state_can_be_rehydrated() {
+        let mut session = LiveSessionMachine::from_parts(LiveSessionState::Paused, 12);
+
+        assert_eq!(
+            session
+                .apply(12, LiveSessionAction::Resume)
+                .unwrap()
+                .current,
+            LiveSessionState::Live
+        );
+        assert_eq!(session.state_version(), 13);
     }
 }
