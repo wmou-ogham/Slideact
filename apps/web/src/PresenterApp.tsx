@@ -963,7 +963,7 @@ function LiveControl({
         {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
       </div>
       <div className="live-actions">
-        {visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+        {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
           {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
         </select>}
         {!activeSession && <button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
