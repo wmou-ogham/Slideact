@@ -152,3 +152,10 @@
 - [x] 從手機遙控器移除觀眾加入 QR Code 按鈕與面板
 - [x] 投影頁與 OBS 頁提供各自的 QR Code 顯示按鈕
 - [x] CI 與 18666 部署健康檢查通過
+
+## QRCode 專頁
+
+- [x] 新增獨立 `/qr/{session_id}` 顯示 QRCode 頁面
+- [x] 投影與 OBS 畫面移除 QRCode 切換按鈕，維持純結果展示
+- [x] 講者控制列與手機遙控器改為「顯示 QRCode」頁面入口
+- [x] 雙語前端檢查、API smoke test 與 benchmark 通過
