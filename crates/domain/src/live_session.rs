@@ -20,6 +20,7 @@ pub enum LiveSessionAction {
     Pause,
     Resume,
     End,
+    Reopen,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,6 +89,7 @@ fn next_state(
         (LiveSessionState::Live | LiveSessionState::Paused, LiveSessionAction::End) => {
             Ok(LiveSessionState::Ended)
         }
+        (LiveSessionState::Ended, LiveSessionAction::Reopen) => Ok(LiveSessionState::Lobby),
         _ => Err(StateMachineError::InvalidTransition {
             machine: "live_session",
             state: state.as_str(),
@@ -116,6 +118,7 @@ impl LiveSessionAction {
             Self::Pause => "pause",
             Self::Resume => "resume",
             Self::End => "end",
+            Self::Reopen => "reopen",
         }
     }
 }
@@ -153,6 +156,17 @@ mod tests {
             LiveSessionState::Ended
         );
         assert_eq!(session.state_version(), 5);
+    }
+
+    #[test]
+    fn ended_session_can_reopen_to_lobby_without_losing_history() {
+        let mut session = LiveSessionMachine::from_parts(LiveSessionState::Ended, 5);
+
+        assert_eq!(
+            session.apply(5, LiveSessionAction::Reopen).unwrap().current,
+            LiveSessionState::Lobby
+        );
+        assert_eq!(session.state_version(), 6);
     }
 
     #[test]

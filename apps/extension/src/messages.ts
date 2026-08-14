@@ -1,5 +1,7 @@
 import type { SlidePosition } from "./presentation";
 
+export const DEFAULT_SERVER_URL = "https://slideact.mou.tw";
+
 export const MESSAGE_TYPES = {
   getStatus: "slide_helper.get_status",
   pair: "slide_helper.pair",

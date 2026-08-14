@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 
-import { MESSAGE_TYPES, type ExtensionStatus, type SyncMode } from "../../src/messages";
+import { DEFAULT_SERVER_URL, MESSAGE_TYPES, type ExtensionStatus, type SyncMode } from "../../src/messages";
 import "./style.css";
 
 const copy = navigator.language.toLowerCase().startsWith("zh")
@@ -45,7 +45,7 @@ const pairButton = requiredElement<HTMLButtonElement>("pair-button");
 requiredElement("server-label").textContent = copy.server;
 requiredElement("pair-label").textContent = copy.pairCode;
 pairButton.textContent = copy.pair;
-let status: ExtensionStatus = { mode: "auto", position: null, updatedAt: null, serverUrl: "http://10.121.180.185:18666", sessionId: null, token: null, overlayUrl: null, lastError: null };
+let status: ExtensionStatus = { mode: "auto", position: null, updatedAt: null, serverUrl: DEFAULT_SERVER_URL, sessionId: null, token: null, overlayUrl: null, lastError: null };
 
 subtitle.textContent = copy.title;
 hint.textContent = copy.openSlides;

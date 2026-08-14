@@ -386,6 +386,20 @@ pub(crate) async fn authorize_presenter_access(
     Ok(PresenterAccess::User(user_id))
 }
 
+pub(crate) async fn authorize_presenter_command_access(
+    database: &sqlx::PgPool,
+    headers: &HeaderMap,
+    session_id: Uuid,
+) -> Result<PresenterAccess, ApiError> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        return authorize_presenter_access(database, headers, session_id).await;
+    }
+
+    let user_id = authenticated_user_id(database, headers).await?;
+    require_session_read(database, session_id, user_id).await?;
+    Ok(PresenterAccess::User(user_id))
+}
+
 fn topic_for_role(session_id: Uuid, role: SessionRole) -> String {
     format!("session:{session_id}:{}", role.topic_suffix())
 }

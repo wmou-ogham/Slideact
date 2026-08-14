@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use slide_helper_domain::normalize_slide_anchor;
 use sqlx::{PgPool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
@@ -1189,7 +1190,7 @@ fn normalize_anchor(anchor_type: &str, value: Option<String>) -> Option<String> 
     if anchor_type == "manual" {
         None
     } else {
-        value.map(|value| value.trim().to_owned())
+        value.map(|value| normalize_slide_anchor(&value)).filter(|value| !value.is_empty())
     }
 }
 

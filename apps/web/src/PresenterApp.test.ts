@@ -17,6 +17,10 @@ describe("normalizeSlideAnchor", () => {
       "https://docs.google.com/presentation/d/deck/edit?slide=id.g-old#slide=id.g3f7c2fe3ef4_1_84",
       1,
     )).toBe("g3f7c2fe3ef4_1_84");
+    expect(normalizeSlideAnchor(
+      "https://docs.google.com/presentation/d/deck/edit#slide=id.p",
+      1,
+    )).toBe("p");
   });
 });
 

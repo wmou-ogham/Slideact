@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use slide_helper_domain::{
     CueRunAction, CueRunMachine, CueRunState, LiveSessionAction, LiveSessionMachine,
-    LiveSessionState, StateMachineError,
+    LiveSessionState, StateMachineError, cue_matches_position,
 };
 use sqlx::{PgPool, Postgres, Transaction};
 use tracing::warn;
@@ -19,7 +19,7 @@ use crate::{
     AppState,
     api_error::ApiError,
     auth::authenticated_user_id,
-    authorization::{authorize_presenter_access, require_session_read},
+    authorization::{authorize_presenter_access, authorize_presenter_command_access, require_session_read},
     rate_limit::check as check_rate_limit,
 };
 
@@ -41,6 +41,7 @@ enum SessionCommand {
     Pause,
     Resume,
     End,
+    ReopenSession,
     ShowJoinQr,
     ShowCue,
     PrepareCue { cue_id: Uuid },
@@ -59,6 +60,7 @@ impl SessionCommand {
             Self::Pause => "pause",
             Self::Resume => "resume",
             Self::End => "end",
+            Self::ReopenSession => "reopen_session",
             Self::ShowJoinQr => "show_join_qr",
             Self::ShowCue => "show_cue",
             Self::PrepareCue { .. } => "prepare_cue",
@@ -170,7 +172,7 @@ async fn command(
     headers: HeaderMap,
     Json(request): Json<CommandRequest>,
 ) -> Result<Json<CommandResponse>, ApiError> {
-    let access = authorize_presenter_access(&state.database, &headers, session_id).await?;
+    let access = authorize_presenter_command_access(&state.database, &headers, session_id).await?;
     validate_idempotency_key(&request.idempotency_key)?;
     let actor_scope = access.actor_scope();
     check_rate_limit(
@@ -205,7 +207,8 @@ async fn command(
         | SessionCommand::Start
         | SessionCommand::Pause
         | SessionCommand::Resume
-        | SessionCommand::End => {
+        | SessionCommand::End
+        | SessionCommand::ReopenSession => {
             apply_session_command(
                 &mut transaction,
                 session_id,
@@ -375,24 +378,22 @@ pub(crate) async fn apply_follow_position(
         return Err(ApiError::conflict("command_invalid_transition"));
     }
 
-    let slide_number = slide_index
-        .map(|value| value + 1)
-        .map(|value| value.to_string());
-    let cue = sqlx::query_as::<_, (Uuid, String)>(
+    let cues = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
         r#"
-        SELECT id, trigger_mode FROM cues
+        SELECT id, trigger_mode, anchor_value FROM cues
         WHERE project_id = $1 AND anchor_type = 'deck_slide'
-          AND (($2::TEXT IS NOT NULL AND anchor_value = $2)
-            OR ($3::TEXT IS NOT NULL AND anchor_value = $3))
-        ORDER BY position, id LIMIT 1
+        ORDER BY position, id
         "#,
     )
     .bind(locked.project_id)
-    .bind(slide_number)
-    .bind(slide_id)
-    .fetch_optional(&mut *transaction)
+    .fetch_all(&mut *transaction)
     .await
     .map_err(persistence_error)?;
+    let cue = cues.into_iter().find_map(|(id, trigger_mode, anchor_value)| {
+        anchor_value
+            .filter(|value| cue_matches_position(value, slide_id, slide_index))
+            .map(|_| (id, trigger_mode))
+    });
 
     let Some((cue_id, trigger_mode)) = cue else {
         let snapshot = load_snapshot(&mut transaction, session_id).await?;
@@ -559,8 +560,27 @@ async fn apply_session_command(
         SessionCommand::Pause => LiveSessionAction::Pause,
         SessionCommand::Resume => LiveSessionAction::Resume,
         SessionCommand::End => LiveSessionAction::End,
+        SessionCommand::ReopenSession => LiveSessionAction::Reopen,
         _ => return Err(ApiError::bad_request("session_command_invalid")),
     };
+    if matches!(command, SessionCommand::ReopenSession) {
+        let busy = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM live_sessions
+                WHERE project_id = $1 AND id <> $2 AND status IN ('lobby', 'live', 'paused')
+            )
+            "#,
+        )
+        .bind(locked.project_id)
+        .bind(session_id)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(persistence_error)?;
+        if busy {
+            return Err(ApiError::conflict("active_session_exists"));
+        }
+    }
     let mut machine = LiveSessionMachine::from_parts(locked.status, locked.state_version);
     let transition = machine
         .apply(locked.state_version, action)
@@ -568,6 +588,8 @@ async fn apply_session_command(
     let status = session_state_name(transition.current);
     let join_code = if matches!(command, SessionCommand::OpenLobby) {
         Some(generate_available_join_code(transaction).await?)
+    } else if matches!(command, SessionCommand::ReopenSession) {
+        Some(join_code_for_reopen(transaction, session_id).await?)
     } else {
         None
     };
@@ -583,7 +605,11 @@ async fn apply_session_command(
             END,
             join_code = COALESCE($4, join_code),
             started_at = CASE WHEN $2 = 'live' AND started_at IS NULL THEN NOW() ELSE started_at END,
-            ended_at = CASE WHEN $2 = 'ended' THEN NOW() ELSE ended_at END
+            ended_at = CASE
+                WHEN $2 = 'ended' THEN NOW()
+                WHEN $2 IN ('lobby', 'live', 'paused') THEN NULL
+                ELSE ended_at
+            END
         WHERE id = $1
         "#,
     )
@@ -1039,6 +1065,38 @@ async fn load_cue_snapshot(
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
         interactions: snapshots,
     })
+}
+
+async fn join_code_for_reopen(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+) -> Result<String, ApiError> {
+    let existing = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT RTRIM(join_code) FROM live_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    if let Some(code) = existing.filter(|value| !value.is_empty()) {
+        let taken = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM live_sessions
+                WHERE join_code = $1 AND status IN ('lobby', 'live', 'paused') AND id <> $2
+            )
+            "#,
+        )
+        .bind(&code)
+        .bind(session_id)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(persistence_error)?;
+        if !taken {
+            return Ok(code);
+        }
+    }
+    generate_available_join_code(transaction).await
 }
 
 async fn generate_available_join_code(
