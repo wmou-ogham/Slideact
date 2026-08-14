@@ -660,12 +660,14 @@ export function OverlayApp({ t }: { t: Translate }) {
 export function JoinQrApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
+  const [accessToken, setAccessToken] = useState(token);
   const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
   const refresh = useCallback(async () => {
-    if (!token) throw new Error("qr_token_missing");
-    setLive(await loadLiveView(sessionId, token));
-  }, [sessionId, token]);
+    const issuedToken = accessToken || (await postJson<{ token: string }>(`/api/sessions/${sessionId}/tokens`, { role: "overlay" })).token;
+    if (!accessToken) setAccessToken(issuedToken);
+    setLive(await loadLiveView(sessionId, issuedToken));
+  }, [accessToken, sessionId]);
 
   useEffect(() => {
     document.body.classList.add("projection-body");

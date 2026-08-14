@@ -940,19 +940,6 @@ function LiveControl({
     }
   }
 
-  async function launchJoinQr() {
-    if (!snapshot) return;
-    const target = window.open("about:blank", "_blank");
-    try {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "overlay" });
-      const url = `/qr/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
-      if (target) target.location.href = url;
-      else location.href = url;
-    } catch {
-      target?.close();
-    }
-  }
-
   async function createExtensionPairing() {
     if (!snapshot) return;
     const response = await postJson<{ code: string }>(
@@ -1011,7 +998,7 @@ function LiveControl({
         {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchJoinQr}>{t("live.joinQrPage")}</button>}
+        {isControllable && <a className="secondary-link" href={`/qr/${snapshot?.session_id ?? ""}`} target="_blank" rel="noreferrer">{t("live.joinQrPage")}</a>}
         {snapshot && <button className="secondary-link" disabled={resultsBusy} onClick={showResults}>{t("live.results")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
         {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
