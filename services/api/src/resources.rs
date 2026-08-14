@@ -162,8 +162,9 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/projects", get(list_projects).post(create_project))
         .route(
             "/api/projects/{project_id}",
-            get(get_project).put(update_project).delete(archive_project),
+            get(get_project).put(update_project).delete(delete_project),
         )
+        .route("/api/projects/{project_id}/archive", post(archive_project))
         .route(
             "/api/projects/{project_id}/duplicate",
             post(duplicate_project),
@@ -312,6 +313,38 @@ async fn archive_project(
     .execute(&state.database)
     .await
     .map_err(persistence_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    let access = require_project_access(&state.database, project_id, user_id).await?;
+    if access != ProjectAccess::Owner {
+        return Err(ApiError::forbidden("project_owner_required"));
+    }
+
+    // Live sessions are the durable activity history. Keep those projects
+    // recoverable so deleting a presentation can never delete audience data.
+    let has_history = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM live_sessions WHERE project_id = $1)",
+    )
+    .bind(project_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    if has_history {
+        return Err(ApiError::conflict("project_has_history"));
+    }
+
+    sqlx::query("DELETE FROM projects WHERE id = $1")
+        .bind(project_id)
+        .execute(&state.database)
+        .await
+        .map_err(persistence_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

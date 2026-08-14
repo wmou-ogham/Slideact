@@ -232,6 +232,10 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .remote-access-content small { display: block; margin-top: 7px; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .project-actions { display: flex; gap: 5px; }
 .project-actions button { padding: 5px 7px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; font-size: 9px; }
+.project-instance-actions { align-items: center; margin-top: 12px; }
+.project-action-context { min-width: 0; margin-right: auto; overflow: hidden; color: var(--green); font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.project-actions button.danger-action { color: #8a302b; border-color: rgba(138,48,43,.28); }
+.project-actions button:disabled { opacity: .45; }
 .join-qr { position: relative; margin-top: 3px; }
 .join-qr summary { color: #b8d7ce; cursor: pointer; font-size: 8px; white-space: nowrap; }
 .join-qr > div { position: absolute; z-index: 3; right: 0; bottom: calc(100% + 8px); width: 168px; padding: 8px; color: var(--ink); background: #fff; border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.28); }

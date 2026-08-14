@@ -281,8 +281,8 @@ assert.equal(
   "after_reveal",
 );
 const archivedDuplicate = await requestJson(
-  `/api/projects/${duplicatedProject.body.id}`,
-  { method: "DELETE", cookie: ownerCookie },
+  `/api/projects/${duplicatedProject.body.id}/archive`,
+  { method: "POST", cookie: ownerCookie },
 );
 assert.equal(archivedDuplicate.response.status, 204);
 const projectsAfterArchive = await requestJson("/api/projects", { cookie: ownerCookie });
@@ -292,6 +292,22 @@ assert.equal(
   "archived",
 );
 
+const disposableProject = await requestJson("/api/projects", {
+  method: "POST",
+  cookie: ownerCookie,
+  body: { title: "API smoke disposable project", default_locale: "en" },
+});
+assert.equal(disposableProject.response.status, 201);
+const deletedProject = await requestJson(`/api/projects/${disposableProject.body.id}`, {
+  method: "DELETE",
+  cookie: ownerCookie,
+});
+assert.equal(deletedProject.response.status, 204);
+const missingDeletedProject = await requestJson(`/api/projects/${disposableProject.body.id}`, {
+  cookie: ownerCookie,
+});
+assert.equal(missingDeletedProject.response.status, 404);
+
 const createdSession = await requestJson(`/api/projects/${projectId}/sessions`, {
   method: "POST",
   cookie: ownerCookie,
@@ -300,6 +316,13 @@ const createdSession = await requestJson(`/api/projects/${projectId}/sessions`, 
 assert.equal(createdSession.response.status, 201);
 assert.equal(createdSession.body.status, "draft");
 assert.equal(createdSession.body.sync_mode, "manual");
+
+const protectedProjectDelete = await requestJson(`/api/projects/${projectId}`, {
+  method: "DELETE",
+  cookie: ownerCookie,
+});
+assert.equal(protectedProjectDelete.response.status, 409);
+assert.deepEqual(protectedProjectDelete.body, { code: "project_has_history" });
 
 const loadedSession = await requestJson(`/api/sessions/${createdSession.body.id}`, {
   cookie: ownerCookie,

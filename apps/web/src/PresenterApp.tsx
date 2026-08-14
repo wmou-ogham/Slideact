@@ -41,7 +41,9 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const report = useCallback(
     (error: unknown) => {
       const code = error instanceof ApiError ? error.code : "network_error";
-      setMessage(t("error.generic", { code }));
+      setMessage(code === "project_has_history"
+        ? t("project.deleteHistory")
+        : t("error.generic", { code }));
     },
     [t],
   );
@@ -217,10 +219,19 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   async function archiveProject() {
     if (!project || !window.confirm(t("project.archiveConfirm"))) return;
     await run(async () => {
-      await apiJson(`/api/projects/${project.id}`, { method: "DELETE" });
-      setProjectId("");
+      await apiJson(`/api/projects/${project.id}/archive`, { method: "POST" });
       await refreshProjects();
     }, t("notice.projectArchived"));
+  }
+
+  async function deleteProject() {
+    if (!project) return;
+    const confirmation = window.prompt(t("project.deleteConfirm", { title: project.title }));
+    if (confirmation !== project.title) return;
+    await run(async () => {
+      await apiJson(`/api/projects/${project.id}`, { method: "DELETE" });
+      await refreshProjects();
+    }, t("notice.projectDeleted"));
   }
 
   async function createCue(event: FormEvent<HTMLFormElement>) {
@@ -458,11 +469,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
             <div className="panel-heading">
               <div><span className="step">01</span><h2>{t("project.heading")}</h2></div>
               <div className="project-actions">
-                {project && <>
-                  <button disabled={busy} onClick={duplicateProject}>{t("project.duplicate")}</button>
-                  <button disabled={busy} onClick={archiveProject}>{t("project.archive")}</button>
-                  <button onClick={() => setLibraryCollapsed(true)} aria-label={t("project.collapse")} title={t("project.collapse")}>‹</button>
-                </>}
+                <button onClick={() => setLibraryCollapsed(true)} aria-label={t("project.collapse")} title={t("project.collapse")}>‹</button>
               </div>
             </div>
             <form className="inline-form" onSubmit={createProject}>
@@ -475,6 +482,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
               <button disabled={busy} onClick={() => createTemplate("lightning")}><b>{t("template.lightning")}</b><span>{t("template.lightningCopy")}</span></button>
               <button disabled={busy} onClick={() => createTemplate("demo")}><b>{t("template.demo")}</b><span>{t("template.demoCopy")}</span></button>
             </div>
+            {project && <div className="project-actions project-instance-actions">
+              <span className="project-action-context" title={project.title}>{project.title}</span>
+              <button disabled={busy} onClick={duplicateProject}>{t("project.duplicate")}</button>
+              <button disabled={busy || project.status === "archived"} onClick={archiveProject}>{t("project.archive")}</button>
+              <button className="danger-action" disabled={busy} onClick={deleteProject}>{t("common.delete")}</button>
+            </div>}
             <div className="item-list">
               {projects.map((item) => (
                 <button
