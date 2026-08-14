@@ -210,6 +210,7 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .live-actions select { min-height: 39px; color: #eff7f4; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); border-radius: 10px; font-size: 11px; }
 .live-actions .primary-button { min-height: 39px; color: #143e35; background: #efc974; border: 0; border-radius: 10px; white-space: nowrap; }
 .live-actions button { white-space: nowrap; }
+.live-actions .audience-qr-trigger { color: var(--ink); background: #efc974; }
 .secondary-link { padding: 9px 10px; color: #b8d7ce; font-size: 11px; font-weight: 720; text-decoration: none; white-space: nowrap; }
 .live-actions button.secondary-link { min-height: auto; padding: 9px 10px; color: #b8d7ce; background: transparent; font-size: 11px; }
 .pairing-code { position: absolute; right: 18px; bottom: calc(100% + 10px); display: grid; gap: 4px; padding: 14px 18px; color: var(--ink); background: #f5cc7d; border: 1px solid #dca957; border-radius: 15px 15px 4px 15px; box-shadow: 0 16px 45px rgba(0,0,0,.2); }
@@ -332,6 +333,7 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .remote-navigation { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: -10px 0 18px; }
 .remote-navigation button { display: flex; min-height: 58px; align-items: center; justify-content: space-between; padding: 10px 16px; color: var(--green); background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 14px; font-size: 12px; font-weight: 850; }
 .remote-navigation span { font-size: 22px; }
+.remote-join-qr-trigger { width: 100%; margin: 0 0 18px; min-height: 44px; color: var(--ink); background: #efc974; border: 0; border-radius: 12px; font-size: 12px; font-weight: 850; }
 .remote-auth p { color: var(--muted); line-height: 1.6; }
 .remote-cues { margin-top: 52px; padding-top: 22px; border-top: 1px solid var(--line); }
 .remote-cues h2 { font-size: 13px; }
@@ -343,6 +345,16 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .remote-questions h2 { font-size: 13px; }
 .question-actions { display: grid; flex: 0 0 112px; gap: 5px; }
 .question-actions button { min-height: 27px; padding: 4px 8px; color: var(--green); background: #edf4f0; border: 1px solid var(--line); border-radius: 7px; font-size: 9px; font-weight: 750; }
+.audience-qr-panel { margin-top: 10px; padding: 14px; color: var(--ink); background: #f8f6ef; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 16px 40px rgba(0,0,0,.2); }
+.audience-qr-panel > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.audience-qr-panel > header strong { font-size: 12px; }
+.audience-qr-panel > header button { width: 28px; height: 28px; padding: 0; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 50%; font-size: 18px; }
+.audience-qr-content { display: grid; grid-template-columns: 160px 1fr; gap: 15px; align-items: center; }
+.audience-qr-image { padding: 8px; background: #fff; border-radius: 10px; }
+.audience-qr-image svg { display: block; width: 100%; height: auto; }
+.audience-qr-content p { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.audience-qr-code { display: block; color: var(--green); font-family: Georgia, serif; font-size: 24px; letter-spacing: .16em; }
+.audience-qr-content small { display: block; margin-top: 7px; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 
 .projection-body, .projection-body #root { min-height: 100%; background: #0b2f29 !important; }
 .projection-root { min-height: 100vh; padding: clamp(28px, 4vw, 68px); color: #f8f6ef; background: radial-gradient(circle at 85% 8%, rgba(239,201,116,.17), transparent 28%), #0b2f29; }

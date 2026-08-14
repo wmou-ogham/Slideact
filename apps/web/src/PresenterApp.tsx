@@ -868,6 +868,7 @@ function LiveControl({
   const [results, setResults] = useState<SessionResults | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [resultsBusy, setResultsBusy] = useState(false);
+  const [audienceQrOpen, setAudienceQrOpen] = useState(false);
   useEffect(() => {
     if (!snapshot) return;
     const load = () => apiJson<{ paired: boolean; connected: boolean }>(`/api/sessions/${snapshot.session_id}/extension-status`).then((value) => setExtensionConnected(value.paired ? value.connected : null)).catch(() => undefined);
@@ -968,6 +969,7 @@ function LiveControl({
         </select>}
         {!activeSession && <button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
         {statusActions.map(([type, key]) => <button disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
+        {isLive && snapshot?.join_code && <button className="audience-qr-trigger" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button>}
         {isLive && (
           <select
             aria-label={t("live.selectCue")}
@@ -975,7 +977,6 @@ function LiveControl({
             disabled={busy}
             onChange={(event) => { if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value }); }}
           >
-            <option value="">{t("live.prepare")}</option>
             {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
           </select>
         )}
@@ -990,6 +991,7 @@ function LiveControl({
         {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
         {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
+      {audienceQrOpen && isLive && snapshot?.join_code && <AudienceJoinQrPanel t={t} code={snapshot.join_code} close={() => setAudienceQrOpen(false)} />}
       {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
       {resultsOpen && results && <SessionResultsDialog t={t} results={results} close={() => setResultsOpen(false)} />}
@@ -1074,6 +1076,24 @@ function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close
       <div className="remote-access-content">
         <div className="remote-access-qr" dangerouslySetInnerHTML={{ __html: svg }} />
         <div><p>{t("remote.qrCopy")}</p><input readOnly value={url} onFocus={(event) => event.currentTarget.select()} aria-label={t("remote.link")} /><a href={url} target="_blank" rel="noreferrer">{t("remote.open")}</a><small>{t("remote.expires")}</small></div>
+      </div>
+    </aside>
+  );
+}
+
+export function AudienceJoinQrPanel({ t, code, close }: { t: Translate; code: string; close: () => void }) {
+  const svg = useMemo(() => {
+    const qr = qrcode(0, "M");
+    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
+    qr.make();
+    return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+  }, [code]);
+  return (
+    <aside className="audience-qr-panel" role="dialog" aria-label={t("live.joinQrHeading")}>
+      <header><strong>{t("live.joinQrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
+      <div className="audience-qr-content">
+        <div className="audience-qr-image" dangerouslySetInnerHTML={{ __html: svg }} />
+        <div><p>{t("live.joinQrCopy")}</p><strong className="audience-qr-code">{code}</strong><small>{window.location.origin}/join/{code}</small></div>
       </div>
     </aside>
   );

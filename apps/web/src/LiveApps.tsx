@@ -3,7 +3,7 @@ import { Wordcloud } from "@visx/wordcloud";
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
-import { sendCommand } from "./PresenterApp";
+import { AudienceJoinQrPanel, sendCommand } from "./PresenterApp";
 import type { Cue, LiveView, Question, SessionCommand, SessionSnapshot, SnapshotInteraction } from "./types";
 
 type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
@@ -415,6 +415,7 @@ export function RemoteApp({ t }: { t: Translate }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [audienceQrOpen, setAudienceQrOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const headers = token ? { authorization: `Bearer ${token}` } : undefined;
@@ -509,6 +510,7 @@ export function RemoteApp({ t }: { t: Translate }) {
           <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previous")}</button>
           <button disabled={busy} onClick={() => navigate("next")}>{t("remote.next")}<span>→</span></button>
         </div>
+        {snapshot.join_code && <button className="remote-join-qr-trigger" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button>}
         <div className="remote-primary">
           {snapshot.status === "lobby" && <button disabled={busy} onClick={() => send({ type: "start" })}>{t("live.start")}</button>}
           {cueState === "ready" && <button disabled={busy} onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
@@ -516,6 +518,7 @@ export function RemoteApp({ t }: { t: Translate }) {
           {cueState === "revealed" && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
       </section>
+      {audienceQrOpen && snapshot.join_code && <AudienceJoinQrPanel t={t} code={snapshot.join_code} close={() => setAudienceQrOpen(false)} />}
       <section className="remote-cues">
         <h2>{t("remote.cues")}</h2>
         {cues.map((cue) => <button disabled={busy} key={cue.id} onClick={() => send({ type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
