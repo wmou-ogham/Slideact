@@ -211,8 +211,7 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .live-actions .primary-button { min-height: 39px; color: #143e35; background: #efc974; border: 0; border-radius: 10px; white-space: nowrap; }
 .live-actions button { white-space: nowrap; }
 .live-actions .audience-qr-trigger { color: var(--ink); background: #efc974; }
-.ended-session-create { position: absolute; left: 50%; top: 0; transform: translate(-50%, calc(-100% - 10px)); }
-.ended-session-create .primary-button { min-height: 42px; padding: 0 22px; color: #143e35; background: #efc974; border: 0; border-radius: 11px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.ended-session-create { flex: 0 0 auto; min-height: 42px; margin: 0 auto; padding: 0 22px; color: #143e35; background: #efc974; border: 0; border-radius: 11px; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .secondary-link { padding: 9px 10px; color: #b8d7ce; font-size: 11px; font-weight: 720; text-decoration: none; white-space: nowrap; }
 .live-actions button.secondary-link { min-height: auto; padding: 9px 10px; color: #b8d7ce; background: transparent; font-size: 11px; }
 .pairing-code { position: absolute; right: 18px; bottom: calc(100% + 10px); display: grid; gap: 4px; padding: 14px 18px; color: var(--ink); background: #f5cc7d; border: 1px solid #dca957; border-radius: 15px 15px 4px 15px; box-shadow: 0 16px 45px rgba(0,0,0,.2); }
@@ -366,6 +365,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .projection-root { min-height: 100vh; padding: clamp(28px, 4vw, 68px); color: #f8f6ef; background: radial-gradient(circle at 85% 8%, rgba(239,201,116,.17), transparent 28%), #0b2f29; }
 .projection-root > header { display: flex; align-items: center; justify-content: space-between; color: #8dd5ae; font-size: clamp(10px, 1.3vw, 16px); font-weight: 850; letter-spacing: .16em; }
 .projection-root > header strong { color: #efc974; font-family: Georgia, serif; font-size: clamp(22px, 3vw, 42px); letter-spacing: .18em; }
+.projection-header-actions { display: flex; align-items: center; gap: 18px; }
+.projection-qr-toggle, .overlay-qr-toggle { padding: 8px 11px; color: #143e35; background: #efc974; border: 0; border-radius: 9px; font-size: 10px; font-weight: 850; white-space: nowrap; }
 .projection-waiting { display: grid; min-height: 72vh; align-content: center; justify-items: center; text-align: center; }
 .projection-waiting p { color: #8dd5ae; font-size: clamp(13px, 2vw, 22px); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .projection-waiting strong { color: #efc974; font-family: Georgia, serif; font-size: clamp(72px, 14vw, 190px); font-weight: 500; letter-spacing: .14em; line-height: .9; }
@@ -396,6 +397,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .overlay-root { display: grid; min-width: 100vw; min-height: 100vh; padding: 4vh 4vw; place-items: end center; background: transparent; }
 .overlay-root .waiting-orbit { place-self: center; }
 .overlay-card { width: min(880px, 90vw); padding: 28px 32px; color: #f8f6ef; background: rgba(15,55,48,.92); border: 1px solid rgba(255,255,255,.16); border-radius: 28px 28px 7px 28px; box-shadow: 0 20px 65px rgba(0,0,0,.28); backdrop-filter: blur(12px); }
+.overlay-meta > div { display: flex; align-items: center; gap: 12px; }
+.overlay-minimal .audience-qr-panel { width: min(560px, 90vw); margin: 20px auto 0; }
 .overlay-meta { display: flex; justify-content: space-between; color: #91d8b2; font-size: 11px; font-weight: 850; letter-spacing: .12em; }
 .overlay-meta strong { color: #efc974; letter-spacing: .15em; }
 .overlay-card h1 { max-width: 720px; margin: 18px 0 24px; font-family: Georgia, serif; font-size: clamp(34px, 5vw, 58px); font-weight: 500; letter-spacing: -.045em; line-height: 1; }

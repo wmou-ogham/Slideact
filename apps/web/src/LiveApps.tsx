@@ -415,7 +415,6 @@ export function RemoteApp({ t }: { t: Translate }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [audienceQrOpen, setAudienceQrOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const headers = token ? { authorization: `Bearer ${token}` } : undefined;
@@ -510,7 +509,6 @@ export function RemoteApp({ t }: { t: Translate }) {
           <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previous")}</button>
           <button disabled={busy} onClick={() => navigate("next")}>{t("remote.next")}<span>→</span></button>
         </div>
-        {snapshot.join_code && <button className="remote-join-qr-trigger" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button>}
         <div className="remote-primary">
           {snapshot.status === "lobby" && <button disabled={busy} onClick={() => send({ type: "start" })}>{t("live.start")}</button>}
           {cueState === "ready" && <button disabled={busy} onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
@@ -518,7 +516,6 @@ export function RemoteApp({ t }: { t: Translate }) {
           {cueState === "revealed" && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
       </section>
-      {audienceQrOpen && snapshot.join_code && <AudienceJoinQrPanel t={t} code={snapshot.join_code} close={() => setAudienceQrOpen(false)} />}
       <section className="remote-cues">
         <h2>{t("remote.cues")}</h2>
         {cues.map((cue) => <button disabled={busy} key={cue.id} onClick={() => send({ type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
@@ -556,6 +553,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
+  const [audienceQrOpen, setAudienceQrOpen] = useState(false);
   const refresh = useCallback(async () => {
     if (!token) throw new Error("projection_token_missing");
     setLive(await loadLiveView(sessionId, token));
@@ -582,9 +580,9 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const prompt = cueRun?.interactions[0]?.prompt;
   return (
     <main className="projection-root">
-      <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
+      <header><span>SLIDEACT · LIVE</span><div className="projection-header-actions"><button className="projection-qr-toggle" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button><strong>{live.snapshot.join_code}</strong></div></header>
       {!cueRun || cueRun.state === "ready" ? (
-        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><small>{t("projection.waiting")}</small></section>
+        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong>{audienceQrOpen && <ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} />}<small>{t("projection.waiting")}</small></section>
       ) : (
         <section className="projection-results">
           <p>{cueRun.state === "open" ? t("overlay.collecting") : cueRun.state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
@@ -602,6 +600,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
           )}
         </section>
       )}
+      {audienceQrOpen && cueRun && cueRun.state !== "ready" && <AudienceJoinQrPanel t={t} code={live.snapshot.join_code ?? ""} close={() => setAudienceQrOpen(false)} />}
     </main>
   );
 }
@@ -621,6 +620,7 @@ export function OverlayApp({ t }: { t: Translate }) {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
+  const [audienceQrOpen, setAudienceQrOpen] = useState(false);
   const refresh = useCallback(async () => {
     if (!token) throw new Error("token_missing");
     setLive(await loadLiveView(sessionId, token));
@@ -644,17 +644,18 @@ export function OverlayApp({ t }: { t: Translate }) {
   if (error) return <main className="overlay-error">{t("overlay.invalid")}</main>;
   if (!live) return <main className="overlay-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
-  if (!cueRun || cueRun.state === "ready") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("live.joinCode")}</small><strong>{live.snapshot.join_code}</strong></div></main>;
+  if (!cueRun || cueRun.state === "ready") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("live.joinCode")}</small><strong>{live.snapshot.join_code}</strong><button className="overlay-qr-toggle" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button>{audienceQrOpen && <AudienceJoinQrPanel t={t} code={live.snapshot.join_code ?? ""} close={() => setAudienceQrOpen(false)} />}</div></main>;
   const pinnedQuestion = live.questions.find((question) => question.status === "pinned")
     ?? live.questions.find((question) => question.status === "highlighted");
   return (
     <main className="overlay-root">
       <section className="overlay-card">
-        <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
+        <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><div><button className="overlay-qr-toggle" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button><strong>{live.snapshot.join_code}</strong></div></div>
         <h1>{cueRun.interactions[0]?.prompt ?? cueRun.cue_name}</h1>
         {live.aggregates.length ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />) : <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
         {pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}><span>{pinnedQuestion.status === "pinned" ? t("qa.pinned") : t("qa.highlighted")}</span><p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>}
       </section>
+      {audienceQrOpen && <AudienceJoinQrPanel t={t} code={live.snapshot.join_code ?? ""} close={() => setAudienceQrOpen(false)} />}
     </main>
   );
 }

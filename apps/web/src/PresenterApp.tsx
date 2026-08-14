@@ -881,7 +881,6 @@ function LiveControl({
   const [results, setResults] = useState<SessionResults | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [resultsBusy, setResultsBusy] = useState(false);
-  const [audienceQrOpen, setAudienceQrOpen] = useState(false);
   useEffect(() => {
     if (!snapshot) return;
     const load = () => apiJson<{ paired: boolean; connected: boolean }>(`/api/sessions/${snapshot.session_id}/extension-status`).then((value) => setExtensionConnected(value.paired ? value.connected : null)).catch(() => undefined);
@@ -976,12 +975,12 @@ function LiveControl({
         <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
         {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
       </div>
+      {!activeSession && <button className="primary-button ended-session-create" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
       <div className="live-actions">
         {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
           {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
         </select>}
         {statusActions.map(([type, key]) => <button disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
-        {isLive && snapshot?.join_code && <button className="audience-qr-trigger" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button>}
         {isLive && (
           <select
             aria-label={t("live.selectCue")}
@@ -1004,8 +1003,6 @@ function LiveControl({
         {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
         {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
-      {!activeSession && <div className="ended-session-create"><button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button></div>}
-      {audienceQrOpen && isLive && snapshot?.join_code && <AudienceJoinQrPanel t={t} code={snapshot.join_code} close={() => setAudienceQrOpen(false)} />}
       {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
       {resultsOpen && results && <SessionResultsDialog t={t} results={results} close={() => setResultsOpen(false)} />}
