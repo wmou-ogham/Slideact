@@ -967,7 +967,6 @@ function LiveControl({
         {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
           {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
         </select>}
-        {!activeSession && <button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
         {statusActions.map(([type, key]) => <button disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
         {isLive && snapshot?.join_code && <button className="audience-qr-trigger" onClick={() => setAudienceQrOpen((open) => !open)}>{t("live.joinQr")}</button>}
         {isLive && (
@@ -980,9 +979,10 @@ function LiveControl({
             {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
           </select>
         )}
-        {cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
-        {(cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
-        {cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
+        {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
+        {isLive && (cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
+        {isControllable && cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
+        {snapshot?.status === "ended" && <button disabled={busy || !project} onClick={createSession}>{t("live.reopen")}</button>}
         {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
@@ -991,6 +991,7 @@ function LiveControl({
         {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
         {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
+      {!activeSession && <div className="ended-session-create"><button className="primary-button" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button></div>}
       {audienceQrOpen && isLive && snapshot?.join_code && <AudienceJoinQrPanel t={t} code={snapshot.join_code} close={() => setAudienceQrOpen(false)} />}
       {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
