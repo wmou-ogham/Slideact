@@ -5,7 +5,7 @@ Slideact stores the minimum data required to run presenter projects and live aud
 ## Data categories
 
 - Google accounts: provider subject, verified email when supplied by Google, display name and locale.
-- Guest Vaults: random profile and Vault UUIDs; no email or real name is required. The browser keeps a long-lived HttpOnly session cookie.
+- Guest Vaults: random profile and Vault UUIDs; no email or real name is required. The browser keeps a long-lived HttpOnly session cookie. A presenter may download a vault file containing a recovery key; the database stores only the SHA-256 hash of that key.
 - Presentations: projects, cues, interaction content, live-session state and scoped controller tokens.
 - Audience: a random per-session participant identifier, locale, responses, questions and votes. Audience names and email addresses are not collected.
 - Extension diagnostics: random device UUID, Google deck/slide identifiers, last position, heartbeat time and the last short transport error.

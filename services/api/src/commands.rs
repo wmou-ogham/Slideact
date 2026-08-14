@@ -41,6 +41,8 @@ enum SessionCommand {
     Pause,
     Resume,
     End,
+    ShowJoinQr,
+    ShowCue,
     PrepareCue { cue_id: Uuid },
     OpenCue,
     CloseCue,
@@ -57,6 +59,8 @@ impl SessionCommand {
             Self::Pause => "pause",
             Self::Resume => "resume",
             Self::End => "end",
+            Self::ShowJoinQr => "show_join_qr",
+            Self::ShowCue => "show_cue",
             Self::PrepareCue { .. } => "prepare_cue",
             Self::OpenCue => "open_cue",
             Self::CloseCue => "close_cue",
@@ -82,7 +86,13 @@ pub(crate) struct SessionSnapshot {
     locale: String,
     sync_mode: String,
     state_version: u64,
+    #[serde(default = "default_presentation_view")]
+    presentation_view: String,
     current_cue_run: Option<CueRunSnapshot>,
+}
+
+fn default_presentation_view() -> String {
+    "cue".to_owned()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +155,7 @@ struct LockedSession {
     state_version: u64,
     sync_mode: String,
     current_cue_run_id: Option<Uuid>,
+    presentation_view: String,
 }
 
 pub(crate) fn router() -> Router<AppState> {
@@ -205,7 +216,7 @@ async fn command(
             .await?;
         }
         SessionCommand::PrepareCue { cue_id } => {
-            let trigger_mode = prepare_cue(
+            let prepared = prepare_cue(
                 &mut transaction,
                 session_id,
                 &mut locked,
@@ -213,7 +224,7 @@ async fn command(
                 &request.idempotency_key,
             )
             .await?;
-            if trigger_mode == "immediate" && locked.status == LiveSessionState::Live {
+            if prepared.should_auto_open(locked.status) {
                 apply_cue_command(
                     &mut transaction,
                     session_id,
@@ -223,6 +234,26 @@ async fn command(
                 )
                 .await?;
             }
+        }
+        SessionCommand::ShowJoinQr => {
+            set_presentation_view(
+                &mut transaction,
+                session_id,
+                &mut locked,
+                "join_qr",
+                &request.idempotency_key,
+            )
+            .await?;
+        }
+        SessionCommand::ShowCue => {
+            set_presentation_view(
+                &mut transaction,
+                session_id,
+                &mut locked,
+                "cue",
+                &request.idempotency_key,
+            )
+            .await?;
         }
         SessionCommand::OpenCue
         | SessionCommand::CloseCue
@@ -317,9 +348,9 @@ pub(crate) async fn apply_follow_position(
     idempotency_key: &str,
 ) -> Result<(SessionSnapshot, Option<Uuid>), ApiError> {
     let mut transaction = database.begin().await.map_err(persistence_error)?;
-    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>)>(
+    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>, String)>(
         r#"
-        SELECT project_id, status, state_version, sync_mode, current_cue_run_id
+        SELECT project_id, status, state_version, sync_mode, current_cue_run_id, presentation_view
         FROM live_sessions WHERE id = $1 FOR UPDATE
         "#,
     )
@@ -335,6 +366,7 @@ pub(crate) async fn apply_follow_position(
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
         sync_mode: row.3,
         current_cue_run_id: row.4,
+        presentation_view: row.5,
     };
     if !matches!(
         locked.status,
@@ -377,7 +409,7 @@ pub(crate) async fn apply_follow_position(
         None => None,
     };
     if current_cue_id != Some(cue_id) {
-        let prepared_trigger_mode = prepare_cue(
+        let prepared = prepare_cue(
             &mut transaction,
             session_id,
             &mut locked,
@@ -385,8 +417,8 @@ pub(crate) async fn apply_follow_position(
             idempotency_key,
         )
         .await?;
-        debug_assert_eq!(prepared_trigger_mode, trigger_mode);
-        if prepared_trigger_mode == "immediate" && locked.status == LiveSessionState::Live {
+        debug_assert_eq!(prepared.trigger_mode, trigger_mode);
+        if prepared.should_auto_open(locked.status) {
             apply_cue_command(
                 &mut transaction,
                 session_id,
@@ -396,6 +428,15 @@ pub(crate) async fn apply_follow_position(
             )
             .await?;
         }
+    } else if locked.presentation_view != "cue" {
+        set_presentation_view(
+            &mut transaction,
+            session_id,
+            &mut locked,
+            "cue",
+            idempotency_key,
+        )
+        .await?;
     }
 
     let snapshot = load_snapshot(&mut transaction, session_id).await?;
@@ -408,10 +449,11 @@ async fn lock_authorized_session(
     session_id: Uuid,
     user_id: Uuid,
 ) -> Result<LockedSession, ApiError> {
-    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>)>(
+    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>, String)>(
         r#"
         SELECT live_sessions.project_id, live_sessions.status, live_sessions.state_version,
-               live_sessions.sync_mode, live_sessions.current_cue_run_id
+               live_sessions.sync_mode, live_sessions.current_cue_run_id,
+               live_sessions.presentation_view
         FROM live_sessions
         JOIN projects ON projects.id = live_sessions.project_id
         LEFT JOIN project_members
@@ -434,6 +476,7 @@ async fn lock_authorized_session(
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
         sync_mode: row.3,
         current_cue_run_id: row.4,
+        presentation_view: row.5,
     })
 }
 
@@ -441,9 +484,9 @@ async fn lock_session(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,
 ) -> Result<LockedSession, ApiError> {
-    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>)>(
+    let row = sqlx::query_as::<_, (Uuid, String, i64, String, Option<Uuid>, String)>(
         r#"
-        SELECT project_id, status, state_version, sync_mode, current_cue_run_id
+        SELECT project_id, status, state_version, sync_mode, current_cue_run_id, presentation_view
         FROM live_sessions WHERE id = $1 FOR UPDATE
         "#,
     )
@@ -459,6 +502,7 @@ async fn lock_session(
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
         sync_mode: row.3,
         current_cue_run_id: row.4,
+        presentation_view: row.5,
     })
 }
 
@@ -572,13 +616,26 @@ async fn apply_session_command(
     .await
 }
 
+struct PreparedCue {
+    trigger_mode: String,
+    state: String,
+}
+
+impl PreparedCue {
+    fn should_auto_open(&self, status: LiveSessionState) -> bool {
+        self.trigger_mode == "immediate"
+            && status == LiveSessionState::Live
+            && self.state == "ready"
+    }
+}
+
 async fn prepare_cue(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,
     locked: &mut LockedSession,
     cue_id: Uuid,
     idempotency_key: &str,
-) -> Result<String, ApiError> {
+) -> Result<PreparedCue, ApiError> {
     if !matches!(
         locked.status,
         LiveSessionState::Lobby | LiveSessionState::Live | LiveSessionState::Paused
@@ -594,6 +651,41 @@ async fn prepare_cue(
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ApiError::not_found("cue_not_found"))?;
+    let existing = sqlx::query_as::<_, (Uuid, String)>(
+        r#"
+        SELECT cue_runs.id, cue_runs.state FROM cue_runs
+        WHERE cue_runs.session_id = $1 AND cue_runs.cue_id = $2 AND cue_runs.state <> 'skipped'
+        ORDER BY
+          CASE WHEN EXISTS (
+            SELECT 1 FROM responses WHERE responses.cue_run_id = cue_runs.id
+          ) OR EXISTS (
+            SELECT 1 FROM questions WHERE questions.cue_run_id = cue_runs.id
+          ) THEN 0 ELSE 1 END,
+          cue_runs.run_number DESC,
+          cue_runs.id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(session_id)
+    .bind(cue_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    if let Some((cue_run_id, state)) = existing {
+        activate_cue_run(
+            transaction,
+            session_id,
+            locked,
+            cue_run_id,
+            &state,
+            idempotency_key,
+        )
+        .await?;
+        return Ok(PreparedCue {
+            trigger_mode,
+            state,
+        });
+    }
     let run_number = sqlx::query_scalar::<_, i32>(
         "SELECT COALESCE(MAX(run_number) + 1, 1)::INTEGER FROM cue_runs WHERE session_id = $1 AND cue_id = $2",
     )
@@ -616,7 +708,31 @@ async fn prepare_cue(
     .execute(&mut **transaction)
     .await
     .map_err(persistence_error)?;
+    activate_cue_run(
+        transaction,
+        session_id,
+        locked,
+        cue_run_id,
+        "ready",
+        idempotency_key,
+    )
+    .await?;
+    Ok(PreparedCue {
+        trigger_mode,
+        state: "ready".to_owned(),
+    })
+}
+
+async fn activate_cue_run(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+    locked: &mut LockedSession,
+    cue_run_id: Uuid,
+    state: &str,
+    idempotency_key: &str,
+) -> Result<(), ApiError> {
     locked.current_cue_run_id = Some(cue_run_id);
+    locked.presentation_view = "cue".to_owned();
     increment_session_version(transaction, session_id, locked).await?;
     emit_event_to_all(
         transaction,
@@ -625,12 +741,42 @@ async fn prepare_cue(
         json!({
             "event_type": "cue.state_changed",
             "cue_run_id": cue_run_id,
-            "state": "ready",
+            "state": state,
         }),
         idempotency_key,
     )
-    .await?;
-    Ok(trigger_mode)
+    .await
+}
+
+async fn set_presentation_view(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+    locked: &mut LockedSession,
+    view: &str,
+    idempotency_key: &str,
+) -> Result<(), ApiError> {
+    if !matches!(
+        locked.status,
+        LiveSessionState::Lobby | LiveSessionState::Live | LiveSessionState::Paused
+    ) {
+        return Err(ApiError::conflict("command_invalid_transition"));
+    }
+    if view == "cue" && locked.current_cue_run_id.is_none() {
+        return Err(ApiError::conflict("current_cue_missing"));
+    }
+    locked.presentation_view = view.to_owned();
+    increment_session_version(transaction, session_id, locked).await?;
+    emit_event_to_all(
+        transaction,
+        session_id,
+        locked.state_version,
+        json!({
+            "event_type": "presentation.view_changed",
+            "view": view,
+        }),
+        idempotency_key,
+    )
+    .await
 }
 
 async fn apply_cue_command(
@@ -716,11 +862,12 @@ async fn increment_session_version(
         .checked_add(1)
         .ok_or_else(|| ApiError::conflict("state_version_overflow"))?;
     sqlx::query(
-        "UPDATE live_sessions SET state_version = $2, current_cue_run_id = $3 WHERE id = $1",
+        "UPDATE live_sessions SET state_version = $2, current_cue_run_id = $3, presentation_view = $4 WHERE id = $1",
     )
     .bind(session_id)
     .bind(i64::try_from(locked.state_version).expect("database state version fits i64"))
     .bind(locked.current_cue_run_id)
+    .bind(&locked.presentation_view)
     .execute(&mut **transaction)
     .await
     .map_err(persistence_error)?;
@@ -795,9 +942,22 @@ async fn load_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,
 ) -> Result<SessionSnapshot, ApiError> {
-    let row = sqlx::query_as::<_, (Uuid, Option<String>, String, String, String, i64, Option<Uuid>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+            Option<Uuid>,
+            String,
+        ),
+    >(
         r#"
-        SELECT project_id, RTRIM(join_code), status, locale, sync_mode, state_version, current_cue_run_id
+        SELECT project_id, RTRIM(join_code), status, locale, sync_mode, state_version,
+               current_cue_run_id, presentation_view
         FROM live_sessions WHERE id = $1
         "#,
     )
@@ -819,6 +979,7 @@ async fn load_snapshot(
         sync_mode: row.4,
         state_version: u64::try_from(row.5)
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
+        presentation_view: row.7,
         current_cue_run,
     })
 }

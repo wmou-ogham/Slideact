@@ -7,6 +7,13 @@ export type Profile = {
   vault_id: string | null;
 };
 
+export type GuestVaultFile = {
+  kind: "slideact.guest_vault";
+  version: 1;
+  vault_id: string;
+  recovery_key: string;
+};
+
 export type Project = {
   id: string;
   title: string;
@@ -102,6 +109,7 @@ export type SessionSnapshot = {
   locale: string;
   sync_mode: string;
   state_version: number;
+  presentation_view: "join_qr" | "cue";
   current_cue_run: null | {
     id: string;
     cue_id: string;
@@ -148,9 +156,13 @@ export type LiveView = {
     aggregate: Aggregate;
   }>;
   questions: Question[];
+  my_responses: Array<{
+    interaction_id: string;
+    payload: Record<string, unknown>;
+  }>;
 };
 
 export type SessionCommand =
-  | { type: "open_lobby" | "start" | "pause" | "resume" | "end" }
+  | { type: "open_lobby" | "start" | "pause" | "resume" | "end" | "show_join_qr" | "show_cue" }
   | { type: "prepare_cue"; cue_id: string }
   | { type: "open_cue" | "close_cue" | "reopen_cue" | "reveal_cue" | "skip_cue" };

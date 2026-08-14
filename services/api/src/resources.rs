@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState, api_error::ApiError, auth::authenticated_user_id,
-    authorization::authorize_presenter_access,
+    authorization::authorize_presenter_access, commands::emit_event_to_all,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -651,6 +651,7 @@ async fn create_interaction(
     let id = Uuid::new_v4();
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     insert_interaction(&mut transaction, id, cue_id, position, &request).await?;
+    notify_live_cue_interaction(&mut transaction, project_id, cue_id, id).await?;
     transaction.commit().await.map_err(persistence_error)?;
     Ok((
         StatusCode::CREATED,
@@ -689,6 +690,7 @@ async fn update_interaction(
         .await
         .map_err(persistence_error)?;
     insert_options(&mut transaction, interaction_id, &request.options).await?;
+    notify_live_cue_interaction(&mut transaction, project_id, cue_id, interaction_id).await?;
     transaction.commit().await.map_err(persistence_error)?;
     Ok(Json(
         load_interaction(&state.database, interaction_id).await?,
@@ -703,16 +705,19 @@ async fn delete_interaction(
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     require_project_write(&state.database, project_id, user_id).await?;
     require_cue(&state.database, project_id, cue_id).await?;
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     let affected = sqlx::query("DELETE FROM interactions WHERE id = $1 AND cue_id = $2")
         .bind(interaction_id)
         .bind(cue_id)
-        .execute(&state.database)
+        .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?
         .rows_affected();
     if affected == 0 {
         return Err(ApiError::not_found("interaction_not_found"));
     }
+    notify_live_cue_interaction(&mut transaction, project_id, cue_id, interaction_id).await?;
+    transaction.commit().await.map_err(persistence_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -801,6 +806,46 @@ async fn insert_interaction(
     .await
     .map_err(persistence_error)?;
     insert_options(transaction, id, &request.options).await
+}
+
+async fn notify_live_cue_interaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    project_id: Uuid,
+    cue_id: Uuid,
+    interaction_id: Uuid,
+) -> Result<(), ApiError> {
+    let rows = sqlx::query_as::<_, (Uuid, i64, Uuid, String)>(
+        r#"
+        SELECT live_sessions.id, live_sessions.state_version, cue_runs.id, cue_runs.state
+        FROM live_sessions
+        JOIN cue_runs ON cue_runs.id = live_sessions.current_cue_run_id
+        WHERE live_sessions.project_id = $1
+          AND cue_runs.cue_id = $2
+          AND live_sessions.status IN ('lobby', 'live', 'paused')
+        "#,
+    )
+    .bind(project_id)
+    .bind(cue_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    for (session_id, state_version, cue_run_id, state) in rows {
+        emit_event_to_all(
+            transaction,
+            session_id,
+            u64::try_from(state_version)
+                .map_err(|_| ApiError::internal("state_version_invalid"))?,
+            json!({
+                "event_type": "interaction.state_changed",
+                "cue_run_id": cue_run_id,
+                "interaction_id": interaction_id,
+                "state": state,
+            }),
+            &format!("interaction-{interaction_id}-{}", Uuid::new_v4()),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn insert_options(

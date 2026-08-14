@@ -1,9 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import type {
   Cue,
+  GuestVaultFile,
   Interaction,
   LiveView,
   LiveSession,
@@ -26,6 +27,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [presenterLive, setPresenterLive] = useState<LiveView | null>(null);
+  const cueLiveCache = useRef<Record<string, LiveView>>({});
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [expandedCueId, setExpandedCueId] = useState("");
@@ -128,7 +130,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         const next = await apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
           headers: { authorization: `Bearer ${issued.token}` },
         });
-        if (!cancelled) setPresenterLive(next);
+        if (!cancelled) setPresenterLive(rememberPresenterLive(cueLiveCache.current, next));
       };
       await load();
       if (!cancelled) timer = window.setInterval(() => load().catch(() => undefined), 2500);
@@ -420,6 +422,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         </a>
         <button
           className="guest-button"
+          disabled={busy}
           onClick={async () => {
             await postJson("/api/auth/guest", { locale });
             window.location.reload();
@@ -428,6 +431,36 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           {t("auth.guest")}
         </button>
         <small className="guest-note">{t("auth.guestNote")}</small>
+        <form
+          className="vault-restore"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const key = new FormData(event.currentTarget).get("vaultKey");
+            if (typeof key !== "string") return;
+            await restoreGuestVault(key, setMessage, t).then((ok) => ok && location.reload());
+          }}
+        >
+          <p>{t("auth.restoreHeading")}</p>
+          <label className="guest-button vault-file">
+            {t("auth.openVault")}
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={async (event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                if (!file) return;
+                const ok = await restoreGuestVault(await file.text(), setMessage, t);
+                if (ok) location.reload();
+              }}
+            />
+          </label>
+          <div className="inline-form">
+            <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" />
+            <button disabled={busy} type="submit">{t("auth.restoreVault")}</button>
+          </div>
+          {message && <p className="form-error" role="alert">{message}</p>}
+        </form>
       </main>
     );
   }
@@ -441,6 +474,11 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         </div>
         <div className="profile-chip">
           <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
+          {profile.account_type === "guest" && (
+            <button disabled={busy} onClick={() => downloadGuestVault(profile.vault_id, setMessage, t)}>
+              {t("auth.takeVault")}
+            </button>
+          )}
           <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
             {t("auth.logout")}
           </button>
@@ -840,6 +878,64 @@ function parseOptions(value: FormDataEntryValue | null) {
     .filter(Boolean);
 }
 
+export function parseVaultCredential(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as { recovery_key?: unknown };
+    if (typeof parsed.recovery_key === "string" && parsed.recovery_key.trim()) {
+      return parsed.recovery_key.trim();
+    }
+  } catch {
+    // Plain recovery keys are accepted as well as downloaded JSON files.
+  }
+  return trimmed;
+}
+
+async function restoreGuestVault(
+  raw: string,
+  setMessage: (value: string) => void,
+  t: Translate,
+): Promise<boolean> {
+  const recovery_key = parseVaultCredential(raw);
+  if (!recovery_key) {
+    setMessage(t("auth.vaultInvalid"));
+    return false;
+  }
+  try {
+    await postJson("/api/auth/guest/restore", { recovery_key });
+    return true;
+  } catch (error) {
+    const code = error instanceof ApiError ? error.code : "network_error";
+    setMessage(code === "guest_vault_recovery_invalid" ? t("auth.vaultInvalid") : t("error.generic", { code }));
+    return false;
+  }
+}
+
+async function downloadGuestVault(
+  vaultId: string | null,
+  setMessage: (value: string) => void,
+  t: Translate,
+): Promise<void> {
+  if (!window.confirm(t("auth.takeVaultConfirm"))) return;
+  try {
+    const file = await postJson<GuestVaultFile>("/api/auth/guest/export", {});
+    const blob = new Blob([`${JSON.stringify(file, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `slideact-vault-${(file.vault_id || vaultId || "guest").slice(0, 8)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setMessage(t("auth.vaultTaken"));
+  } catch (error) {
+    const code = error instanceof ApiError ? error.code : "network_error";
+    setMessage(t("error.generic", { code }));
+  }
+}
+
 export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const trimmed = value.trim();
   if (!trimmed) return String(fallbackIndex);
@@ -847,6 +943,24 @@ export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const matched = matches.at(-1)?.[1];
   if (matched) return decodeURIComponent(matched);
   return trimmed.replace(/^id\./, "");
+}
+
+function rememberPresenterLive(cache: Record<string, LiveView>, live: LiveView) {
+  const cueId = live.snapshot.current_cue_run?.cue_id;
+  if (!cueId) return live;
+  const hasResponses = live.aggregates.some((item) => (item.aggregate.total_responses ?? 0) > 0)
+    || live.questions.length > 0;
+  if (hasResponses) {
+    cache[cueId] = live;
+    return live;
+  }
+  const remembered = cache[cueId];
+  if (!remembered) return live;
+  return {
+    ...live,
+    aggregates: remembered.aggregates,
+    questions: live.questions.length ? live.questions : remembered.questions,
+  };
 }
 
 function generatedCueName(locale: string, index: number) {
@@ -931,7 +1045,7 @@ function LiveControl({
     if (!snapshot) return;
     const target = window.open("about:blank", "_blank");
     try {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "overlay" });
+      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "presenter" });
       const url = `/projection/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
       if (target) target.location.href = url;
       else location.href = url;
@@ -984,10 +1098,15 @@ function LiveControl({
         {isLive && (
           <select
             aria-label={t("live.selectCue")}
-            value={snapshot.current_cue_run?.cue_id ?? ""}
+            value={snapshot.presentation_view === "join_qr" ? "__join_qr__" : (snapshot.current_cue_run?.cue_id ?? "__join_qr__")}
             disabled={busy}
-            onChange={(event) => { if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value }); }}
+            onChange={(event) => {
+              if (event.target.value === "__join_qr__") send({ type: "show_join_qr" });
+              else if (event.target.value === snapshot.current_cue_run?.cue_id) send({ type: "show_cue" });
+              else if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value });
+            }}
           >
+            <option value="__join_qr__">{t("live.qrHome")}</option>
             {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
           </select>
         )}
@@ -998,7 +1117,6 @@ function LiveControl({
         {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
-        {isControllable && <a className="secondary-link" href={`/qr/${snapshot?.session_id ?? ""}`} target="_blank" rel="noreferrer">{t("live.joinQrPage")}</a>}
         {snapshot && <button className="secondary-link" disabled={resultsBusy} onClick={showResults}>{t("live.results")}</button>}
         {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
         {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}

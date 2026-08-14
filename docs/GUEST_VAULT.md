@@ -10,9 +10,11 @@ Guest Vault 沒有服務使用期限。資料會依照一般 project、cue、ses
 
 ## 瀏覽器與跨裝置行為
 
-訪客 session 以 HttpOnly cookie 保存，cookie Max-Age 為十年，資料庫 session 使用 PostgreSQL `infinity` expiration，因此不會因為產品內建的短期 session TTL 而失效。登出、清除瀏覽器 cookie，或管理員撤銷 session 後，原本的訪客身份便無法從另一個裝置自動還原。
+訪客 session 以 HttpOnly cookie 保存，cookie Max-Age 為十年，資料庫 session 使用 PostgreSQL `infinity` expiration，因此不會因為產品內建的短期 session TTL 而失效。登出或清除瀏覽器 cookie 後，同一瀏覽器無法自動還原。
 
-訪客若要跨裝置延續，應改用 Google 登入。後續可以再加入「將 Guest Vault 綁定到 Google 帳號」的升級流程；目前不會自動合併兩種帳號，以避免未經確認的資料轉移。
+講者可以把 Vault 帶走：工作室右上角的「帶走 Vault」會下載一份 `slideact-vault-….json`。檔案含一次性顯示的 recovery key；伺服器只保存 SHA-256 hash。在另一台電腦的登入頁選擇「開啟 Vault 檔」或貼上金鑰，即可對同一個 Guest Vault 發行新的 session cookie。再次下載會輪替金鑰，舊檔無法再登入；既有瀏覽器 cookie 不受影響。
+
+訪客也可以改用 Google 登入來跨裝置延續。後續可以再加入「將 Guest Vault 綁定到 Google 帳號」的升級流程；目前不會自動合併兩種帳號，以避免未經確認的資料轉移。
 
 ## 資料生命週期
 
@@ -28,3 +30,28 @@ Content-Type: application/json
 ```
 
 第一次呼叫回傳 `201`，後續帶著同一個 cookie 呼叫會回傳 `200` 並重用同一個 `vault_id`。`GET /api/auth/me` 會回傳 `account_type: "guest"` 與 `vault_id`，前端可用此資訊顯示 Guest Vault 狀態。
+
+```http
+POST /api/auth/guest/export
+Cookie: slide_helper_session=...
+```
+
+僅訪客帳號可呼叫。回傳可下載的 Vault 檔內容，並輪替 recovery key：
+
+```json
+{
+  "kind": "slideact.guest_vault",
+  "version": 1,
+  "vault_id": "…",
+  "recovery_key": "svlt1.…"
+}
+```
+
+```http
+POST /api/auth/guest/restore
+Content-Type: application/json
+
+{"recovery_key":"svlt1.…"}
+```
+
+驗證 hash 後發行新的長效訪客 session。金鑰無效時回傳 `401` 與 `guest_vault_recovery_invalid`。

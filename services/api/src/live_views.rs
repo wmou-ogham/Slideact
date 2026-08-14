@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use sqlx::PgPool;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -23,6 +24,7 @@ struct LiveView {
     audience_count: i64,
     aggregates: Vec<AggregateView>,
     questions: Vec<QuestionView>,
+    my_responses: Vec<MyResponseView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -30,6 +32,12 @@ struct AggregateView {
     cue_run_id: Uuid,
     interaction_id: Uuid,
     aggregate: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct MyResponseView {
+    interaction_id: Uuid,
+    payload: Value,
 }
 
 pub(crate) fn router() -> Router<AppState> {
@@ -116,13 +124,53 @@ async fn get_live_view(
     } else {
         Vec::new()
     };
+    let my_responses = load_my_responses(
+        &state.database,
+        session_id,
+        actor.role,
+        actor.participant_id,
+    )
+    .await?;
 
     Ok(Json(LiveView {
         snapshot,
         audience_count,
         aggregates,
         questions,
+        my_responses,
     }))
+}
+
+async fn load_my_responses(
+    database: &PgPool,
+    session_id: Uuid,
+    role: SessionRole,
+    participant_id: Option<Uuid>,
+) -> Result<Vec<MyResponseView>, ApiError> {
+    let Some(participant_id) = participant_id.filter(|_| role == SessionRole::Audience) else {
+        return Ok(Vec::new());
+    };
+    Ok(sqlx::query_as::<_, (Uuid, Value)>(
+        r#"
+        SELECT responses.interaction_id, responses.payload
+        FROM responses
+        WHERE responses.participant_id = $2
+          AND responses.cue_run_id = (
+              SELECT current_cue_run_id FROM live_sessions WHERE id = $1
+          )
+        "#,
+    )
+    .bind(session_id)
+    .bind(participant_id)
+    .fetch_all(database)
+    .await
+    .map_err(persistence_error)?
+    .into_iter()
+    .map(|(interaction_id, payload)| MyResponseView {
+        interaction_id,
+        payload,
+    })
+    .collect())
 }
 
 fn persistence_error(error: sqlx::Error) -> ApiError {

@@ -78,6 +78,68 @@ assert.equal(guestProjects.response.status, 200);
 assert.equal(guestProjects.body.length, 1);
 assert.equal(guestProjects.body[0].id, guestProject.body.id);
 
+const anonymousVaultExport = await requestJson("/api/auth/guest/export", { method: "POST", body: {} });
+assert.equal(anonymousVaultExport.response.status, 401);
+
+const googleVaultExport = await requestJson("/api/auth/guest/export", {
+  method: "POST",
+  cookie: ownerCookie,
+  body: {},
+});
+assert.equal(googleVaultExport.response.status, 403);
+assert.deepEqual(googleVaultExport.body, { code: "guest_vault_required" });
+
+const invalidVaultRestore = await requestJson("/api/auth/guest/restore", {
+  method: "POST",
+  body: { recovery_key: `svlt1.${"A".repeat(43)}` },
+});
+assert.equal(invalidVaultRestore.response.status, 401);
+assert.deepEqual(invalidVaultRestore.body, { code: "guest_vault_recovery_invalid" });
+
+const vaultExport = await requestJson("/api/auth/guest/export", {
+  method: "POST",
+  cookie: guestCookie,
+  body: {},
+});
+assert.equal(vaultExport.response.status, 200);
+assert.equal(vaultExport.body.kind, "slideact.guest_vault");
+assert.equal(vaultExport.body.version, 1);
+assert.equal(vaultExport.body.vault_id, guestBody.vault_id);
+assert.match(vaultExport.body.recovery_key, /^svlt1\.[A-Za-z0-9_-]{43}$/);
+const firstRecoveryKey = vaultExport.body.recovery_key;
+
+const restoredVault = await requestJson("/api/auth/guest/restore", {
+  method: "POST",
+  body: { recovery_key: firstRecoveryKey },
+});
+assert.equal(restoredVault.response.status, 200);
+const restoredCookie = restoredVault.response.headers.get("set-cookie").split(";", 1)[0];
+assert.match(restoredCookie, /^slide_helper_session=/);
+assert.notEqual(restoredCookie, guestCookie);
+assert.equal(restoredVault.body.vault_id, guestBody.vault_id);
+const restoredProjects = await requestJson("/api/projects", { cookie: restoredCookie });
+assert.equal(restoredProjects.response.status, 200);
+assert.equal(restoredProjects.body[0].id, guestProject.body.id);
+
+const rotatedVault = await requestJson("/api/auth/guest/export", {
+  method: "POST",
+  cookie: restoredCookie,
+  body: {},
+});
+assert.equal(rotatedVault.response.status, 200);
+assert.notEqual(rotatedVault.body.recovery_key, firstRecoveryKey);
+const staleRestore = await requestJson("/api/auth/guest/restore", {
+  method: "POST",
+  body: { recovery_key: firstRecoveryKey },
+});
+assert.equal(staleRestore.response.status, 401);
+const rotatedRestore = await requestJson("/api/auth/guest/restore", {
+  method: "POST",
+  body: { recovery_key: rotatedVault.body.recovery_key },
+});
+assert.equal(rotatedRestore.response.status, 200);
+assert.equal(rotatedRestore.body.vault_id, guestBody.vault_id);
+
 const createdProject = await requestJson("/api/projects", {
   method: "POST",
   cookie: ownerCookie,
@@ -897,6 +959,12 @@ assert.equal(
 assert.equal(audienceLiveView.body.questions.length, 1);
 assert.equal(audienceLiveView.body.questions[0].status, "pinned");
 assert.equal(audienceLiveView.body.questions[0].voted_by_me, true);
+assert.equal(
+  audienceLiveView.body.my_responses.some(
+    (item) => item.interaction_id === createdInteraction.body.id,
+  ),
+  true,
+);
 const publicQaOverlay = await requestJson(
   `/api/live/sessions/${commandSessionId}`,
   { token: pairedExtension.body.overlay_token },
@@ -1008,9 +1076,85 @@ assert.equal(
   true,
 );
 assert.equal(persistedSessionResults.body.cue_runs[0].questions.length, 1);
+const showedJoinQr = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:show-join-qr-001",
+  expected_version: 12,
+  command: { type: "show_join_qr" },
+}, controllerIssue.body.token);
+assert.equal(showedJoinQr.response.status, 200);
+assert.equal(showedJoinQr.body.snapshot.presentation_view, "join_qr");
+assert.equal(
+  showedJoinQr.body.snapshot.current_cue_run.id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
+assert.equal(showedJoinQr.body.snapshot.current_cue_run.state, "revealed");
+assert.equal(showedJoinQr.body.snapshot.state_version, 13);
+const restoredCueView = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:show-cue-after-qr-001",
+  expected_version: 13,
+  command: { type: "show_cue" },
+}, controllerIssue.body.token);
+assert.equal(restoredCueView.response.status, 200);
+assert.equal(restoredCueView.body.snapshot.presentation_view, "cue");
+assert.equal(
+  restoredCueView.body.snapshot.current_cue_run.id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
+const restoredCueLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: commandPresenterIssue.body.token },
+);
+assert.equal(restoredCueLiveView.response.status, 200);
+assert.equal(restoredCueLiveView.body.aggregates.length, 3);
+const otherSlideCue = await requestJson(`/api/projects/${projectId}/cues`, {
+  method: "POST",
+  cookie: ownerCookie,
+  body: {
+    name: "Later slide",
+    anchor_type: "deck_slide",
+    anchor_value: "8",
+    trigger_mode: "presenter_confirm",
+    delay_seconds: 0,
+  },
+});
+assert.equal(otherSlideCue.response.status, 201);
+const preparedOtherSlide = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:prepare-other-slide-001",
+  expected_version: 14,
+  command: { type: "prepare_cue", cue_id: otherSlideCue.body.id },
+});
+assert.equal(preparedOtherSlide.response.status, 200);
+assert.equal(preparedOtherSlide.body.snapshot.current_cue_run.cue_id, otherSlideCue.body.id);
+assert.notEqual(
+  preparedOtherSlide.body.snapshot.current_cue_run.id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
+const restoredOriginalSlide = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:restore-original-slide-001",
+  expected_version: 15,
+  command: { type: "prepare_cue", cue_id: cueId },
+});
+assert.equal(restoredOriginalSlide.response.status, 200);
+assert.equal(
+  restoredOriginalSlide.body.snapshot.current_cue_run.id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
+assert.equal(restoredOriginalSlide.body.snapshot.current_cue_run.state, "revealed");
+const restoredOriginalLiveView = await requestJson(
+  `/api/live/sessions/${commandSessionId}`,
+  { token: commandPresenterIssue.body.token },
+);
+assert.equal(restoredOriginalLiveView.response.status, 200);
+assert.equal(restoredOriginalLiveView.body.aggregates.length, 3);
+assert.equal(
+  restoredOriginalLiveView.body.aggregates.some(
+    (item) => item.aggregate?.total_responses === 1,
+  ),
+  true,
+);
 const endedCommandSession = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:end-session-preserve-results-001",
-  expected_version: 12,
+  expected_version: 16,
   command: { type: "end" },
 });
 assert.equal(endedCommandSession.response.status, 200);

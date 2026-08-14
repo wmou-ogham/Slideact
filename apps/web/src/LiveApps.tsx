@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
 import qrcode from "qrcode-generator";
 
@@ -35,6 +35,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   const [error, setError] = useState("");
   const [pendingAnswer, setPendingAnswer] = useState<PendingAnswer | null>(null);
   const [online, setOnline] = useState(() => navigator.onLine);
+  const cueLiveCache = useRef<Record<string, LiveView>>({});
 
   useEffect(() => {
     const connected = () => setOnline(true);
@@ -49,7 +50,9 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
 
   const refresh = useCallback(async () => {
     if (!joined) return;
-    setLive(await loadLiveView(joined.session_id, joined.token));
+    const next = await loadLiveView(joined.session_id, joined.token);
+    setLive(rememberCueLive(cueLiveCache.current, next));
+    setAnswers((current) => mergeAudienceAnswers(joined.session_id, joined.participant_id, current, next.my_responses));
   }, [joined]);
 
   useEffect(() => {
@@ -75,7 +78,8 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       });
       localStorage.setItem("slide-helper-participant-key", response.participant_key);
       setJoined(response);
-      setLive({ snapshot: response.snapshot, audience_count: 1, aggregates: [], questions: [] });
+      setAnswers(readStoredAnswers(response.session_id, response.participant_id));
+      setLive({ snapshot: response.snapshot, audience_count: 1, aggregates: [], questions: [], my_responses: [] });
       history.replaceState(null, "", `/join/${code}`);
     } catch (cause) {
       setError(
@@ -108,7 +112,11 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
           payload,
         }),
       });
-      setAnswers((current) => ({ ...current, [interaction.id]: label }));
+      setAnswers((current) => {
+        const next = { ...current, [interaction.id]: label };
+        storeAnswers(joined.session_id, joined.participant_id, next);
+        return next;
+      });
       setPendingAnswer(null);
       await refresh();
     } catch (cause) {
@@ -236,8 +244,11 @@ function AudienceInteraction({ t, interaction, answer, busy, submit, questions, 
   submitQuestion: (body: string) => Promise<void>;
   voteQuestion: (questionId: string) => Promise<void>;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(answer ?? "");
   const [questionBody, setQuestionBody] = useState("");
+  useEffect(() => {
+    if (answer) setText((current) => current || answer);
+  }, [answer]);
 
   return (
     <article className="audience-question">
@@ -328,7 +339,6 @@ function QuestionList({ t, questions, busy, onVote }: {
         <article className={`question-card question-${question.status}`} key={question.id}>
           <div>
             {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
-            {question.status === "highlighted" && <span>{t("qa.highlighted")}</span>}
             <p>{question.body}</p>
             {question.status === "answered" && <small>{t("qa.answered")}</small>}
           </div>
@@ -344,6 +354,32 @@ function QuestionList({ t, questions, busy, onVote }: {
       ))}
     </div>
   );
+}
+
+function RemoteAggregate({ t, aggregate }: { t: Translate; aggregate: LiveView["aggregates"][number]["aggregate"] }) {
+  if (aggregate.interaction_type === "understanding") {
+    return (
+      <div className="remote-aggregate">
+        <div className="history-signals">
+          <span className="signal-green">{t("audience.green")} <b>{aggregate.green ?? 0}</b></span>
+          <span className="signal-yellow">{t("audience.yellow")} <b>{aggregate.yellow ?? 0}</b></span>
+          <span className="signal-red">{t("audience.red")} <b>{aggregate.red ?? 0}</b></span>
+        </div>
+        <AggregateBars t={t} aggregate={aggregate} />
+      </div>
+    );
+  }
+  if (aggregate.interaction_type === "word_cloud") {
+    const entries = aggregate.entries ?? [];
+    if (!entries.length) return <p className="remote-empty">{t("history.noResponses")}</p>;
+    return (
+      <div className="history-words remote-words">
+        {entries.slice(0, 40).map((entry) => <span key={entry.text}>{entry.text} <b>×{entry.count}</b></span>)}
+      </div>
+    );
+  }
+  if (!aggregate.options?.length) return <p className="remote-empty">{t("history.noResponses")}</p>;
+  return <AggregateBars t={t} aggregate={aggregate} />;
 }
 
 function AggregateBars({ t, aggregate }: { t: Translate; aggregate: LiveView["aggregates"][number]["aggregate"] }) {
@@ -413,8 +449,15 @@ export function RemoteApp({ t }: { t: Translate }) {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [cues, setCues] = useState<Cue[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [live, setLive] = useState<LiveView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const cueLiveCache = useRef<Record<string, LiveView>>({});
+
+  const refreshLive = useCallback(async () => {
+    if (!token) return;
+    setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
+  }, [sessionId, token]);
 
   const refresh = useCallback(async () => {
     const headers = token ? { authorization: `Bearer ${token}` } : undefined;
@@ -426,7 +469,8 @@ export function RemoteApp({ t }: { t: Translate }) {
     ]);
     setCues(nextCues);
     setQuestions(nextQuestions);
-  }, [sessionId, token]);
+    await refreshLive().catch(() => undefined);
+  }, [refreshLive, sessionId, token]);
 
   useEffect(() => {
     refresh().catch((cause) => setError(cause instanceof ApiError && (cause.status === 401 || cause.status === 403) ? (token ? "token" : "auth") : "load"));
@@ -434,12 +478,18 @@ export function RemoteApp({ t }: { t: Translate }) {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
+  useEffect(() => {
+    if (!token) return;
+    return connectLiveSocket(token, `session:${sessionId}:presenter`, refreshLive);
+  }, [refreshLive, sessionId, token]);
+
   async function send(command: SessionCommand) {
     if (!snapshot) return;
     setBusy(true);
     try {
       setSnapshot(await sendCommand(sessionId, snapshot.state_version, command, token || undefined));
       setError("");
+      await refreshLive().catch(() => undefined);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
       await refresh().catch(() => undefined);
@@ -455,8 +505,23 @@ export function RemoteApp({ t }: { t: Translate }) {
       const currentIndex = snapshot?.current_cue_run
         ? orderedCues.findIndex((cue) => cue.id === snapshot.current_cue_run?.cue_id)
         : -1;
+      const showingQr = snapshot?.presentation_view === "join_qr";
       const targetCue = orderedCues[currentIndex + (direction === "next" ? 1 : -1)];
-      if (targetCue && snapshot) {
+      if (showingQr && direction === "next" && snapshot?.current_cue_run) {
+        setSnapshot(await sendCommand(
+          sessionId,
+          snapshot.state_version,
+          { type: "show_cue" },
+          token || undefined,
+        ));
+      } else if (!showingQr && direction === "previous" && currentIndex === 0 && snapshot) {
+        setSnapshot(await sendCommand(
+          sessionId,
+          snapshot.state_version,
+          { type: "show_join_qr" },
+          token || undefined,
+        ));
+      } else if (targetCue && snapshot) {
         setSnapshot(await sendCommand(
           sessionId,
           snapshot.state_version,
@@ -470,6 +535,7 @@ export function RemoteApp({ t }: { t: Translate }) {
         body: JSON.stringify({ direction }),
       });
       setError("");
+      await refreshLive().catch(() => undefined);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
     } finally {
@@ -499,51 +565,71 @@ export function RemoteApp({ t }: { t: Translate }) {
   if (!snapshot) return <main className="center-state">{t("status.checking")}</main>;
   const cueState = snapshot.current_cue_run?.state;
   const currentInteraction = snapshot.current_cue_run?.interactions[0];
+  const showingQr = snapshot.presentation_view === "join_qr";
+  const liveQuestions = live?.questions.length ? live.questions : questions;
+  const responseCount = live?.aggregates.reduce((sum, item) => sum + (item.aggregate.total_responses ?? 0), 0) ?? 0;
   return (
     <main className="remote-shell">
       <header><span className={snapshot.status === "live" ? "live-light active" : "live-light"} /><span>{t(`statusName.${snapshot.status}`)}</span><strong>{snapshot.join_code}</strong></header>
       <section>
         <p className="eyebrow">{t("remote.heading")}</p>
-        <h1>{currentInteraction?.prompt ?? t("remote.noCue")}</h1>
-        <div className="remote-navigation">
-          <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previous")}</button>
-          <button disabled={busy} onClick={() => navigate("next")}>{t("remote.next")}<span>→</span></button>
-        </div>
-        {snapshot.join_code && <a className="remote-page-link" href={`/qr/${sessionId}#token=${encodeURIComponent(token)}`} target="_blank" rel="noreferrer">{t("live.joinQrPage")}</a>}
-        <div className="remote-primary">
+        <h1>{showingQr ? t("live.qrHome") : (currentInteraction?.prompt ?? t("remote.noCue"))}</h1>
+        <div className="remote-reveal">
           {snapshot.status === "lobby" && <button disabled={busy} onClick={() => send({ type: "start" })}>{t("live.start")}</button>}
           {cueState === "ready" && <button disabled={busy} onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
           {(cueState === "open" || cueState === "closed") && <button className="reveal-action" disabled={busy} onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
           {cueState === "revealed" && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
+        <div className="remote-navigation">
+          <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previous")}</button>
+          <button disabled={busy} onClick={() => navigate("next")}>{t("remote.next")}<span>→</span></button>
+        </div>
+      </section>
+      <section className="remote-responses">
+        <h2>{t("remote.responses")}<small>{t("live.responses")} {responseCount}</small></h2>
+        {snapshot.current_cue_run?.interactions.length ? snapshot.current_cue_run.interactions.map((interaction) => {
+          const aggregate = aggregateFor(live, interaction.id);
+          const showPrompt = (snapshot.current_cue_run?.interactions.length ?? 0) > 1;
+          return (
+            <article className="remote-interaction" key={interaction.id}>
+              {showPrompt && <h3>{interaction.prompt}</h3>}
+              {interaction.interaction_type === "qa" ? (
+                liveQuestions.length
+                  ? (
+                    <div className="question-list">
+                      {liveQuestions.map((question) => (
+                        <article className={`question-card question-${question.status}`} key={question.id}>
+                          <div>
+                            {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
+                            {question.status === "highlighted" && <span>{t("qa.highlighted")}</span>}
+                            <p>{question.body}</p>
+                            <small>{t("qa.votes", { count: question.votes })}</small>
+                          </div>
+                          <div className="question-actions">
+                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
+                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "highlighted" ? "visible" : "highlighted")}>{question.status === "highlighted" ? t("qa.unhighlight") : t("qa.highlight")}</button>
+                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.restore") : t("qa.markAnswered")}</button>
+                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )
+                  : <p className="remote-empty">{t("qa.empty")}</p>
+              ) : aggregate ? (
+                <RemoteAggregate t={t} aggregate={aggregate} />
+              ) : (
+                <p className="remote-empty">{t("projection.noResults")}</p>
+              )}
+            </article>
+          );
+        }) : <p className="remote-empty">{t("projection.noResults")}</p>}
       </section>
       <section className="remote-cues">
         <h2>{t("remote.cues")}</h2>
-        {cues.map((cue) => <button disabled={busy} key={cue.id} onClick={() => send({ type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
+        <button className={showingQr ? "selected" : ""} disabled={busy} onClick={() => send({ type: "show_join_qr" })}><span>QR</span>{t("live.qrHome")}<small>{t("projection.join")}</small></button>
+        {cues.map((cue) => <button className={!showingQr && cue.id === snapshot.current_cue_run?.cue_id ? "selected" : ""} disabled={busy} key={cue.id} onClick={() => send(cue.id === snapshot.current_cue_run?.cue_id ? { type: "show_cue" } : { type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
       </section>
-      {questions.length > 0 && (
-        <section className="remote-questions">
-          <h2>{t("qa.heading")}</h2>
-          <div className="question-list">
-            {questions.map((question) => (
-              <article className={`question-card question-${question.status}`} key={question.id}>
-                <div>
-                  {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
-                  {question.status === "highlighted" && <span>{t("qa.highlighted")}</span>}
-                  <p>{question.body}</p>
-                  <small>{t("qa.votes", { count: question.votes })}</small>
-                </div>
-                <div className="question-actions">
-                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
-                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "highlighted" ? "visible" : "highlighted")}>{question.status === "highlighted" ? t("qa.unhighlight") : t("qa.highlight")}</button>
-                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.restore") : t("qa.markAnswered")}</button>
-                  <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
       {error && error !== "auth" && <p className="form-error">{t("error.generic", { code: error })}</p>}
     </main>
   );
@@ -554,9 +640,10 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
+  const cueLiveCache = useRef<Record<string, LiveView>>({});
   const refresh = useCallback(async () => {
     if (!token) throw new Error("projection_token_missing");
-    setLive(await loadLiveView(sessionId, token));
+    setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
   }, [sessionId, token]);
 
   useEffect(() => {
@@ -570,34 +657,50 @@ export function ProjectionApp({ t }: { t: Translate }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!token || !live) return;
-    return connectLiveSocket(token, `session:${sessionId}:overlay`, refresh);
-  }, [live?.snapshot.session_id, refresh, sessionId, token]);
+    if (!token) return;
+    return connectLiveSocket(token, `session:${sessionId}:presenter`, refresh);
+  }, [refresh, sessionId, token]);
 
   if (error) return <main className="projection-error">{t("projection.invalid")}</main>;
   if (!live) return <main className="projection-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
-  const prompt = cueRun?.interactions[0]?.prompt;
+  const interactions = cueRun?.interactions ?? [];
+  const multi = interactions.length > 1;
   return (
     <main className="projection-root">
       <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
-      {!cueRun || cueRun.state === "ready" ? (
-        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><small>{t("projection.waiting")}</small></section>
+      {live.snapshot.presentation_view === "join_qr" || !cueRun ? (
+        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><small>{t("projection.waiting")}</small></section>
+      ) : cueRun.state === "ready" ? (
+        <section className="projection-results projection-cue-ready">
+          <p>{t("status.ready")}</p>
+          {multi
+            ? interactions.map((interaction) => <h1 key={interaction.id}>{interaction.prompt}</h1>)
+            : <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
+        </section>
       ) : (
-        <section className="projection-results">
+        <section className={multi ? "projection-results projection-multi" : "projection-results"}>
           <p>{cueRun.state === "open" ? t("overlay.collecting") : cueRun.state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
-          <h1>{prompt ?? cueRun.cue_name}</h1>
+          {!multi && <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
           <div className="projection-visuals">
-            {live.aggregates.length
-              ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />)
-              : <span className="projection-empty">{t("projection.noResults")}</span>}
+            {interactions.map((interaction) => {
+              const aggregate = aggregateFor(live, interaction.id);
+              return (
+                <article className="projection-interaction" key={interaction.id}>
+                  {multi && <h2>{interaction.prompt}</h2>}
+                  {interaction.interaction_type === "qa" ? (
+                    live.questions.length
+                      ? <div className="projection-questions"><QuestionList t={t} questions={live.questions} busy /></div>
+                      : <span className="projection-empty">{t("qa.empty")}</span>
+                  ) : aggregate ? (
+                    <AggregateBars t={t} aggregate={aggregate} />
+                  ) : (
+                    <span className="projection-empty">{t("projection.noResults")}</span>
+                  )}
+                </article>
+              );
+            })}
           </div>
-          {live.questions.length > 0 && (
-            <div className="projection-questions">
-              <h2>{t("qa.heading")}</h2>
-              <QuestionList t={t} questions={live.questions} busy />
-            </div>
-          )}
         </section>
       )}
     </main>
@@ -619,9 +722,10 @@ export function OverlayApp({ t }: { t: Translate }) {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
+  const cueLiveCache = useRef<Record<string, LiveView>>({});
   const refresh = useCallback(async () => {
     if (!token) throw new Error("token_missing");
-    setLive(await loadLiveView(sessionId, token));
+    setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
   }, [sessionId, token]);
 
   useEffect(() => {
@@ -635,60 +739,36 @@ export function OverlayApp({ t }: { t: Translate }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!token || !live) return;
+    if (!token) return;
     return connectLiveSocket(token, `session:${sessionId}:overlay`, refresh);
-  }, [live?.snapshot.session_id, refresh, sessionId, token]);
+  }, [refresh, sessionId, token]);
 
   if (error) return <main className="overlay-error">{t("overlay.invalid")}</main>;
   if (!live) return <main className="overlay-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
-  if (!cueRun || cueRun.state === "ready") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("live.joinCode")}</small><strong>{live.snapshot.join_code}</strong></div></main>;
+  if (live.snapshot.presentation_view === "join_qr") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("projection.join")}</small><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><strong>{live.snapshot.join_code}</strong></div></main>;
+  if (!cueRun) return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("projection.waiting")}</small><strong>{live.snapshot.join_code}</strong></div></main>;
+  if (cueRun.state === "ready") return <main className="overlay-root"><section className="overlay-card"><div className="overlay-meta"><span>{t("status.ready")}</span><strong>{live.snapshot.join_code}</strong></div><h1>{cueRun.interactions[0]?.prompt ?? cueRun.cue_name}</h1></section></main>;
   const pinnedQuestion = live.questions.find((question) => question.status === "pinned")
     ?? live.questions.find((question) => question.status === "highlighted");
+  const multi = cueRun.interactions.length > 1;
   return (
     <main className="overlay-root">
       <section className="overlay-card">
         <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
-        <h1>{cueRun.interactions[0]?.prompt ?? cueRun.cue_name}</h1>
-        {live.aggregates.length ? live.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />) : <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
-        {pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}><span>{pinnedQuestion.status === "pinned" ? t("qa.pinned") : t("qa.highlighted")}</span><p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>}
-      </section>
-    </main>
-  );
-}
-
-export function JoinQrApp({ t }: { t: Translate }) {
-  const sessionId = location.pathname.split("/")[2] ?? "";
-  const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
-  const [accessToken, setAccessToken] = useState(token);
-  const [live, setLive] = useState<LiveView | null>(null);
-  const [error, setError] = useState("");
-  const refresh = useCallback(async () => {
-    const issuedToken = accessToken || (await postJson<{ token: string }>(`/api/sessions/${sessionId}/tokens`, { role: "overlay" })).token;
-    if (!accessToken) setAccessToken(issuedToken);
-    setLive(await loadLiveView(sessionId, issuedToken));
-  }, [accessToken, sessionId]);
-
-  useEffect(() => {
-    document.body.classList.add("projection-body");
-    refresh().catch(() => setError("qr_token_invalid"));
-    const timer = window.setInterval(() => refresh().catch(() => undefined), 3000);
-    return () => {
-      document.body.classList.remove("projection-body");
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
-
-  if (error) return <main className="projection-error">{t("projection.invalid")}</main>;
-  if (!live) return <main className="projection-root"><span className="waiting-orbit"><i /></span></main>;
-  return (
-    <main className="projection-root qr-page">
-      <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
-      <section className="qr-page-content">
-        <p>{t("live.joinQrHeading")}</p>
-        <ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} />
-        <strong>{live.snapshot.join_code}</strong>
-        <small>{t("live.joinQrCopy")}</small>
+        {cueRun.interactions.map((interaction) => {
+          const aggregate = aggregateFor(live, interaction.id);
+          return (
+            <article className="overlay-interaction" key={interaction.id}>
+              <h1>{interaction.prompt}</h1>
+              {interaction.interaction_type === "qa"
+                ? pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}>{pinnedQuestion.status === "pinned" && <span>{t("qa.pinned")}</span>}<p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>
+                : aggregate
+                  ? <AggregateBars t={t} aggregate={aggregate} />
+                  : !multi && <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}
+            </article>
+          );
+        })}
       </section>
     </main>
   );
@@ -698,6 +778,71 @@ async function loadLiveView(sessionId: string, token: string) {
   return apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
     headers: { authorization: `Bearer ${token}` },
   });
+}
+
+function aggregateFor(live: LiveView | null, interactionId: string) {
+  return live?.aggregates.find((item) => item.interaction_id === interactionId)?.aggregate;
+}
+
+function rememberCueLive(cache: Record<string, LiveView>, live: LiveView) {
+  const cueId = live.snapshot.current_cue_run?.cue_id;
+  if (!cueId) return live;
+  const hasResponses = live.aggregates.some((item) => (item.aggregate.total_responses ?? 0) > 0)
+    || live.questions.length > 0;
+  if (hasResponses) {
+    cache[cueId] = live;
+    return live;
+  }
+  const remembered = cache[cueId];
+  if (!remembered) return live;
+  return {
+    ...live,
+    aggregates: remembered.aggregates,
+    questions: live.questions.length ? live.questions : remembered.questions,
+  };
+}
+
+function mergeAudienceAnswers(
+  sessionId: string,
+  participantId: string,
+  current: Record<string, string>,
+  myResponses: LiveView["my_responses"] | undefined,
+) {
+  const next = { ...readStoredAnswers(sessionId, participantId), ...current };
+  for (const item of myResponses ?? []) {
+    const label = labelFromPayload(item.payload);
+    if (label) next[item.interaction_id] = label;
+  }
+  storeAnswers(sessionId, participantId, next);
+  return next;
+}
+
+function labelFromPayload(payload: Record<string, unknown>) {
+  if (typeof payload.level === "string") return payload.level;
+  if (typeof payload.option_id === "string") return payload.option_id;
+  if (typeof payload.text === "string") return payload.text;
+  if (payload.understood === true) return "green";
+  if (payload.understood === false) return "red";
+  return undefined;
+}
+
+function answersStorageKey(sessionId: string, participantId: string) {
+  return `slide-helper-answers:${sessionId}:${participantId}`;
+}
+
+function readStoredAnswers(sessionId: string, participantId: string) {
+  try {
+    const raw = localStorage.getItem(answersStorageKey(sessionId, participantId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function storeAnswers(sessionId: string, participantId: string, answers: Record<string, string>) {
+  localStorage.setItem(answersStorageKey(sessionId, participantId), JSON.stringify(answers));
 }
 
 function connectLiveSocket(token: string, topic: string, refresh: () => Promise<void>) {

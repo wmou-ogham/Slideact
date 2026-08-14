@@ -1,6 +1,6 @@
 # Slide Helper Development Progress
 
-最後更新：2026-08-13
+最後更新：2026-08-14
 
 ## 作業規範
 
@@ -146,16 +146,12 @@
 - [x] 含現場活動歷史的專案禁止硬刪除，改以封存保留結果
 - [x] API、前端型別檢查、smoke test 與 100 人 benchmark 通過
 
-## QR Code 顯示位置修正
+## QRCode 首頁控制
 
-- [x] 從講者控制列移除觀眾加入 QR Code 按鈕與面板
-- [x] 從手機遙控器移除觀眾加入 QR Code 按鈕與面板
-- [x] 投影頁與 OBS 頁提供各自的 QR Code 顯示按鈕
-- [x] CI 與 18666 部署健康檢查通過
-
-## QRCode 專頁
-
-- [x] 新增獨立 `/qr/{session_id}` 顯示 QRCode 頁面
-- [x] 投影與 OBS 畫面移除 QRCode 切換按鈕，維持純結果展示
-- [x] 講者控制列與手機遙控器改為「顯示 QRCode」頁面入口
-- [x] 雙語前端檢查、API smoke test 與 benchmark 通過
+- [x] 講者投影片下拉清單第一項加入「QRCode 首頁」
+- [x] 手機 Cue 清單第一項加入「QRCode 首頁」
+- [x] 新增即時 `show_join_qr` 狀態命令，同步切換投影與 OBS 畫面
+- [x] QRCode 首頁只切換 `presentation_view`，不清空目前 Cue、回答、統計或問題
+- [x] 切回同一投影片沿用原 Cue run，僅切換其他投影片時建立新一輪
+- [x] 上一頁／下一頁切換其他投影片時沿用該頁既有 Cue run，不清空已作答內容
+- [x] 訪客 Vault 可下載金鑰檔，並在其他電腦開啟同一個工作區
