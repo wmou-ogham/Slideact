@@ -9,6 +9,8 @@
 **/.next/
 **/.output/
 **/.wxt/
+/apps/extension/slideact-extension/
+/apps/extension/slideact-extension.zip
 *.tsbuildinfo
 
 # Environment and secrets
