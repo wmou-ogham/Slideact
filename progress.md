@@ -161,3 +161,10 @@
 - [x] 盤點尚未 staged 的修改與未追蹤檔
 - [x] Extension 建置產物 `apps/extension/slideact-extension/` 與 `.zip` 加入 `.gitignore`
 - [x] 獨立結果頁、配對碼重用、systemd 開機啟動一併提交；不 ignore 功能／部署程式
+
+## 文字雲動態效果
+
+- [x] 新詞交錯進場、既有詞輕微漂浮
+- [x] 詞頻上升時短暫放大，高頻詞加上柔光
+- [x] 旋轉與顏色依詞彙本身決定，避免即時更新時整片重排跳色
+- [x] `prefers-reduced-motion` 既有規則會關掉這些動畫

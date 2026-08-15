@@ -1,3 +1,4 @@
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
 
 import type { Aggregate, Question } from "./types";
@@ -83,13 +84,118 @@ export function CueResultVisuals({ t, interactions, questions }: {
   );
 }
 
+const WORD_CLOUD_COLORS = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0", "#7ed0e6", "#ffc09a"];
+const WORD_CLOUD_ANGLES = [0, 0, 0, -7, 7, -13, 13, -20, 20];
+const WORD_CLOUD_RANDOM = () => 0.5;
+
+type WordCloudGlyph = {
+  text?: string;
+  font?: string;
+  weight?: string | number;
+  rotate?: number;
+  size?: number;
+  x?: number;
+  y?: number;
+};
+
+function wordTone(text: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function wordCloudRotate(word: { text: string }): number {
+  return WORD_CLOUD_ANGLES[wordTone(word.text) % WORD_CLOUD_ANGLES.length];
+}
+
+function wordMotionStyle(text: string): CSSProperties {
+  const tone = wordTone(text);
+  return {
+    "--drift-x": `${4 + (tone % 5)}px`,
+    "--drift-y": `${5 + ((tone >>> 4) % 6)}px`,
+    "--enter-delay": `${(tone % 9) * 0.045}s`,
+    "--float-delay": `${0.55 + ((tone >>> 8) % 18) / 10}s`,
+    "--float-duration": `${6 + (tone % 5)}s`,
+  } as CSSProperties;
+}
+
 function WordCloudResult({ entries, label }: { entries: Array<{ text: string; count: number }>; label: string }) {
-  const words = entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count }));
+  const wordSignature = entries.slice(0, 80).map((entry) => `${entry.text}\t${entry.count}`).join("\n");
+  const words = useMemo(
+    () => entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count })),
+    // Only rebuild when visible text/count pairs change, not when the parent sends a new array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wordSignature],
+  );
+  const seen = useRef(new Set<string>());
+  const previousCounts = useRef(new Map<string, number>());
+  const enterTimers = useRef<number[]>([]);
+  const [enteringState, setEnteringState] = useState<ReadonlySet<string>>(new Set());
+  const [popping, setPopping] = useState<ReadonlySet<string>>(new Set());
+  const entering = new Set(enteringState);
+  for (const word of words) {
+    if (!seen.current.has(word.text)) entering.add(word.text);
+  }
+  const minimum = words.length ? Math.min(...words.map((word) => word.value)) : 0;
+  const maximum = words.length ? Math.max(...words.map((word) => word.value)) : 1;
+  const fontSize = useMemo(
+    () => (word: { value: number }) => 18 + ((word.value - minimum) / Math.max(1, maximum - minimum)) * 78,
+    [minimum, maximum],
+  );
+  const fontWeight = useMemo(
+    () => (word: { value: number }) => (word.value >= maximum * 0.55 ? 800 : 650),
+    [maximum],
+  );
+
+  useEffect(() => () => {
+    enterTimers.current.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
+  useEffect(() => {
+    if (!words.length) {
+      seen.current.clear();
+      previousCounts.current.clear();
+      setEnteringState(new Set());
+      setPopping(new Set());
+      return;
+    }
+    const newcomers = words.filter((word) => !seen.current.has(word.text)).map((word) => word.text);
+    const nextPop = new Set<string>();
+    for (const word of words) {
+      if (
+        seen.current.has(word.text)
+        && !enteringState.has(word.text)
+        && (previousCounts.current.get(word.text) ?? word.value) < word.value
+      ) {
+        nextPop.add(word.text);
+      }
+    }
+    newcomers.forEach((text) => seen.current.add(text));
+    previousCounts.current = new Map(words.map((word) => [word.text, word.value]));
+    if (newcomers.length) {
+      setEnteringState((current) => {
+        const next = new Set(current);
+        newcomers.forEach((text) => next.add(text));
+        return next;
+      });
+      enterTimers.current.push(window.setTimeout(() => {
+        setEnteringState((current) => {
+          const next = new Set(current);
+          newcomers.forEach((text) => next.delete(text));
+          return next;
+        });
+      }, 1100));
+    }
+    if (!nextPop.size) return;
+    setPopping(nextPop);
+    const popTimer = window.setTimeout(() => setPopping(new Set()), 520);
+    return () => window.clearTimeout(popTimer);
+  }, [words]);
+
   if (!words.length) return null;
-  const minimum = Math.min(...words.map((word) => word.value));
-  const maximum = Math.max(...words.map((word) => word.value));
-  const size = (value: number) => 24 + ((value - minimum) / Math.max(1, maximum - minimum)) * 64;
-  const colors = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0"];
   return (
     <div className="word-cloud-results" aria-label={label}>
       <svg viewBox="0 0 720 400" role="img">
@@ -97,29 +203,38 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
           width={720}
           height={400}
           words={words}
-          padding={4}
-          font='Inter, ui-sans-serif, system-ui, sans-serif'
-          fontSize={(word) => size(word.value)}
-          fontWeight={800}
-          rotate={(_, index) => index % 7 === 0 ? -12 : index % 11 === 0 ? 12 : 0}
+          padding={8}
+          font="Inter, ui-sans-serif, system-ui, sans-serif"
+          fontSize={fontSize}
+          fontWeight={fontWeight}
+          rotate={wordCloudRotate}
           spiral="archimedean"
-          random={() => 0.5}
+          random={WORD_CLOUD_RANDOM}
         >
-          {(cloudWords) => cloudWords.map((word, index) => (
-            <text
-              key={`${word.text}-${index}`}
-              x={word.x}
-              y={word.y}
-              fill={colors[index % colors.length]}
-              fontFamily={word.font}
-              fontSize={word.size}
-              fontWeight={word.weight}
-              textAnchor="middle"
-              transform={`rotate(${word.rotate ?? 0}, ${word.x ?? 0}, ${word.y ?? 0})`}
-            >
-              {word.text}
-            </text>
-          ))}
+          {(cloudWords: WordCloudGlyph[]) => cloudWords.map((word) => {
+            const text = word.text ?? "";
+            const hot = (word.size ?? 0) >= 70;
+            return (
+              <g key={text} transform={`translate(${word.x ?? 0}, ${word.y ?? 0}) rotate(${word.rotate ?? 0})`}>
+                <g
+                  className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
+                  style={wordMotionStyle(text)}
+                >
+                  <g className="word-cloud-float">
+                    <text
+                      fill={WORD_CLOUD_COLORS[wordTone(text) % WORD_CLOUD_COLORS.length]}
+                      fontFamily={word.font}
+                      fontSize={word.size}
+                      fontWeight={word.weight}
+                      textAnchor="middle"
+                    >
+                      {text}
+                    </text>
+                  </g>
+                </g>
+              </g>
+            );
+          })}
         </Wordcloud>
       </svg>
     </div>

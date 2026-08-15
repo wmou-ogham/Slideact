@@ -48,3 +48,13 @@ Compose 已在跑時，可讓重開機後自動拉起（單位檔會把路徑換
 # 系統單位（需要 sudo）
 sudo ./scripts/install-autostart.sh --system
 ```
+
+## 文字雲動態效果
+
+前端是包進 nginx 映像，改 `apps/web` 後要重建 web 服務才看得到：
+
+```sh
+docker compose up --detach --build --wait web proxy
+```
+
+然後開一場有文字雲的活動，看投影／觀眾結果頁：新詞會交錯進場，詞會慢慢漂浮，同一詞被重複送出時會短暫放大。
