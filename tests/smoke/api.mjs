@@ -537,7 +537,8 @@ const reusedPairing = await requestJson("/api/extension/pair", {
   method: "POST",
   body: { code: extensionPairing.body.code, device_id: "second-extension" },
 });
-assert.equal(reusedPairing.response.status, 404);
+assert.equal(reusedPairing.response.status, 200);
+assert.equal(reusedPairing.body.session_id, commandSessionId);
 
 const followedPosition = await requestJson("/api/extension/position", {
   method: "POST",
@@ -1186,6 +1187,34 @@ assert.equal(endedSessionResults.response.status, 200);
 assert.equal(endedSessionResults.body.status, "ended");
 assert.equal(endedSessionResults.body.cue_runs[0].interactions.length, 4);
 assert.equal(endedSessionResults.body.cue_runs[0].questions.length, 1);
+const reopenedEndedSession = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:reopen-ended-session-001",
+  expected_version: endedCommandSession.body.snapshot.state_version,
+  command: { type: "reopen_session" },
+});
+assert.equal(reopenedEndedSession.response.status, 200);
+assert.equal(reopenedEndedSession.body.snapshot.status, "lobby");
+assert.equal(
+  reopenedEndedSession.body.snapshot.current_cue_run.id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
+assert.equal(
+  reopenedEndedSession.body.snapshot.join_code,
+  openedLobby.body.snapshot.join_code,
+);
+const reopenedSessionResults = await requestJson(
+  `/api/sessions/${commandSessionId}/results`,
+  { cookie: ownerCookie },
+);
+assert.equal(reopenedSessionResults.response.status, 200);
+assert.equal(reopenedSessionResults.body.status, "lobby");
+assert.equal(reopenedSessionResults.body.cue_runs.length, 1);
+assert.equal(
+  reopenedSessionResults.body.cue_runs[0].interactions.some(
+    (interaction) => interaction.aggregate?.total_responses === 1,
+  ),
+  true,
+);
 joinedSocket.close();
 
 const strangerIssue = await issueToken(

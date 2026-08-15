@@ -12,6 +12,8 @@ const copy = navigator.language.toLowerCase().startsWith("zh")
       pair: "配對場次",
       pairCode: "配對碼",
       paired: "已連線至場次",
+      pairingExpired: "配對碼無效或已過期，請在講者台重新產生一組後再試，不必重啟服務。",
+      pairingFailed: "配對失敗，請確認伺服器網址後再試一次。",
       server: "Slideact 伺服器",
       slide: "投影片",
       switchAuto: "切換為自動跟隨",
@@ -26,6 +28,8 @@ const copy = navigator.language.toLowerCase().startsWith("zh")
       pair: "Pair session",
       pairCode: "Pairing code",
       paired: "Connected to session",
+      pairingExpired: "This pairing code is invalid or expired. Generate a new one in the presenter console—no restart needed.",
+      pairingFailed: "Pairing failed. Check the server URL and try again.",
       server: "Slideact server",
       slide: "Slide",
       switchAuto: "Switch to auto-follow",
@@ -86,8 +90,18 @@ function render(): void {
   positionLabel.textContent = status.position
     ? `${copy.slide} ${status.position.slideIndex === null ? status.position.slideId ?? "—" : status.position.slideIndex + 1}`
     : copy.noSlide;
-  hint.textContent = status.lastError ? status.lastError : status.sessionId ? `${copy.paired} ${status.sessionId.slice(0, 8)}` : copy.openSlides;
+  hint.textContent = status.lastError
+    ? describeError(status.lastError)
+    : status.sessionId
+      ? `${copy.paired} ${status.sessionId.slice(0, 8)}`
+      : copy.openSlides;
   document.documentElement.lang = navigator.language.toLowerCase().startsWith("zh") ? "zh-TW" : "en";
+}
+
+function describeError(error: string) {
+  if (error === "pairing_404" || error === "pairing_400") return copy.pairingExpired;
+  if (error.startsWith("pairing_")) return copy.pairingFailed;
+  return error;
 }
 
 function requiredElement<T extends HTMLElement = HTMLElement>(id: string): T {
