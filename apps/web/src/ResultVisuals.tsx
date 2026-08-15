@@ -87,6 +87,31 @@ export function CueResultVisuals({ t, interactions, questions }: {
 const WORD_CLOUD_COLORS = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0", "#7ed0e6", "#ffc09a"];
 const WORD_CLOUD_ANGLES = [0, 0, 0, -7, 7, -13, 13, -20, 20];
 const WORD_CLOUD_RANDOM = () => 0.5;
+const WORD_CLOUD_WIDTH = 720;
+const WORD_CLOUD_HEIGHT = 400;
+const WORD_CLOUD_SINGLE_SIZE = WORD_CLOUD_HEIGHT / 3;
+
+export function wordCloudSizeRange(wordCount: number): { minSize: number; maxSize: number } {
+  const count = Math.max(1, wordCount);
+  const maxSize = WORD_CLOUD_SINGLE_SIZE / count ** 0.28;
+  const minSize = count === 1 ? maxSize : Math.max(18, maxSize * 0.32);
+  return { minSize, maxSize };
+}
+
+export function wordCloudFontSize(
+  word: { text: string; value: number },
+  minimum: number,
+  maximum: number,
+  wordCount: number,
+): number {
+  const { minSize, maxSize } = wordCloudSizeRange(wordCount);
+  const t = maximum === minimum ? 1 : (word.value - minimum) / (maximum - minimum);
+  const size = minSize + t * (maxSize - minSize);
+  const maxWidth = WORD_CLOUD_WIDTH * 0.86;
+  const estimated = Math.max(1, word.text.length) * 0.62 * size;
+  if (estimated <= maxWidth) return size;
+  return maxWidth / (Math.max(1, word.text.length) * 0.62);
+}
 
 type WordCloudGlyph = {
   text?: string;
@@ -141,9 +166,10 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
   }
   const minimum = words.length ? Math.min(...words.map((word) => word.value)) : 0;
   const maximum = words.length ? Math.max(...words.map((word) => word.value)) : 1;
+  const { maxSize } = wordCloudSizeRange(words.length);
   const fontSize = useMemo(
-    () => (word: { value: number }) => 18 + ((word.value - minimum) / Math.max(1, maximum - minimum)) * 78,
-    [minimum, maximum],
+    () => (word: { text: string; value: number }) => wordCloudFontSize(word, minimum, maximum, words.length),
+    [minimum, maximum, words.length],
   );
   const fontWeight = useMemo(
     () => (word: { value: number }) => (word.value >= maximum * 0.55 ? 800 : 650),
@@ -198,10 +224,10 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
   if (!words.length) return null;
   return (
     <div className="word-cloud-results" aria-label={label}>
-      <svg viewBox="0 0 720 400" role="img">
+      <svg viewBox={`0 0 ${WORD_CLOUD_WIDTH} ${WORD_CLOUD_HEIGHT}`} role="img">
         <Wordcloud
-          width={720}
-          height={400}
+          width={WORD_CLOUD_WIDTH}
+          height={WORD_CLOUD_HEIGHT}
           words={words}
           padding={8}
           font="Inter, ui-sans-serif, system-ui, sans-serif"
@@ -213,7 +239,7 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
         >
           {(cloudWords: WordCloudGlyph[]) => cloudWords.map((word) => {
             const text = word.text ?? "";
-            const hot = (word.size ?? 0) >= 70;
+            const hot = (word.size ?? 0) >= maxSize * 0.72;
             return (
               <g key={text} transform={`translate(${word.x ?? 0}, ${word.y ?? 0}) rotate(${word.rotate ?? 0})`}>
                 <g
