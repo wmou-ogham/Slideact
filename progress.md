@@ -1,6 +1,6 @@
 # Slide Helper Development Progress
 
-最後更新：2026-08-14
+最後更新：2026-08-15
 
 ## 作業規範
 
@@ -155,3 +155,9 @@
 - [x] 切回同一投影片沿用原 Cue run，僅切換其他投影片時建立新一輪
 - [x] 上一頁／下一頁切換其他投影片時沿用該頁既有 Cue run，不清空已作答內容
 - [x] 訪客 Vault 可下載金鑰檔，並在其他電腦開啟同一個工作區
+
+## Git 工作區檢查
+
+- [x] 盤點尚未 staged 的修改與未追蹤檔
+- [x] Extension 建置產物 `apps/extension/slideact-extension/` 與 `.zip` 加入 `.gitignore`
+- [x] 獨立結果頁、配對碼重用、systemd 開機啟動一併提交；不 ignore 功能／部署程式

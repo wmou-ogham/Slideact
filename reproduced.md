@@ -36,3 +36,15 @@ http://slideact.mou.tw/api/auth/google/start?return_to=/presenter
 ```sh
 curl -fsS http://slideact.mou.tw/api/auth/me -b cookies.txt -c cookies.txt
 ```
+
+## 開機自動啟動
+
+Compose 已在跑時，可讓重開機後自動拉起（單位檔會把路徑換成目前工作目錄）：
+
+```sh
+# 使用者單位（不必 sudo；若要未登入也啟動：sudo loginctl enable-linger "$USER"）
+./scripts/install-autostart.sh --user
+
+# 系統單位（需要 sudo）
+sudo ./scripts/install-autostart.sh --system
+```
