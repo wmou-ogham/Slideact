@@ -437,6 +437,18 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
   flex-direction: column;
   padding: clamp(16px, 2vw, 36px);
 }
+.projection-live > header > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.85em;
+  flex-wrap: wrap;
+}
+.projection-live-status {
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .88;
+}
 .projection-live .projection-results {
   display: flex;
   flex: 1;

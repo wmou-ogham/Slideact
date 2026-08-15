@@ -615,21 +615,34 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const cueRun = live.snapshot.current_cue_run;
   const interactions = cueRun?.interactions ?? [];
   const multi = interactions.length > 1;
+  const liveStatus = live.snapshot.presentation_view === "join_qr" || !cueRun
+    ? null
+    : cueRun.state === "ready"
+      ? t("status.ready")
+      : cueRun.state === "open"
+        ? t("overlay.collecting")
+        : cueRun.state === "revealed"
+          ? t("audience.results")
+          : t("audience.closed");
   return (
     <main className="projection-root projection-live">
-      <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
+      <header>
+        <span>
+          SLIDEACT · LIVE
+          {liveStatus ? <span className="projection-live-status">{liveStatus}</span> : null}
+        </span>
+        <strong>{live.snapshot.join_code}</strong>
+      </header>
       {live.snapshot.presentation_view === "join_qr" || !cueRun ? (
         <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><small>{t("projection.waiting")}</small></section>
       ) : cueRun.state === "ready" ? (
         <section className="projection-results projection-cue-ready">
-          <p>{t("status.ready")}</p>
           {multi
             ? interactions.map((interaction) => <h1 key={interaction.id}>{interaction.prompt}</h1>)
             : <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
         </section>
       ) : (
         <section className={multi ? "projection-results projection-multi" : "projection-results"}>
-          <p>{cueRun.state === "open" ? t("overlay.collecting") : cueRun.state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
           {!multi && <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
           <CueResultVisuals
             t={t}
