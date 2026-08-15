@@ -341,7 +341,11 @@ function ResultsView({ t, live, cueName, state }: { t: Translate; live: LiveView
   );
 }
 
-function RemoteAggregate({ t, aggregate }: { t: Translate; aggregate: LiveView["aggregates"][number]["aggregate"] }) {
+function RemoteAggregate({ t, aggregate, onToggleWordPin }: {
+  t: Translate;
+  aggregate: LiveView["aggregates"][number]["aggregate"];
+  onToggleWordPin?: (text: string, pinned: boolean) => void;
+}) {
   if (aggregate.interaction_type === "understanding") {
     return (
       <div className="remote-aggregate">
@@ -356,10 +360,27 @@ function RemoteAggregate({ t, aggregate }: { t: Translate; aggregate: LiveView["
   }
   if (aggregate.interaction_type === "word_cloud") {
     const entries = aggregate.entries ?? [];
+    const pinned = new Set(aggregate.pinned ?? []);
     if (!entries.length) return <p className="remote-empty">{t("history.noResponses")}</p>;
     return (
       <div className="history-words remote-words">
-        {entries.slice(0, 40).map((entry) => <span key={entry.text}>{entry.text} <b>×{entry.count}</b></span>)}
+        {entries.slice(0, 40).map((entry) => {
+          const isPinned = pinned.has(entry.text);
+          if (!onToggleWordPin) {
+            return <span className={isPinned ? "is-pinned" : undefined} key={entry.text}>{entry.text} <b>×{entry.count}</b></span>;
+          }
+          return (
+            <button
+              className={isPinned ? "is-pinned" : undefined}
+              key={entry.text}
+              type="button"
+              aria-pressed={isPinned}
+              onClick={() => onToggleWordPin(entry.text, !isPinned)}
+            >
+              {entry.text} <b>×{entry.count}</b>
+            </button>
+          );
+        })}
       </div>
     );
   }
@@ -541,7 +562,11 @@ export function RemoteApp({ t }: { t: Translate }) {
                   )
                   : <p className="remote-empty">{t("qa.empty")}</p>
               ) : aggregate ? (
-                <RemoteAggregate t={t} aggregate={aggregate} />
+                <RemoteAggregate
+                  t={t}
+                  aggregate={aggregate}
+                  onToggleWordPin={(text, pinned) => void pinWordCloud(sessionId, token, interaction.id, text, pinned).then(() => refreshLive()).catch((cause) => setError(cause instanceof ApiError ? cause.code : "network_error"))}
+                />
               ) : (
                 <p className="remote-empty">{t("projection.noResults")}</p>
               )}
@@ -615,6 +640,11 @@ export function ProjectionApp({ t }: { t: Translate }) {
               aggregate: aggregateFor(live, interaction.id),
             }))}
             questions={live.questions}
+            onToggleWordPin={(interactionId, text, pinned) => {
+              void pinWordCloud(sessionId, token, interactionId, text, pinned)
+                .then(() => refresh())
+                .catch(() => undefined);
+            }}
           />
         </section>
       )}
@@ -694,6 +724,20 @@ export function OverlayApp({ t }: { t: Translate }) {
 async function loadLiveView(sessionId: string, token: string) {
   return apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
     headers: { authorization: `Bearer ${token}` },
+  });
+}
+
+async function pinWordCloud(
+  sessionId: string,
+  token: string,
+  interactionId: string,
+  text: string,
+  pinned: boolean,
+) {
+  await apiJson(`/api/sessions/${sessionId}/interactions/${interactionId}/word-cloud/pin`, {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ text, pinned }),
   });
 }
 

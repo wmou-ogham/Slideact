@@ -35,7 +35,11 @@ export function QuestionList({ t, questions, busy, onVote }: {
   );
 }
 
-export function AggregateBars({ t, aggregate }: { t: Translate; aggregate: Aggregate }) {
+export function AggregateBars({ t, aggregate, onToggleWordPin }: {
+  t: Translate;
+  aggregate: Aggregate;
+  onToggleWordPin?: (text: string, pinned: boolean) => void;
+}) {
   if (aggregate.interaction_type === "understanding") {
     const segments = [
       ["green", aggregate.green_percent ?? aggregate.understood_percent ?? 0],
@@ -45,7 +49,16 @@ export function AggregateBars({ t, aggregate }: { t: Translate; aggregate: Aggre
     return <div className="understanding-result">{segments.map(([name, percent]) => <div key={name} className={name} style={{ width: `${percent}%` }}><span>{Math.round(percent)}%</span></div>)}</div>;
   }
   if (aggregate.interaction_type === "word_cloud") {
-    return <WordCloudResult label={t("interaction.wordCloud")} entries={aggregate.entries ?? []} />;
+    return (
+      <WordCloudResult
+        label={t("interaction.wordCloud")}
+        entries={aggregate.entries ?? []}
+        pinned={aggregate.pinned ?? []}
+        onTogglePin={onToggleWordPin}
+        pinLabel={t("wordCloud.pin")}
+        unpinLabel={t("wordCloud.unpin")}
+      />
+    );
   }
   return <div className="result-options">{aggregate.options?.map((option) => {
     const percent = aggregate.total_responses ? Math.round(option.count * 100 / aggregate.total_responses) : 0;
@@ -53,7 +66,7 @@ export function AggregateBars({ t, aggregate }: { t: Translate; aggregate: Aggre
   })}</div>;
 }
 
-export function CueResultVisuals({ t, interactions, questions }: {
+export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }: {
   t: Translate;
   interactions: Array<{
     id: string;
@@ -62,6 +75,7 @@ export function CueResultVisuals({ t, interactions, questions }: {
     aggregate?: Aggregate | null;
   }>;
   questions: Question[];
+  onToggleWordPin?: (interactionId: string, text: string, pinned: boolean) => void;
 }) {
   const multi = interactions.length > 1;
   return (
@@ -74,7 +88,13 @@ export function CueResultVisuals({ t, interactions, questions }: {
               ? <div className="projection-questions"><QuestionList t={t} questions={questions} busy /></div>
               : <span className="projection-empty">{t("qa.empty")}</span>
           ) : interaction.aggregate ? (
-            <AggregateBars t={t} aggregate={interaction.aggregate} />
+            <AggregateBars
+              t={t}
+              aggregate={interaction.aggregate}
+              onToggleWordPin={onToggleWordPin
+                ? (text, pinned) => onToggleWordPin(interaction.id, text, pinned)
+                : undefined}
+            />
           ) : (
             <span className="projection-empty">{t("projection.noResults")}</span>
           )}
@@ -147,7 +167,20 @@ function wordMotionStyle(text: string): CSSProperties {
   } as CSSProperties;
 }
 
-function WordCloudResult({ entries, label }: { entries: Array<{ text: string; count: number }>; label: string }) {
+type PinnedLayout = { x: number; y: number; rotate: number };
+
+function estimateWordWidth(text: string, size: number) {
+  return [...text].reduce((width, character) => width + (character.charCodeAt(0) > 255 ? size : size * 0.62), 0);
+}
+
+function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinLabel }: {
+  entries: Array<{ text: string; count: number }>;
+  label: string;
+  pinned: string[];
+  onTogglePin?: (text: string, pinned: boolean) => void;
+  pinLabel: string;
+  unpinLabel: string;
+}) {
   const wordSignature = entries.slice(0, 80).map((entry) => `${entry.text}\t${entry.count}`).join("\n");
   const words = useMemo(
     () => entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count })),
@@ -158,6 +191,8 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
   const seen = useRef(new Set<string>());
   const previousCounts = useRef(new Map<string, number>());
   const enterTimers = useRef<number[]>([]);
+  const pinnedLayout = useRef(new Map<string, PinnedLayout>());
+  const pinnedSet = useMemo(() => new Set(pinned), [pinned]);
   const [enteringState, setEnteringState] = useState<ReadonlySet<string>>(new Set());
   const [popping, setPopping] = useState<ReadonlySet<string>>(new Set());
   const entering = new Set(enteringState);
@@ -184,6 +219,7 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
     if (!words.length) {
       seen.current.clear();
       previousCounts.current.clear();
+      pinnedLayout.current.clear();
       setEnteringState(new Set());
       setPopping(new Set());
       return;
@@ -223,7 +259,7 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
 
   if (!words.length) return null;
   return (
-    <div className="word-cloud-results" aria-label={label}>
+    <div className={`word-cloud-results${onTogglePin ? " is-interactive" : ""}`} aria-label={label}>
       <svg viewBox={`0 0 ${WORD_CLOUD_WIDTH} ${WORD_CLOUD_HEIGHT}`} role="img">
         <Wordcloud
           width={WORD_CLOUD_WIDTH}
@@ -239,14 +275,57 @@ function WordCloudResult({ entries, label }: { entries: Array<{ text: string; co
         >
           {(cloudWords: WordCloudGlyph[]) => cloudWords.map((word) => {
             const text = word.text ?? "";
-            const hot = (word.size ?? 0) >= maxSize * 0.72;
+            const isPinned = pinnedSet.has(text);
+            if (isPinned) {
+              const saved = pinnedLayout.current.get(text);
+              if (saved) {
+                word = { ...word, x: saved.x, y: saved.y, rotate: saved.rotate };
+              } else {
+                pinnedLayout.current.set(text, {
+                  x: word.x ?? 0,
+                  y: word.y ?? 0,
+                  rotate: word.rotate ?? 0,
+                });
+              }
+            } else {
+              pinnedLayout.current.delete(text);
+            }
+            const size = word.size ?? 24;
+            const boxWidth = estimateWordWidth(text, size) + Math.max(16, size * 0.35);
+            const boxHeight = size * 1.22;
+            const hot = size >= maxSize * 0.72;
             return (
-              <g key={text} transform={`translate(${word.x ?? 0}, ${word.y ?? 0}) rotate(${word.rotate ?? 0})`}>
+              <g
+                key={text}
+                className={onTogglePin ? "word-cloud-hit" : undefined}
+                transform={`translate(${word.x ?? 0}, ${word.y ?? 0}) rotate(${word.rotate ?? 0})`}
+                onClick={onTogglePin ? () => onTogglePin(text, !isPinned) : undefined}
+                role={onTogglePin ? "button" : undefined}
+                tabIndex={onTogglePin ? 0 : undefined}
+                aria-pressed={onTogglePin ? isPinned : undefined}
+                aria-label={onTogglePin ? (isPinned ? unpinLabel : pinLabel) : undefined}
+                onKeyDown={onTogglePin ? (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onTogglePin(text, !isPinned);
+                  }
+                } : undefined}
+              >
+                {isPinned && (
+                  <rect
+                    className="word-cloud-pin-box"
+                    x={-boxWidth / 2}
+                    y={-size * 0.88}
+                    width={boxWidth}
+                    height={boxHeight}
+                    rx={Math.max(6, size * 0.12)}
+                  />
+                )}
                 <g
-                  className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
-                  style={wordMotionStyle(text)}
+                  className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) && !isPinned ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
+                  style={isPinned ? undefined : wordMotionStyle(text)}
                 >
-                  <g className="word-cloud-float">
+                  <g className={isPinned ? undefined : "word-cloud-float"}>
                     <text
                       fill={WORD_CLOUD_COLORS[wordTone(text) % WORD_CLOUD_COLORS.length]}
                       fontFamily={word.font}

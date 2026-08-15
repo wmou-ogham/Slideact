@@ -135,6 +135,7 @@ export type Aggregate = {
   red_percent?: number;
   options?: Array<{ option_id: string; label: string; count: number }>;
   entries?: Array<{ text: string; count: number }>;
+  pinned?: string[];
 };
 
 export type Question = {

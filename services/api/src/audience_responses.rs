@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
-    routing::post,
+    routing::{patch, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::{
     AppState,
     api_error::ApiError,
-    authorization::{SessionRole, authenticate_session_token},
+    auth::authenticated_user_id,
+    authorization::{SessionRole, authenticate_session_token, require_session_owner},
     commands::emit_event_to_topics,
     rate_limit::check as check_rate_limit,
 };
@@ -33,11 +34,23 @@ struct SubmitResponseResponse {
     aggregate: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinWordCloudRequest {
+    text: String,
+    pinned: bool,
+}
+
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route(
-        "/api/audience/interactions/{interaction_id}/responses",
-        post(submit_response),
-    )
+    Router::new()
+        .route(
+            "/api/audience/interactions/{interaction_id}/responses",
+            post(submit_response),
+        )
+        .route(
+            "/api/sessions/{session_id}/interactions/{interaction_id}/word-cloud/pin",
+            patch(pin_word_cloud_entry),
+        )
 }
 
 async fn submit_response(
@@ -221,6 +234,121 @@ async fn submit_response(
             aggregate,
         }),
     ))
+}
+
+async fn pin_word_cloud_entry(
+    State(state): State<AppState>,
+    Path((session_id, interaction_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(request): Json<PinWordCloudRequest>,
+) -> Result<Json<Value>, ApiError> {
+    authorize_word_cloud_operator(&state.database, &headers, session_id).await?;
+    check_rate_limit(
+        &state.redis,
+        "presenter-command",
+        &session_id.to_string(),
+        120,
+        60,
+    )
+    .await?;
+    let text = normalize_free_text(request.text.trim());
+    if text.is_empty() || text.chars().count() > 200 {
+        return Err(ApiError::bad_request("response_payload_invalid"));
+    }
+
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    let current = sqlx::query_as::<_, (Uuid, String, i64, Value, Value)>(
+        r#"
+        SELECT cue_runs.id, cue_runs.state, live_sessions.state_version,
+               interactions.settings,
+               COALESCE(response_aggregates.aggregate, '{}'::jsonb)
+        FROM interactions
+        JOIN cues ON cues.id = interactions.cue_id
+        JOIN cue_runs ON cue_runs.cue_id = cues.id
+        JOIN live_sessions ON live_sessions.id = cue_runs.session_id
+                          AND live_sessions.current_cue_run_id = cue_runs.id
+        LEFT JOIN response_aggregates
+               ON response_aggregates.cue_run_id = cue_runs.id
+              AND response_aggregates.interaction_id = interactions.id
+        WHERE interactions.id = $1
+          AND live_sessions.id = $2
+          AND interactions.interaction_type = 'word_cloud'
+        FOR UPDATE OF cue_runs
+        "#,
+    )
+    .bind(interaction_id)
+    .bind(session_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::not_found("interaction_not_found"))?;
+    let (cue_run_id, cue_state, state_version, settings, existing) = current;
+    if existing.get("interaction_type").and_then(Value::as_str) != Some("word_cloud") {
+        return Err(ApiError::not_found("word_cloud_empty"));
+    }
+    let known = existing
+        .get("entries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
+        .any(|entry| entry == text);
+    if !known {
+        return Err(ApiError::not_found("word_cloud_entry_not_found"));
+    }
+    let mut pinned = pinned_texts(&existing);
+    if request.pinned {
+        if !pinned.iter().any(|item| item == &text) {
+            pinned.push(text);
+        }
+    } else {
+        pinned.retain(|item| item != &text);
+    }
+    let mut aggregate = existing;
+    aggregate["pinned"] = json!(pinned);
+    sqlx::query(
+        r#"
+        UPDATE response_aggregates
+        SET aggregate = $3, version = version + 1, updated_at = NOW()
+        WHERE cue_run_id = $1 AND interaction_id = $2
+        "#,
+    )
+    .bind(cue_run_id)
+    .bind(interaction_id)
+    .bind(&aggregate)
+    .execute(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    let full_event = json!({
+        "event_type": "response.aggregate_updated",
+        "cue_run_id": cue_run_id,
+        "interaction_id": interaction_id,
+        "aggregate": aggregate,
+    });
+    let invalidation_event = json!({
+        "event_type": "response.updated",
+        "cue_run_id": cue_run_id,
+        "interaction_id": interaction_id,
+    });
+    let audience_event = if audience_can_see_aggregate(&settings, &cue_state) {
+        full_event.clone()
+    } else {
+        invalidation_event
+    };
+    emit_event_to_topics(
+        &mut transaction,
+        session_id,
+        u64::try_from(state_version).map_err(|_| ApiError::internal("state_version_invalid"))?,
+        [
+            ("presenter", full_event),
+            ("audience", audience_event.clone()),
+            ("overlay", audience_event),
+        ],
+        &format!("word-cloud-pin-{interaction_id}-{}", Uuid::new_v4()),
+    )
+    .await?;
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok(Json(aggregate))
 }
 
 async fn validate_payload(
@@ -454,6 +582,12 @@ async fn compute_aggregate(
             .await
             .map_err(persistence_error)?;
             let total_responses = rows.iter().map(|row| row.1).sum::<i64>();
+            let present: Vec<String> = rows.iter().map(|row| row.0.clone()).collect();
+            let pinned = load_pinned_words(transaction, cue_run_id, interaction_id)
+                .await?
+                .into_iter()
+                .filter(|text| present.iter().any(|item| item == text))
+                .collect::<Vec<_>>();
             let entries = rows
                 .into_iter()
                 .map(|row| json!({"text": row.0, "count": row.1}))
@@ -462,6 +596,7 @@ async fn compute_aggregate(
                 "interaction_type": "word_cloud",
                 "total_responses": total_responses,
                 "entries": entries,
+                "pinned": pinned,
             }))
         }
         _ => Err(ApiError::bad_request("interaction_type_not_supported")),
@@ -474,6 +609,54 @@ fn percentage(count: i64, total: i64) -> f64 {
     } else {
         count as f64 * 100.0 / total as f64
     }
+}
+
+fn pinned_texts(aggregate: &Value) -> Vec<String> {
+    aggregate
+        .get("pinned")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value.as_str().map(str::to_owned))
+        .collect()
+}
+
+async fn load_pinned_words(
+    transaction: &mut Transaction<'_, Postgres>,
+    cue_run_id: Uuid,
+    interaction_id: Uuid,
+) -> Result<Vec<String>, ApiError> {
+    let aggregate = sqlx::query_scalar::<_, Value>(
+        "SELECT aggregate FROM response_aggregates WHERE cue_run_id = $1 AND interaction_id = $2",
+    )
+    .bind(cue_run_id)
+    .bind(interaction_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    Ok(aggregate.as_ref().map(pinned_texts).unwrap_or_default())
+}
+
+async fn authorize_word_cloud_operator(
+    database: &sqlx::PgPool,
+    headers: &HeaderMap,
+    session_id: Uuid,
+) -> Result<(), ApiError> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        let actor = authenticate_session_token(database, bearer_token(headers)?).await?;
+        if actor.session_id != session_id
+            || !matches!(
+                actor.role,
+                SessionRole::Owner | SessionRole::Presenter | SessionRole::Controller
+            )
+        {
+            return Err(ApiError::forbidden("presenter_token_required"));
+        }
+        return Ok(());
+    }
+    let user_id = authenticated_user_id(database, headers).await?;
+    require_session_owner(database, session_id, user_id).await?;
+    Ok(())
 }
 
 fn audience_can_see_aggregate(settings: &Value, cue_state: &str) -> bool {
@@ -543,7 +726,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        audience_can_see_aggregate, looks_like_spam, normalize_free_text, single_field_object,
+        audience_can_see_aggregate, looks_like_spam, normalize_free_text, pinned_texts,
+        single_field_object,
     };
 
     #[test]
@@ -580,5 +764,14 @@ mod tests {
             14
         ));
         assert!(!looks_like_spam("clear examples", 1, 14));
+    }
+
+    #[test]
+    fn word_cloud_pinned_texts_are_read_from_the_aggregate() {
+        assert_eq!(
+            pinned_texts(&json!({"pinned": ["clarity", "focus"]})),
+            vec!["clarity".to_string(), "focus".to_string()]
+        );
+        assert!(pinned_texts(&json!({})).is_empty());
     }
 }

@@ -864,6 +864,27 @@ assert.equal(
   2,
 );
 
+const audienceCannotPin = await requestJson(
+  `/api/sessions/${commandSessionId}/interactions/${createdWordCloud.body.id}/word-cloud/pin`,
+  {
+    method: "PATCH",
+    token: joinedAudience.body.token,
+    body: { text: "clarity", pinned: true },
+  },
+);
+assert.equal(audienceCannotPin.response.status, 403);
+
+const pinnedWord = await requestJson(
+  `/api/sessions/${commandSessionId}/interactions/${createdWordCloud.body.id}/word-cloud/pin`,
+  {
+    method: "PATCH",
+    token: controllerIssue.body.token,
+    body: { text: "clarity", pinned: true },
+  },
+);
+assert.equal(pinnedWord.response.status, 200);
+assert.deepEqual(pinnedWord.body.pinned, ["clarity"]);
+
 const rejectedWordCloudLimit = await submitAudienceResponse(
   joinedAudience.body.token,
   createdWordCloud.body.id,
@@ -1106,6 +1127,12 @@ const revealedAudienceLiveView = await requestJson(
 );
 assert.equal(revealedAudienceLiveView.response.status, 200);
 assert.equal(revealedAudienceLiveView.body.aggregates.length, 3);
+assert.deepEqual(
+  revealedAudienceLiveView.body.aggregates.find(
+    (item) => item.aggregate.interaction_type === "word_cloud",
+  )?.aggregate.pinned,
+  ["clarity"],
+);
 const persistedSessionResults = await requestJson(
   `/api/sessions/${commandSessionId}/results`,
   { cookie: ownerCookie },
