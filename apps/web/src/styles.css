@@ -432,6 +432,37 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .projection-visuals .result-track { height: clamp(25px, 4vh, 48px); background: rgba(255,255,255,.12); }
 .projection-visuals .word-cloud-results { max-height: 55vh; border: 0; background: rgba(255,255,255,.035); }
 .projection-visuals .word-cloud-results svg { max-height: 55vh; }
+.projection-live {
+  display: flex;
+  flex-direction: column;
+  padding: clamp(16px, 2vw, 36px);
+}
+.projection-live .projection-results {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  margin: 8px auto 0;
+}
+.projection-live .projection-results h1 {
+  margin: 6px 0 12px;
+  font-size: clamp(28px, 3.4vw, 52px);
+}
+.projection-live .projection-visuals {
+  flex: 1;
+  min-height: 0;
+}
+.projection-live .projection-visuals .word-cloud-results {
+  height: 66.67vh;
+  max-height: 66.67vh;
+}
+.projection-live .projection-visuals .word-cloud-results svg {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+}
 .projection-empty { padding: 26px; color: rgba(248,246,239,.6); border: 1px dashed rgba(255,255,255,.2); border-radius: 18px; text-align: center; }
 .projection-questions { margin-top: clamp(34px, 6vh, 74px); }
 .projection-questions h2 { color: #8dd5ae; font-size: clamp(13px, 1.5vw, 20px); letter-spacing: .08em; text-transform: uppercase; }

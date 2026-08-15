@@ -616,7 +616,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const interactions = cueRun?.interactions ?? [];
   const multi = interactions.length > 1;
   return (
-    <main className="projection-root">
+    <main className="projection-root projection-live">
       <header><span>SLIDEACT · LIVE</span><strong>{live.snapshot.join_code}</strong></header>
       {live.snapshot.presentation_view === "join_qr" || !cueRun ? (
         <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><small>{t("projection.waiting")}</small></section>
