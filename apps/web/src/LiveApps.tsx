@@ -98,7 +98,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
     label: string,
     idempotencyKey = uuid(),
   ) {
-    if (!joined || !live?.snapshot.current_cue_run) return;
+    if (!joined || !live?.snapshot.current_cue_run) return false;
     setBusy(true);
     setError("");
     setPendingAnswer(null);
@@ -119,11 +119,13 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       });
       setPendingAnswer(null);
       await refresh();
+      return true;
     } catch (cause) {
       setError(audienceError(t, cause));
       if (!(cause instanceof ApiError) || cause.status >= 500) {
         setPendingAnswer({ interaction, payload, label, idempotencyKey });
       }
+      return false;
     } finally {
       setBusy(false);
     }
@@ -201,6 +203,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
                   t={t}
                   interaction={interaction}
                   answer={answers[interaction.id]}
+                  sentCount={(live?.my_responses ?? []).filter((item) => item.interaction_id === interaction.id).length}
                   busy={busy}
                   submit={(payload, label) => answer(interaction, payload, label)}
                   questions={live?.questions ?? []}
@@ -219,8 +222,11 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   );
 }
 
+const WORD_CLOUD_MAX_SUBMISSIONS = 3;
+
 function audienceError(t: Translate, cause: unknown) {
   if (cause instanceof ApiError && cause.status === 429) return t("audience.rateLimited");
+  if (cause instanceof ApiError && cause.code === "response_limit_reached") return t("audience.wordCloudLimit", { max: WORD_CLOUD_MAX_SUBMISSIONS });
   return t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" });
 }
 
@@ -234,21 +240,21 @@ function WaitingState({ t, status }: { t: Translate; status: string }) {
   );
 }
 
-function AudienceInteraction({ t, interaction, answer, busy, submit, questions, submitQuestion, voteQuestion }: {
+function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, submit, questions, submitQuestion, voteQuestion }: {
   t: Translate;
   interaction: SnapshotInteraction;
   answer?: string;
+  sentCount?: number;
   busy: boolean;
-  submit: (payload: Record<string, unknown>, label: string) => void;
+  submit: (payload: Record<string, unknown>, label: string) => Promise<boolean>;
   questions: Question[];
   submitQuestion: (body: string) => Promise<void>;
   voteQuestion: (questionId: string) => Promise<void>;
 }) {
-  const [text, setText] = useState(answer ?? "");
+  const [text, setText] = useState("");
   const [questionBody, setQuestionBody] = useState("");
-  useEffect(() => {
-    if (answer) setText((current) => current || answer);
-  }, [answer]);
+  const wordCloudRemaining = Math.max(0, WORD_CLOUD_MAX_SUBMISSIONS - sentCount);
+  const wordCloudFull = interaction.interaction_type === "word_cloud" && wordCloudRemaining === 0;
 
   return (
     <article className="audience-question">
@@ -272,20 +278,21 @@ function AudienceInteraction({ t, interaction, answer, busy, submit, questions, 
         </div>
       )}
       {interaction.interaction_type === "word_cloud" && (
-        <form className="text-response" onSubmit={(event) => {
+        <form className="text-response" onSubmit={async (event) => {
           event.preventDefault();
           const value = text.trim();
-          if (value) submit({ text: value }, value);
+          if (!value || wordCloudFull) return;
+          if (await submit({ text: value }, value)) setText("");
         }}>
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
             maxLength={200}
             placeholder={t("audience.textPlaceholder")}
-            disabled={busy}
+            disabled={busy || wordCloudFull}
             rows={3}
           />
-          <button disabled={busy || !text.trim()}>{t("audience.send")}</button>
+          <button disabled={busy || wordCloudFull || !text.trim()}>{t("audience.send")}</button>
         </form>
       )}
       {interaction.interaction_type === "qa" && (
@@ -310,7 +317,15 @@ function AudienceInteraction({ t, interaction, answer, busy, submit, questions, 
           <QuestionList t={t} questions={questions} busy={busy} onVote={voteQuestion} />
         </div>
       )}
-      {answer && <p className="answer-saved">{t("audience.saved")}</p>}
+      {interaction.interaction_type === "word_cloud"
+        ? sentCount > 0 && (
+          <p className="answer-saved">
+            {wordCloudFull
+              ? t("audience.wordCloudLimit", { max: WORD_CLOUD_MAX_SUBMISSIONS })
+              : t("audience.wordCloudSaved", { remaining: wordCloudRemaining })}
+          </p>
+        )
+        : answer && <p className="answer-saved">{t("audience.saved")}</p>}
     </article>
   );
 }

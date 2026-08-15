@@ -118,6 +118,15 @@ async fn submit_response(
     .fetch_one(&mut *transaction)
     .await
     .map_err(persistence_error)?;
+    let submission_index = next_submission_index(
+        &mut transaction,
+        &interaction.0,
+        request.cue_run_id,
+        interaction_id,
+        participant_id,
+        idempotent,
+    )
+    .await?;
 
     let aggregate = if idempotent {
         load_aggregate(&mut transaction, request.cue_run_id, interaction_id).await?
@@ -128,7 +137,7 @@ async fn submit_response(
                 id, cue_run_id, interaction_id, participant_id,
                 submission_index, idempotency_key, payload
             )
-            VALUES ($1, $2, $3, $4, 0, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (cue_run_id, interaction_id, participant_id, submission_index)
             DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key,
                           payload = EXCLUDED.payload,
@@ -139,6 +148,7 @@ async fn submit_response(
         .bind(request.cue_run_id)
         .bind(interaction_id)
         .bind(participant_id)
+        .bind(submission_index)
         .bind(&request.idempotency_key)
         .bind(&payload)
         .execute(&mut *transaction)
@@ -306,6 +316,38 @@ fn looks_like_spam(value: &str, maximum_urls: usize, maximum_run: usize) -> bool
         }
     }
     false
+}
+
+const WORD_CLOUD_MAX_SUBMISSIONS: i64 = 3;
+
+async fn next_submission_index(
+    transaction: &mut Transaction<'_, Postgres>,
+    interaction_type: &str,
+    cue_run_id: Uuid,
+    interaction_id: Uuid,
+    participant_id: Uuid,
+    idempotent: bool,
+) -> Result<i16, ApiError> {
+    if interaction_type != "word_cloud" || idempotent {
+        return Ok(0);
+    }
+    let next = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COALESCE((MAX(submission_index) + 1)::BIGINT, 0)
+        FROM responses
+        WHERE cue_run_id = $1 AND interaction_id = $2 AND participant_id = $3
+        "#,
+    )
+    .bind(cue_run_id)
+    .bind(interaction_id)
+    .bind(participant_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    if next >= WORD_CLOUD_MAX_SUBMISSIONS {
+        return Err(ApiError::conflict("response_limit_reached"));
+    }
+    i16::try_from(next).map_err(|_| ApiError::internal("submission_index_invalid"))
 }
 
 fn single_field_object(payload: &Value) -> Result<&Map<String, Value>, ApiError> {

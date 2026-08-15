@@ -57,4 +57,10 @@ sudo ./scripts/install-autostart.sh --system
 docker compose up --detach --build --wait web proxy
 ```
 
-然後開一場有文字雲的活動，看投影／觀眾結果頁：新詞會交錯進場，詞會慢慢漂浮，同一詞被重複送出時會短暫放大。只有一個答案時，該詞大約占文字雲高度的三分之一；詞變多後字級會縮小，高頻詞仍明顯較大。
+然後開一場有文字雲的活動，看投影／觀眾結果頁：新詞會交錯進場，詞會慢慢漂浮，同一詞被重複送出時會短暫放大。只有一個答案時，該詞大約占文字雲高度的三分之一；詞變多後字級會縮小，高頻詞仍明顯較大。觀眾同一題最多可送 3 則，送出後輸入框會清空以便再送。
+
+改 API 後要重建 Rust 映像：
+
+```sh
+docker compose up --detach --build --wait api worker web proxy
+```
