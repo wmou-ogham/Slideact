@@ -163,6 +163,6 @@ export type LiveView = {
 };
 
 export type SessionCommand =
-  | { type: "open_lobby" | "start" | "pause" | "resume" | "end" | "show_join_qr" | "show_cue" }
+  | { type: "open_lobby" | "start" | "pause" | "resume" | "end" | "show_join_qr" | "show_cue" | "reopen_session" }
   | { type: "prepare_cue"; cue_id: string }
   | { type: "open_cue" | "close_cue" | "reopen_cue" | "reveal_cue" | "skip_cue" };

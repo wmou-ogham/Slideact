@@ -1,9 +1,9 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Wordcloud } from "@visx/wordcloud";
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import { sendCommand } from "./PresenterApp";
+import { AggregateBars, CueResultVisuals, QuestionList } from "./ResultVisuals";
 import type { Cue, LiveView, Question, SessionCommand, SessionSnapshot, SnapshotInteraction } from "./types";
 
 type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
@@ -326,36 +326,6 @@ function ResultsView({ t, live, cueName, state }: { t: Translate; live: LiveView
   );
 }
 
-function QuestionList({ t, questions, busy, onVote }: {
-  t: Translate;
-  questions: Question[];
-  busy: boolean;
-  onVote?: (questionId: string) => Promise<void>;
-}) {
-  if (!questions.length) return <p className="qa-empty">{t("qa.empty")}</p>;
-  return (
-    <div className="question-list">
-      {questions.map((question) => (
-        <article className={`question-card question-${question.status}`} key={question.id}>
-          <div>
-            {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
-            <p>{question.body}</p>
-            {question.status === "answered" && <small>{t("qa.answered")}</small>}
-          </div>
-          <button
-            className={question.voted_by_me ? "question-vote selected" : "question-vote"}
-            disabled={busy || !onVote}
-            onClick={() => onVote?.(question.id)}
-            aria-label={t("qa.votes", { count: question.votes })}
-          >
-            <b>▲</b>{question.votes}
-          </button>
-        </article>
-      ))}
-    </div>
-  );
-}
-
 function RemoteAggregate({ t, aggregate }: { t: Translate; aggregate: LiveView["aggregates"][number]["aggregate"] }) {
   if (aggregate.interaction_type === "understanding") {
     return (
@@ -380,67 +350,6 @@ function RemoteAggregate({ t, aggregate }: { t: Translate; aggregate: LiveView["
   }
   if (!aggregate.options?.length) return <p className="remote-empty">{t("history.noResponses")}</p>;
   return <AggregateBars t={t} aggregate={aggregate} />;
-}
-
-function AggregateBars({ t, aggregate }: { t: Translate; aggregate: LiveView["aggregates"][number]["aggregate"] }) {
-  if (aggregate.interaction_type === "understanding") {
-    const segments = [
-      ["green", aggregate.green_percent ?? aggregate.understood_percent ?? 0],
-      ["yellow", aggregate.yellow_percent ?? 0],
-      ["red", aggregate.red_percent ?? 0],
-    ] as const;
-    return <div className="understanding-result">{segments.map(([name, percent]) => <div key={name} className={name} style={{ width: `${percent}%` }}><span>{Math.round(percent)}%</span></div>)}</div>;
-  }
-  if (aggregate.interaction_type === "word_cloud") {
-    return <WordCloudResult label={t("interaction.wordCloud")} entries={aggregate.entries ?? []} />;
-  }
-  return <div className="result-options">{aggregate.options?.map((option) => {
-    const percent = aggregate.total_responses ? Math.round(option.count * 100 / aggregate.total_responses) : 0;
-    return <div key={option.option_id}><span>{option.label}</span><div className="result-track"><i style={{ width: `${percent}%` }} /></div><strong>{percent}%</strong></div>;
-  })}</div>;
-}
-
-function WordCloudResult({ entries, label }: { entries: Array<{ text: string; count: number }>; label: string }) {
-  const words = entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count }));
-  if (!words.length) return null;
-  const minimum = Math.min(...words.map((word) => word.value));
-  const maximum = Math.max(...words.map((word) => word.value));
-  const size = (value: number) => 24 + ((value - minimum) / Math.max(1, maximum - minimum)) * 64;
-  const colors = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0"];
-  return (
-    <div className="word-cloud-results" aria-label={label}>
-      <svg viewBox="0 0 720 400" role="img">
-        <Wordcloud
-          width={720}
-          height={400}
-          words={words}
-          padding={4}
-          font='Inter, ui-sans-serif, system-ui, sans-serif'
-          fontSize={(word) => size(word.value)}
-          fontWeight={800}
-          rotate={(_, index) => index % 7 === 0 ? -12 : index % 11 === 0 ? 12 : 0}
-          spiral="archimedean"
-          random={() => 0.5}
-        >
-          {(cloudWords) => cloudWords.map((word, index) => (
-            <text
-              key={`${word.text}-${index}`}
-              x={word.x}
-              y={word.y}
-              fill={colors[index % colors.length]}
-              fontFamily={word.font}
-              fontSize={word.size}
-              fontWeight={word.weight}
-              textAnchor="middle"
-              transform={`rotate(${word.rotate ?? 0}, ${word.x ?? 0}, ${word.y ?? 0})`}
-            >
-              {word.text}
-            </text>
-          ))}
-        </Wordcloud>
-      </svg>
-    </div>
-  );
 }
 
 export function RemoteApp({ t }: { t: Translate }) {
@@ -682,25 +591,16 @@ export function ProjectionApp({ t }: { t: Translate }) {
         <section className={multi ? "projection-results projection-multi" : "projection-results"}>
           <p>{cueRun.state === "open" ? t("overlay.collecting") : cueRun.state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
           {!multi && <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
-          <div className="projection-visuals">
-            {interactions.map((interaction) => {
-              const aggregate = aggregateFor(live, interaction.id);
-              return (
-                <article className="projection-interaction" key={interaction.id}>
-                  {multi && <h2>{interaction.prompt}</h2>}
-                  {interaction.interaction_type === "qa" ? (
-                    live.questions.length
-                      ? <div className="projection-questions"><QuestionList t={t} questions={live.questions} busy /></div>
-                      : <span className="projection-empty">{t("qa.empty")}</span>
-                  ) : aggregate ? (
-                    <AggregateBars t={t} aggregate={aggregate} />
-                  ) : (
-                    <span className="projection-empty">{t("projection.noResults")}</span>
-                  )}
-                </article>
-              );
-            })}
-          </div>
+          <CueResultVisuals
+            t={t}
+            interactions={interactions.map((interaction) => ({
+              id: interaction.id,
+              prompt: interaction.prompt,
+              interaction_type: interaction.interaction_type,
+              aggregate: aggregateFor(live, interaction.id),
+            }))}
+            questions={live.questions}
+          />
         </section>
       )}
     </main>
@@ -729,10 +629,12 @@ export function OverlayApp({ t }: { t: Translate }) {
   }, [sessionId, token]);
 
   useEffect(() => {
+    document.documentElement.classList.add("overlay-html");
     document.body.classList.add("overlay-body");
     refresh().catch(() => setError("overlay_token_invalid"));
     const timer = window.setInterval(() => refresh().catch(() => undefined), 2000);
     return () => {
+      document.documentElement.classList.remove("overlay-html");
       document.body.classList.remove("overlay-body");
       window.clearInterval(timer);
     };
@@ -743,7 +645,7 @@ export function OverlayApp({ t }: { t: Translate }) {
     return connectLiveSocket(token, `session:${sessionId}:overlay`, refresh);
   }, [refresh, sessionId, token]);
 
-  if (error) return <main className="overlay-error">{t("overlay.invalid")}</main>;
+  if (error) return <main className="overlay-error"><span>{t("overlay.invalid")}</span></main>;
   if (!live) return <main className="overlay-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
   if (live.snapshot.presentation_view === "join_qr") return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("projection.join")}</small><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><strong>{live.snapshot.join_code}</strong></div></main>;

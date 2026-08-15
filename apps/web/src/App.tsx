@@ -10,6 +10,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { PresenterApp } from "./PresenterApp";
 import { DiagnosticsApp } from "./DiagnosticsApp";
 import { AudienceApp, OverlayApp, ProjectionApp, RemoteApp } from "./LiveApps";
+import { ResultsApp } from "./ResultsApp";
 
 export function App() {
   const [locale, setLocale] = useState<SupportedLocale>(() =>
@@ -29,6 +30,7 @@ export function App() {
   const path = window.location.pathname;
   if (path.startsWith("/overlay/")) return <OverlayApp t={t} />;
   if (path.startsWith("/projection/")) return <ProjectionApp t={t} />;
+  if (path.startsWith("/results/")) return <ResultsApp t={t} />;
   if (path.startsWith("/remote/")) return <div className="app-frame"><RemoteApp t={t} /></div>;
   return (
     <div className="app-frame">
