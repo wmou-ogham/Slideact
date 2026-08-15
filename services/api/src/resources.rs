@@ -1190,7 +1190,9 @@ fn normalize_anchor(anchor_type: &str, value: Option<String>) -> Option<String> 
     if anchor_type == "manual" {
         None
     } else {
-        value.map(|value| normalize_slide_anchor(&value)).filter(|value| !value.is_empty())
+        value
+            .map(|value| normalize_slide_anchor(&value))
+            .filter(|value| !value.is_empty())
     }
 }
 

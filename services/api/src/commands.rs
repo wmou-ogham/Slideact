@@ -19,7 +19,9 @@ use crate::{
     AppState,
     api_error::ApiError,
     auth::authenticated_user_id,
-    authorization::{authorize_presenter_access, authorize_presenter_command_access, require_session_read},
+    authorization::{
+        authorize_presenter_access, authorize_presenter_command_access, require_session_read,
+    },
     rate_limit::check as check_rate_limit,
 };
 
@@ -389,11 +391,13 @@ pub(crate) async fn apply_follow_position(
     .fetch_all(&mut *transaction)
     .await
     .map_err(persistence_error)?;
-    let cue = cues.into_iter().find_map(|(id, trigger_mode, anchor_value)| {
-        anchor_value
-            .filter(|value| cue_matches_position(value, slide_id, slide_index))
-            .map(|_| (id, trigger_mode))
-    });
+    let cue = cues
+        .into_iter()
+        .find_map(|(id, trigger_mode, anchor_value)| {
+            anchor_value
+                .filter(|value| cue_matches_position(value, slide_id, slide_index))
+                .map(|_| (id, trigger_mode))
+        });
 
     let Some((cue_id, trigger_mode)) = cue else {
         let snapshot = load_snapshot(&mut transaction, session_id).await?;

@@ -10,10 +10,7 @@ pub fn normalize_slide_anchor(value: &str) -> String {
     if let Some(id) = extract_google_slide_id(trimmed) {
         return id;
     }
-    trimmed
-        .strip_prefix("id.")
-        .unwrap_or(trimmed)
-        .to_owned()
+    trimmed.strip_prefix("id.").unwrap_or(trimmed).to_owned()
 }
 
 /// True when a live Google Slides position refers to the same page as a cue anchor.
@@ -100,9 +97,7 @@ mod tests {
             "g3f7c2fe3ef4_1_84"
         );
         assert_eq!(
-            normalize_slide_anchor(
-                "https://docs.google.com/presentation/d/deck/edit#slide=id.p",
-            ),
+            normalize_slide_anchor("https://docs.google.com/presentation/d/deck/edit#slide=id.p",),
             "p"
         );
         assert_eq!(normalize_slide_anchor("id.gabc"), "gabc");
@@ -112,7 +107,11 @@ mod tests {
     #[test]
     fn matches_page_numbers_ids_and_the_first_slide_token() {
         assert!(cue_matches_position("5", Some("slide-five"), Some(4)));
-        assert!(cue_matches_position("slide-five", Some("slide-five"), Some(4)));
+        assert!(cue_matches_position(
+            "slide-five",
+            Some("slide-five"),
+            Some(4)
+        ));
         assert!(cue_matches_position(
             "https://docs.google.com/presentation/d/deck/edit#slide=id.gabc",
             Some("gabc"),
