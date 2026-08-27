@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSlideAnchor } from "./PresenterApp";
+import { normalizeSlideAnchor, reorderCueIds } from "./PresenterApp";
 import { parseVaultCredential } from "./PresenterAuth";
 
 describe("normalizeSlideAnchor", () => {
@@ -22,6 +22,24 @@ describe("normalizeSlideAnchor", () => {
       "https://docs.google.com/presentation/d/deck/edit#slide=id.p",
       1,
     )).toBe("p");
+  });
+});
+
+describe("reorderCueIds", () => {
+  const cues = [
+    { id: "cue-a", position: 0 },
+    { id: "cue-b", position: 1 },
+    { id: "cue-c", position: 2 },
+  ];
+
+  it("moves a dragged cue to the dropped position in either direction", () => {
+    expect(reorderCueIds(cues, "cue-a", "cue-c")).toEqual(["cue-b", "cue-c", "cue-a"]);
+    expect(reorderCueIds(cues, "cue-c", "cue-a")).toEqual(["cue-c", "cue-a", "cue-b"]);
+  });
+
+  it("keeps the order stable for missing or identical cues", () => {
+    expect(reorderCueIds(cues, "missing", "cue-a")).toEqual(["cue-a", "cue-b", "cue-c"]);
+    expect(reorderCueIds(cues, "cue-b", "cue-b")).toEqual(["cue-a", "cue-b", "cue-c"]);
   });
 });
 

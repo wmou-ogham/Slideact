@@ -24,6 +24,23 @@ import type {
   SessionSnapshot,
 } from "./types";
 
+export function reorderCueIds(
+  source: ReadonlyArray<Pick<Cue, "id" | "position">>,
+  sourceId: string,
+  targetId: string,
+) {
+  const ordered = [...source].sort((left, right) => left.position - right.position);
+  const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
+  const targetIndex = ordered.findIndex((item) => item.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return ordered.map((item) => item.id);
+  }
+  const [moved] = ordered.splice(sourceIndex, 1);
+  if (!moved) return ordered.map((item) => item.id);
+  ordered.splice(Math.min(targetIndex, ordered.length), 0, moved);
+  return ordered.map((item) => item.id);
+}
+
 export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [profile, setProfile] = useState<Profile | null>();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -35,7 +52,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(true);
-  const [expandedCueId, setExpandedCueId] = useState("");
+  const [draggedCueId, setDraggedCueId] = useState("");
+  const [dragOverCueId, setDragOverCueId] = useState("");
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
   const [creatingInteraction, setCreatingInteraction] = useState(false);
   const [liveControlsOpen, setLiveControlsOpen] = useState(false);
@@ -222,24 +240,20 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.projectDeleted"));
   }
 
-  async function createCue(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createCue() {
     if (!projectId) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const slide = normalizeSlideAnchor(String(data.get("slide") ?? ""), cues.length + 1);
     await run(async () => {
       const created = await postJson<Cue>(`/api/projects/${projectId}/cues`, {
         name: generatedCueName(t, cues.length + 1),
         anchor_type: "deck_slide",
-        anchor_value: slide,
-        trigger_mode: data.get("trigger_mode"),
+        anchor_value: String(cues.length + 1),
+        trigger_mode: "immediate",
         delay_seconds: 0,
       });
       await refreshProject();
       setCueId(created.id);
-      setExpandedCueId(created.id);
-      form.reset();
+      setExpandedInteractionId("");
+      setCreatingInteraction(true);
     }, t("notice.cueCreated"));
   }
 
@@ -255,7 +269,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           name: generatedCueName(t, item.position + 1),
           anchor_type: "deck_slide",
           anchor_value: anchor,
-          trigger_mode: data.get("trigger_mode"),
+          trigger_mode: item.trigger_mode,
           delay_seconds: 0,
         }),
       });
@@ -268,25 +282,24 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     await run(async () => {
       await apiJson(`/api/projects/${projectId}/cues/${item.id}`, { method: "DELETE" });
       if (cueId === item.id) setCueId("");
-      if (expandedCueId === item.id) setExpandedCueId("");
       await refreshProject();
     }, t("notice.cueDeleted"));
   }
 
-  async function reorderCue(targetId: string, direction: -1 | 1) {
+  async function reorderCue(sourceId: string, targetId: string) {
     if (!projectId) return;
-    const ordered = [...cues].sort((left, right) => left.position - right.position);
-    const index = ordered.findIndex((item) => item.id === targetId);
-    const swapIndex = index + direction;
-    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
-    [ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]];
+    const cueIds = reorderCueIds(cues, sourceId, targetId);
+    const currentCueIds = [...cues]
+      .sort((left, right) => left.position - right.position)
+      .map((item) => item.id);
+    if (cueIds.every((id, index) => id === currentCueIds[index])) return;
     await run(async () => {
       const next = await apiJson<Cue[]>(`/api/projects/${projectId}/cues/reorder`, {
         method: "PUT",
-        body: JSON.stringify({ cue_ids: ordered.map((item) => item.id) }),
+        body: JSON.stringify({ cue_ids: cueIds }),
       });
       setCues(next);
-      setCueId(targetId);
+      setCueId(sourceId);
     }, t("notice.cuesReordered"));
   }
 
@@ -487,9 +500,37 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           </div>
           {project ? (
             <>
+              <button className="new-cue-button" type="button" disabled={busy} onClick={() => void createCue()}>
+                <span aria-hidden="true">＋</span>{t("cue.newSlide")}
+              </button>
               <div className="cue-list">
                 {cues.map((item) => (
-                  <article className={expandedCueId === item.id ? "cue-accordion expanded" : "cue-accordion"} key={item.id}>
+                  <article
+                    className={`cue-accordion${draggedCueId === item.id ? " dragging" : ""}${dragOverCueId === item.id ? " drag-over" : ""}`}
+                    key={item.id}
+                    draggable={!busy}
+                    onDragStart={(event) => {
+                      setDraggedCueId(item.id);
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", item.id);
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDragOverCueId(item.id);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceId = event.dataTransfer.getData("text/plain") || draggedCueId;
+                      setDraggedCueId("");
+                      setDragOverCueId("");
+                      if (sourceId) void reorderCue(sourceId, item.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedCueId("");
+                      setDragOverCueId("");
+                    }}
+                  >
                     <div className="cue-row">
                       <span className="cue-position">{item.position + 1}</span>
                       <button
@@ -502,45 +543,33 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                       >
                         <CueThumbnail t={t} cue={item} />
                         <span className="cue-thumbnail-meta">
-                          <strong>{slideAnchorLabel(t, item)}</strong>
-                          <small>{item.interactions.length} · {item.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small>
+                          <strong>{item.name}</strong>
+                          <small>{t("cue.interactionCount", { count: item.interactions.length })}</small>
                         </span>
                       </button>
-                      <span className="cue-order-actions">
-                        <button onClick={() => setExpandedCueId((current) => current === item.id ? "" : item.id)} aria-expanded={expandedCueId === item.id} aria-label={t("cue.anchor")}>•••</button>
-                        <button disabled={busy || item.position === 0} onClick={() => reorderCue(item.id, -1)} aria-label={t("cue.moveUp", { name: slideAnchorLabel(t, item) })}>↑</button>
-                        <button disabled={busy || item.position === cues.length - 1} onClick={() => reorderCue(item.id, 1)} aria-label={t("cue.moveDown", { name: slideAnchorLabel(t, item) })}>↓</button>
-                      </span>
+                      <span className="cue-drag-handle" aria-hidden="true">⋮⋮</span>
                     </div>
-                    {expandedCueId === item.id && (
-                      <form className="accordion-form" onSubmit={(event) => updateCue(item, event)}>
-                        <label><span>{t("cue.anchor")}</span><input name="slide" defaultValue={item.anchor_value ?? String(item.position + 1)} required placeholder={t("cue.slidePlaceholder")} /></label>
-                        <label><span>{t("cue.behavior")}</span><select name="trigger_mode" defaultValue={item.trigger_mode === "presenter_confirm" ? "presenter_confirm" : "immediate"}><option value="immediate">{t("cue.immediate")}</option><option value="presenter_confirm">{t("cue.confirm")}</option></select></label>
-                        <div className="editor-actions"><button disabled={busy}>{t("common.save")}</button><button className="danger-button" disabled={busy} type="button" onClick={() => deleteCue(item)}>{t("common.delete")}</button></div>
-                      </form>
-                    )}
                   </article>
                 ))}
                 {!cues.length && <p className="empty-copy">{t("cue.empty")}</p>}
               </div>
-              <form className="form-stack cue-form add-form" onSubmit={createCue}>
-                <div className="add-form-heading"><strong>{t("cue.addHeading")}</strong><small>{t("cue.anchorHelp")}</small></div>
-                <div className="form-row">
-                  <input name="slide" placeholder={t("cue.slidePlaceholder")} />
-                  <select name="trigger_mode" defaultValue="immediate">
-                    <option value="immediate">{t("cue.immediate")}</option>
-                    <option value="presenter_confirm">{t("cue.confirm")}</option>
-                  </select>
-                  <button disabled={busy}>{t("cue.create")}</button>
-                </div>
-              </form>
             </>
           ) : <p className="empty-copy roomy">{t("cue.selectProject")}</p>}
         </section>
 
         <section className="panel editor-panel">
           <div className="panel-heading">
-            <div><span className="step">03</span><h2>{t("interaction.heading")}</h2></div>
+            <div className="editor-heading-main">
+              <span className="step">03</span><h2>{t("interaction.heading")}</h2>
+              {cue && <form key={cue.id} className="cue-binding-inline" onSubmit={(event) => updateCue(cue, event)}>
+                <label>
+                  <span>{t("cue.googleSlidesBinding")}</span>
+                  <input name="slide" defaultValue={cue.anchor_value ?? String(cue.position + 1)} required placeholder={t("cue.slidePlaceholder")} />
+                </label>
+                <button type="submit" disabled={busy} aria-label={t("common.save")}>✓</button>
+                <button className="delete-cue-button" type="button" disabled={busy} onClick={() => void deleteCue(cue)} aria-label={t("common.delete")}>×</button>
+              </form>}
+            </div>
             {cue && <div className="preview-actions">
               <button onClick={() => setPreview("projection")}>{t("preview.projection")}</button>
               <button onClick={() => setPreview("mobile")}>{t("preview.mobile")}</button>
