@@ -9,7 +9,10 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { PresenterApp } from "./PresenterApp";
 import { DiagnosticsApp } from "./DiagnosticsApp";
-import { AudienceApp, OverlayApp, ProjectionApp, RemoteApp } from "./LiveApps";
+import { AudienceApp } from "./AudienceApp";
+import { OverlayApp } from "./OverlayApp";
+import { ProjectionApp } from "./ProjectionApp";
+import { RemoteApp } from "./RemoteApp";
 import { ResultsApp } from "./ResultsApp";
 
 export function App() {
