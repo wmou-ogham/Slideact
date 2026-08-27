@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import type { Translate } from "./i18n";
@@ -6,10 +6,7 @@ import { typeName } from "./lib/interactions";
 import {
   LIVE_POLL_INTERVAL_MS,
   aggregateFor,
-  connectLiveSocket,
-  loadLiveView,
   pinWordCloud,
-  rememberCueLive,
   useLiveSession,
 } from "./lib/liveSession";
 import { qrSvgTag } from "./lib/qr";
@@ -397,88 +394,66 @@ function RemoteAggregate({ t, aggregate, onToggleWordPin }: {
 export function RemoteApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
-  const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [cues, setCues] = useState<Cue[]>([]);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [live, setLive] = useState<LiveView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const cueLiveCache = useRef<Record<string, LiveView>>({});
 
-  const refreshLive = useCallback(async () => {
-    if (!token) return;
-    setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
+  const classifyLoadError = useCallback((cause: unknown) => {
+    setError(cause instanceof ApiError && (cause.status === 401 || cause.status === 403)
+      ? (token ? "token" : "auth")
+      : "load");
+  }, [token]);
+
+  const { live, refresh: refreshLive } = useLiveSession({
+    sessionId,
+    token,
+    topic: `session:${sessionId}:presenter`,
+    pollMs: LIVE_POLL_INTERVAL_MS.remote,
+    onInitialError: classifyLoadError,
+  });
+
+  const refreshCues = useCallback(async () => {
+    const headers = token ? { authorization: `Bearer ${token}` } : undefined;
+    setCues(await apiJson<Cue[]>(`/api/sessions/${sessionId}/controller-cues`, { headers }));
   }, [sessionId, token]);
 
-  const refresh = useCallback(async () => {
-    const headers = token ? { authorization: `Bearer ${token}` } : undefined;
-    const next = await apiJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`, { headers });
-    setSnapshot(next);
-    const [nextCues, nextQuestions] = await Promise.all([
-      apiJson<Cue[]>(`/api/sessions/${sessionId}/controller-cues`, { headers }),
-      apiJson<Question[]>(`/api/sessions/${sessionId}/questions`, { headers }),
-    ]);
-    setCues(nextCues);
-    setQuestions(nextQuestions);
-    await refreshLive().catch(() => undefined);
-  }, [refreshLive, sessionId, token]);
-
   useEffect(() => {
-    refresh().catch((cause) => setError(cause instanceof ApiError && (cause.status === 401 || cause.status === 403) ? (token ? "token" : "auth") : "load"));
-    const timer = window.setInterval(() => refresh().catch(() => undefined), 3000);
+    refreshCues().catch(classifyLoadError);
+    const timer = window.setInterval(() => refreshCues().catch(() => undefined), LIVE_POLL_INTERVAL_MS.remote);
     return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!token) return;
-    return connectLiveSocket(token, `session:${sessionId}:presenter`, refreshLive);
-  }, [refreshLive, sessionId, token]);
+  }, [classifyLoadError, refreshCues]);
 
   async function send(command: SessionCommand) {
-    if (!snapshot) return;
+    if (!live) return;
     setBusy(true);
     try {
-      setSnapshot(await sendCommand(sessionId, snapshot.state_version, command, token || undefined));
+      await sendCommand(sessionId, live.snapshot.state_version, command, token || undefined);
       setError("");
-      await refreshLive().catch(() => undefined);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
-      await refresh().catch(() => undefined);
     } finally {
+      await refreshLive().catch(() => undefined);
       setBusy(false);
     }
   }
 
   async function navigate(direction: "previous" | "next") {
+    if (!live) return;
+    const snapshot = live.snapshot;
     setBusy(true);
     try {
       const orderedCues = [...cues].sort((left, right) => left.position - right.position);
-      const currentIndex = snapshot?.current_cue_run
+      const currentIndex = snapshot.current_cue_run
         ? orderedCues.findIndex((cue) => cue.id === snapshot.current_cue_run?.cue_id)
         : -1;
-      const showingQr = snapshot?.presentation_view === "join_qr";
+      const showingQr = snapshot.presentation_view === "join_qr";
       const targetCue = orderedCues[currentIndex + (direction === "next" ? 1 : -1)];
-      if (showingQr && direction === "next" && snapshot?.current_cue_run) {
-        setSnapshot(await sendCommand(
-          sessionId,
-          snapshot.state_version,
-          { type: "show_cue" },
-          token || undefined,
-        ));
-      } else if (!showingQr && direction === "previous" && currentIndex === 0 && snapshot) {
-        setSnapshot(await sendCommand(
-          sessionId,
-          snapshot.state_version,
-          { type: "show_join_qr" },
-          token || undefined,
-        ));
-      } else if (targetCue && snapshot) {
-        setSnapshot(await sendCommand(
-          sessionId,
-          snapshot.state_version,
-          { type: "prepare_cue", cue_id: targetCue.id },
-          token || undefined,
-        ));
+      if (showingQr && direction === "next" && snapshot.current_cue_run) {
+        await sendCommand(sessionId, snapshot.state_version, { type: "show_cue" }, token || undefined);
+      } else if (!showingQr && direction === "previous" && currentIndex === 0) {
+        await sendCommand(sessionId, snapshot.state_version, { type: "show_join_qr" }, token || undefined);
+      } else if (targetCue) {
+        await sendCommand(sessionId, snapshot.state_version, { type: "prepare_cue", cue_id: targetCue.id }, token || undefined);
       }
       await apiJson(`/api/sessions/${sessionId}/navigation`, {
         method: "POST",
@@ -486,10 +461,10 @@ export function RemoteApp({ t }: { t: Translate }) {
         body: JSON.stringify({ direction }),
       });
       setError("");
-      await refreshLive().catch(() => undefined);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
     } finally {
+      await refreshLive().catch(() => undefined);
       setBusy(false);
     }
   }
@@ -502,7 +477,7 @@ export function RemoteApp({ t }: { t: Translate }) {
         headers: token ? { authorization: `Bearer ${token}` } : undefined,
         body: JSON.stringify({ status }),
       });
-      await refresh();
+      await refreshLive();
       setError("");
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.code : "network_error");
@@ -513,12 +488,13 @@ export function RemoteApp({ t }: { t: Translate }) {
 
   if (error === "auth") return <main className="remote-shell remote-auth"><h1>{t("auth.heading")}</h1><p>{t("remote.openFromStudio")}</p><a className="primary-button" href={`/api/auth/google/start?return_to=/remote/${sessionId}`}>{t("auth.google")}</a></main>;
   if (error === "token") return <main className="remote-shell remote-auth"><h1>{t("remote.invalid")}</h1><p>{t("remote.expired")}</p></main>;
-  if (!snapshot) return <main className="center-state">{t("status.checking")}</main>;
+  if (!live) return <main className="center-state">{t("status.checking")}</main>;
+  const snapshot = live.snapshot;
   const cueState = snapshot.current_cue_run?.state;
   const currentInteraction = snapshot.current_cue_run?.interactions[0];
   const showingQr = snapshot.presentation_view === "join_qr";
-  const liveQuestions = live?.questions.length ? live.questions : questions;
-  const responseCount = live?.aggregates.reduce((sum, item) => sum + (item.aggregate.total_responses ?? 0), 0) ?? 0;
+  const liveQuestions = live.questions;
+  const responseCount = live.aggregates.reduce((sum, item) => sum + (item.aggregate.total_responses ?? 0), 0);
   return (
     <main className="remote-shell">
       <header><span className={snapshot.status === "live" ? "live-light active" : "live-light"} /><span>{t(`statusName.${snapshot.status}`)}</span><strong>{snapshot.join_code}</strong></header>
