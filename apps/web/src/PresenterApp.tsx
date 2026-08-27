@@ -151,7 +151,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   }
 
   async function createTemplate(kind: TemplateKind) {
-    const template = templates(locale)[kind];
+    const template = templates(t)[kind];
     await run(async () => {
       const createdProject = await postJson<Project>("/api/projects", {
         title: template.title,
@@ -223,7 +223,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const slide = normalizeSlideAnchor(String(data.get("slide") ?? ""), cues.length + 1);
     await run(async () => {
       const created = await postJson<Cue>(`/api/projects/${projectId}/cues`, {
-        name: generatedCueName(locale, cues.length + 1),
+        name: generatedCueName(t, cues.length + 1),
         anchor_type: "deck_slide",
         anchor_value: slide,
         trigger_mode: data.get("trigger_mode"),
@@ -245,7 +245,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       await apiJson<Cue>(`/api/projects/${projectId}/cues/${item.id}`, {
         method: "PUT",
         body: JSON.stringify({
-          name: generatedCueName(locale, item.position + 1),
+          name: generatedCueName(t, item.position + 1),
           anchor_type: "deck_slide",
           anchor_value: anchor,
           trigger_mode: data.get("trigger_mode"),
@@ -551,19 +551,19 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                   <select name="interaction_purpose" value={interactionPurpose} onChange={(event) => {
                     const purpose = event.target.value as InteractionPurpose;
                     setInteractionPurpose(purpose);
-                    setInteractionType(purposeRecommendation(locale, purpose).type);
+                    setInteractionType(purposeRecommendation(t, purpose).type);
                   }}>
                     {interactionPurposes.map((purpose) => <option value={purpose} key={purpose}>{t(`purpose.${purpose}`)}</option>)}
                   </select>
                 </label>
-                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(locale, interactionPurpose).type) })}</small>
+                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(t, interactionPurpose).type) })}</small>
                 <select name="interaction_type" value={interactionType} onChange={(event) => setInteractionType(event.target.value as Interaction["interaction_type"])}>
                   <option value="understanding">{t("interaction.understanding")}</option>
                   <option value="single_choice">{t("interaction.choice")}</option>
                   <option value="word_cloud">{t("interaction.wordCloud")}</option>
                   <option value="qa">{t("interaction.qa")}</option>
                 </select>
-                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(locale, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
+                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(t, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
                 {interactionType === "single_choice" && <textarea name="options" required placeholder={t("interaction.optionsPlaceholder")} />}
                 <label className="field-label">
                   <span>{t("interaction.visibility")}</span>
