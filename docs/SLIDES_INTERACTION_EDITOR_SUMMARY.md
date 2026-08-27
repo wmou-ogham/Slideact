@@ -61,6 +61,7 @@
 - 困難與 workaround：遠端 host 沒有 pnpm，直接執行的兩次失敗均保留 log；改沿用專案既有 `node:22-bookworm` 容器完成檢查。遠端也沒有 `rg`，只用 `grep` 與直接讀碼，沒有額外安裝工具。
 - 新增提交：`dbba705`（滿版工作區、toast、控制列開關）、`cea4815`（Cue 拖曳、簡化新增、Google Slides 綁定與測試），兩者皆為 Good SSH signature。
 - 完整紀錄：`/home/moriss/slide-helper/output.log`、`/home/moriss/slide-helper/reproduced.md`、`/home/moriss/slide-helper/logs/deploy-workspace-web-20260827T162626Z.log`。
+- 後續簡化：移除右上角投影、手機、講者三種預覽按鈕，並刪除預覽 state、dialog、專用 CSS 與未使用文案；正式投影入口仍保留在現場控制列。提交 `34cc8a1` 已通過 TypeScript、production build 與瀏覽器驗收。
 
 ## English
 
@@ -117,3 +118,4 @@ Turn the presenter Cue and interaction area into a Google Slides/Mentimeter-styl
 - Challenges and workarounds: the remote host has no pnpm, so two direct attempts were retained as failed logs before using the documented `node:22-bookworm` container. The host also lacks `rg`; source inspection used `grep` and direct reads without installing tools.
 - New commits: `dbba705` (full workspace, toast, live-dock toggle) and `cea4815` (Cue drag/drop, streamlined creation, Google Slides binding, tests), both verified as Good SSH signatures.
 - Full records: `/home/moriss/slide-helper/output.log`, `/home/moriss/slide-helper/reproduced.md`, and `/home/moriss/slide-helper/logs/deploy-workspace-web-20260827T162626Z.log`.
+- Follow-up simplification: removed the Projection, Mobile, and Presenter preview buttons together with their state, dialog, dedicated CSS, and unused labels. The real projection launcher remains available in live controls. Commit `34cc8a1` passed TypeScript, production build, and browser QA.
