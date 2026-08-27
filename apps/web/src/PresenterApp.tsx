@@ -2,17 +2,15 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiError, apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
+import { InteractionWorkspace, liveVisibilityFromForm } from "./InteractionWorkspace";
 import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import {
-  type InteractionPurpose,
   type TemplateKind,
   generatedCueName,
-  interactionPurposes,
-  purposeRecommendation,
   templates,
 } from "./presenterTemplates";
 import { useProjectionTheme } from "./useProjectionTheme";
@@ -39,13 +37,15 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [libraryCollapsed, setLibraryCollapsed] = useState(true);
   const [expandedCueId, setExpandedCueId] = useState("");
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
-  const [interactionPurpose, setInteractionPurpose] = useState<InteractionPurpose>("understanding");
-  const [interactionType, setInteractionType] = useState<Interaction["interaction_type"]>("understanding");
+  const [creatingInteraction, setCreatingInteraction] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   const project = projects.find((item) => item.id === projectId) ?? null;
   const cue = cues.find((item) => item.id === cueId) ?? null;
+  const selectedInteraction = cue?.interactions.find((item) => item.id === expandedInteractionId)
+    ?? cue?.interactions.at(0)
+    ?? null;
 
   const report = useCallback(
     (error: unknown) => {
@@ -286,12 +286,11 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   async function createInteraction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId || !cueId) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
+    const data = new FormData(event.currentTarget);
     const type = String(data.get("interaction_type"));
     const rawOptions = parseOptions(data.get("options"));
     await run(async () => {
-      await postJson<Interaction>(
+      const created = await postJson<Interaction>(
         `/api/projects/${projectId}/cues/${cueId}/interactions`,
         {
           interaction_type: type,
@@ -300,7 +299,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           settings: {
             schema_version: 1,
             purpose: data.get("interaction_purpose"),
-            results: { audience_visibility: data.get("audience_visibility") },
+            results: { audience_visibility: liveVisibilityFromForm(data.get("publish_live")) },
             response: { allow_change: true },
           },
           options:
@@ -310,9 +309,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         },
       );
       await refreshProject();
-      form.reset();
-      setInteractionPurpose("understanding");
-      setInteractionType("understanding");
+      setExpandedInteractionId(created.id);
+      setCreatingInteraction(false);
     }, t("notice.interactionCreated"));
   }
 
@@ -335,7 +333,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
               ...item.settings,
               schema_version: 1,
               purpose: data.get("interaction_purpose"),
-              results: { audience_visibility: data.get("audience_visibility") },
+              results: { audience_visibility: liveVisibilityFromForm(data.get("publish_live")) },
               response: { allow_change: true },
             },
             options: type === "single_choice"
@@ -481,10 +479,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                       <span className="cue-position">{item.position + 1}</span>
                       <button
                         className={item.id === cueId ? "cue-card selected" : "cue-card"}
-                        aria-expanded={expandedCueId === item.id}
                         onClick={() => {
                           setCueId(item.id);
-                          setExpandedCueId((current) => current === item.id ? "" : item.id);
+                          setExpandedInteractionId(item.interactions.at(0)?.id ?? "");
+                          setCreatingInteraction(false);
                         }}
                       >
                         <CueThumbnail t={t} cue={item} />
@@ -494,6 +492,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                         </span>
                       </button>
                       <span className="cue-order-actions">
+                        <button onClick={() => setExpandedCueId((current) => current === item.id ? "" : item.id)} aria-expanded={expandedCueId === item.id} aria-label={t("cue.anchor")}>•••</button>
                         <button disabled={busy || item.position === 0} onClick={() => reorderCue(item.id, -1)} aria-label={t("cue.moveUp", { name: slideAnchorLabel(t, item) })}>↑</button>
                         <button disabled={busy || item.position === cues.length - 1} onClick={() => reorderCue(item.id, 1)} aria-label={t("cue.moveDown", { name: slideAnchorLabel(t, item) })}>↓</button>
                       </span>
@@ -535,54 +534,48 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           </div>
           {cue ? (
             <>
-              <div className="interaction-list">
+              <nav className="interaction-tabs" aria-label={t("interaction.heading")}>
                 {cue.interactions.map((item) => (
-                  <article className={expandedInteractionId === item.id ? "interaction-card expanded" : "interaction-card"} key={item.id}>
-                    <button className="interaction-summary" aria-expanded={expandedInteractionId === item.id} onClick={() => setExpandedInteractionId((current) => current === item.id ? "" : item.id)}>
-                      <span className={`type-badge type-${item.interaction_type}`}>{typeName(t, item.interaction_type)}</span>
-                      <h3>{item.prompt}</h3><span className="expand-glyph">⌄</span>
-                    </button>
-                    {expandedInteractionId === item.id && <InteractionEditForm t={t} busy={busy} item={item} onSave={(event) => updateInteraction(item, event)} onDelete={() => deleteInteraction(item)} />}
-                  </article>
+                  <button
+                    className={!creatingInteraction && selectedInteraction?.id === item.id ? "interaction-tab active" : "interaction-tab"}
+                    key={item.id}
+                    onClick={() => {
+                      setExpandedInteractionId(item.id);
+                      setCreatingInteraction(false);
+                    }}
+                  >
+                    <span className={`type-badge type-${item.interaction_type}`}>{typeName(t, item.interaction_type)}</span>
+                    <span>{item.prompt}</span>
+                  </button>
                 ))}
-                {!cue.interactions.length && <p className="empty-copy">{t("interaction.empty")}</p>}
-              </div>
-              <form className="form-stack interaction-form add-form" onSubmit={createInteraction}>
-                <div className="add-form-heading"><strong>{t("interaction.addHeading")}</strong><small>{t("interaction.addHelp")}</small></div>
-                <label className="field-label">
-                  <span>{t("interaction.purpose")}</span>
-                  <select name="interaction_purpose" value={interactionPurpose} onChange={(event) => {
-                    const purpose = event.target.value as InteractionPurpose;
-                    setInteractionPurpose(purpose);
-                    setInteractionType(purposeRecommendation(t, purpose).type);
-                  }}>
-                    {interactionPurposes.map((purpose) => <option value={purpose} key={purpose}>{t(`purpose.${purpose}`)}</option>)}
-                  </select>
-                </label>
-                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(t, interactionPurpose).type) })}</small>
-                <select name="interaction_type" value={interactionType} onChange={(event) => setInteractionType(event.target.value as Interaction["interaction_type"])}>
-                  <option value="understanding">{t("interaction.understanding")}</option>
-                  <option value="single_choice">{t("interaction.choice")}</option>
-                  <option value="word_cloud">{t("interaction.wordCloud")}</option>
-                  <option value="qa">{t("interaction.qa")}</option>
-                </select>
-                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(t, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
-                {interactionType === "single_choice" && <textarea name="options" required placeholder={t("interaction.optionsPlaceholder")} />}
-                <label className="field-label">
-                  <span>{t("interaction.visibility")}</span>
-                  <select key={interactionType} name="audience_visibility" defaultValue={defaultVisibility(interactionType)}>
-                    <option value="after_reveal">{t("interaction.visibilityAfterReveal")}</option>
-                    <option value="live">{t("interaction.visibilityLive")}</option>
-                  </select>
-                </label>
-                <button disabled={busy}>{t("interaction.create")}</button>
-              </form>
+                <button className={creatingInteraction ? "interaction-tab add active" : "interaction-tab add"} onClick={() => setCreatingInteraction(true)}>+ {t("interaction.addHeading")}</button>
+              </nav>
+              {creatingInteraction || !selectedInteraction ? (
+                <InteractionWorkspace
+                  key={`new-${cue.id}`}
+                  t={t}
+                  busy={busy}
+                  cue={cue}
+                  onSubmit={createInteraction}
+                  onCancel={selectedInteraction ? () => setCreatingInteraction(false) : undefined}
+                />
+              ) : (
+                <InteractionWorkspace
+                  key={selectedInteraction.id}
+                  t={t}
+                  busy={busy}
+                  cue={cue}
+                  item={selectedInteraction}
+                  onSubmit={(event) => updateInteraction(selectedInteraction, event)}
+                  onDelete={() => deleteInteraction(selectedInteraction)}
+                />
+              )}
             </>
           ) : <p className="empty-copy roomy">{t("interaction.selectCue")}</p>}
         </section>
       </section>
 
-      {cue && preview && <PreviewDialog t={t} cue={cue} mode={preview} close={() => setPreview(null)} />}
+      {cue && preview && <PreviewDialog t={t} cue={cue} interaction={selectedInteraction} mode={preview} close={() => setPreview(null)} />}
 
       <LiveControl
         t={t}
@@ -621,13 +614,13 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
   );
 }
 
-function PreviewDialog({ t, cue, mode, close }: {
+function PreviewDialog({ t, cue, interaction, mode, close }: {
   t: Translate;
   cue: Cue;
+  interaction: Interaction | null;
   mode: "projection" | "mobile" | "presenter";
   close: () => void;
 }) {
-  const interaction = cue.interactions[0];
   const [theme, setTheme] = useProjectionTheme();
   return (
     <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
@@ -661,60 +654,6 @@ function PreviewDialog({ t, cue, mode, close }: {
       </section>
     </div>
   );
-}
-
-function InteractionEditForm({ t, busy, item, onSave, onDelete }: {
-  t: Translate;
-  busy: boolean;
-  item: Interaction;
-  onSave: (event: FormEvent<HTMLFormElement>) => void;
-  onDelete: () => void;
-}) {
-  const [type, setType] = useState(item.interaction_type);
-  const [purpose, setPurpose] = useState(() => interactionPurposeFrom(item));
-  const [prompt, setPrompt] = useState(item.prompt);
-  const [options, setOptions] = useState(() => item.options.map((option) => option.label).join("\n"));
-  const [visibility, setVisibility] = useState(() => visibilityFrom(item));
-
-  // Reset only when the presenter switches to another interaction. Depending
-  // on the whole item object would wipe in-progress edits every time a
-  // background refresh replaces the snapshot with a fresh object identity.
-  useEffect(() => {
-    setType(item.interaction_type);
-    setPurpose(interactionPurposeFrom(item));
-    setPrompt(item.prompt);
-    setOptions(item.options.map((option) => option.label).join("\n"));
-    setVisibility(visibilityFrom(item));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id]);
-
-  return (
-    <form className="accordion-form interaction-edit-form" onSubmit={onSave}>
-      <label><span>{t("interaction.purpose")}</span><select name="interaction_purpose" value={purpose} onChange={(event) => setPurpose(event.target.value as InteractionPurpose)}>{interactionPurposes.map((value) => <option value={value} key={value}>{t(`purpose.${value}`)}</option>)}</select></label>
-      <label><span>{t("interaction.heading")}</span><select name="interaction_type" value={type} onChange={(event) => setType(event.target.value as Interaction["interaction_type"])}><option value="understanding">{t("interaction.understanding")}</option><option value="single_choice">{t("interaction.choice")}</option><option value="word_cloud">{t("interaction.wordCloud")}</option><option value="qa">{t("interaction.qa")}</option></select></label>
-      <label className="editor-wide"><span>{t("interaction.promptLabel")}</span><textarea name="prompt" required maxLength={500} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
-      {type === "single_choice" && <label className="editor-wide"><span>{t("interaction.optionsLabel")}</span><textarea name="options" required value={options} onChange={(event) => setOptions(event.target.value)} placeholder={t("interaction.optionsPlaceholder")} /></label>}
-      <label><span>{t("interaction.visibility")}</span><select name="audience_visibility" value={visibility} onChange={(event) => setVisibility(event.target.value as ResultVisibility)}><option value="after_reveal">{t("interaction.visibilityAfterReveal")}</option><option value="live">{t("interaction.visibilityLive")}</option></select></label>
-      <div className="editor-actions"><button disabled={busy}>{t("common.save")}</button><button className="danger-button" disabled={busy} type="button" onClick={onDelete}>{t("common.delete")}</button></div>
-    </form>
-  );
-}
-
-type ResultVisibility = "after_reveal" | "live";
-
-function interactionPurposeFrom(item: Interaction): InteractionPurpose {
-  const purpose = item.settings.purpose;
-  return typeof purpose === "string" && interactionPurposes.includes(purpose as InteractionPurpose)
-    ? purpose as InteractionPurpose
-    : "understanding";
-}
-
-function visibilityFrom(item: Interaction): ResultVisibility {
-  const results = item.settings.results;
-  const visibility = typeof results === "object" && results !== null
-    ? (results as Record<string, unknown>).audience_visibility
-    : null;
-  return visibility === "live" ? "live" : "after_reveal";
 }
 
 export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
