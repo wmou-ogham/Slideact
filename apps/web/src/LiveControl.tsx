@@ -163,12 +163,14 @@ export function LiveControl({
         {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
         {snapshot && <button className="secondary-link" onClick={showResults}>{t("live.results")}</button>}
-        {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
         {isControllable && <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>}
         {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
       <button className="live-dock-close" type="button" onClick={onClose} aria-label={t("live.hideControls")}>×</button>
-      {pairingOpen && pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
+      {pairingOpen && pairingCode && <div className="pairing-code" role="status">
+        <div className="pairing-code-copy"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>
+        <a className="extension-download-link" href="/downloads/slideact-extension.zip" download>{t("sync.downloadExtension")}</a>
+      </div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
     </section>
   );

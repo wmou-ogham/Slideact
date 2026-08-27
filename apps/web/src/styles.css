@@ -328,10 +328,12 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .ended-session-create { flex: 0 0 auto; min-height: 42px; margin: 0 auto; padding: 0 22px; color: #143e35; background: #efc974; border: 0; border-radius: 11px; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .secondary-link { padding: 9px 10px; color: #b8d7ce; font-size: 11px; font-weight: 720; text-decoration: none; white-space: nowrap; }
 .live-actions button.secondary-link { min-height: auto; padding: 9px 10px; color: #b8d7ce; background: transparent; font-size: 11px; }
-.pairing-code { position: absolute; right: 18px; bottom: calc(100% + 10px); display: grid; gap: 4px; padding: 14px 18px; color: var(--ink); background: #f5cc7d; border: 1px solid #dca957; border-radius: 15px 15px 4px 15px; box-shadow: 0 16px 45px rgba(0,0,0,.2); }
+.pairing-code { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; gap: 18px; align-items: center; width: min(520px, calc(100vw - 36px)); padding: 14px 18px; color: var(--ink); background: #f5cc7d; border: 1px solid #dca957; border-radius: 15px 15px 4px 15px; box-shadow: 0 16px 45px rgba(0,0,0,.2); }
+.pairing-code-copy { display: grid; gap: 4px; min-width: 0; }
 .pairing-code small { color: #76501d; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .pairing-code strong { font-family: Georgia, serif; font-size: 28px; letter-spacing: .16em; }
 .pairing-code span { max-width: 250px; color: #76501d; font-size: 10px; line-height: 1.4; }
+.extension-download-link { display: inline-flex; min-height: 38px; padding: 0 14px; align-items: center; justify-content: center; flex: 0 0 auto; color: #fff; background: var(--ink); border-radius: 10px; font-size: 10px; font-weight: 800; text-decoration: none; white-space: nowrap; }
 .remote-access-panel { position: absolute; right: 0; bottom: calc(100% + 12px); width: min(560px, calc(100vw - 28px)); padding: 14px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 20px 20px 6px 20px; box-shadow: 0 22px 65px rgba(0,0,0,.28); }
 .remote-access-panel > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .remote-access-panel > header strong { font-size: 13px; }
@@ -655,6 +657,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .projection-error { display: grid; min-height: 100vh; place-items: center; color: #fff; background: var(--proj-error, #5e231f); }
 .projection-error h1 { margin: 0 0 18px; font-family: var(--proj-heading, Georgia, serif); font-size: 32px; font-weight: 500; }
 .session-results-root { padding-bottom: 12vh; }
+.results-header-actions { display: flex; align-items: center; gap: 18px; }
+.results-header-actions > a { display: inline-flex; min-height: 40px; padding: 0 16px; align-items: center; justify-content: center; color: var(--proj-card-ink); background: var(--proj-gold); border-radius: 999px; font-size: 10px; font-weight: 850; letter-spacing: .04em; text-decoration: none; }
 .session-results-root .session-results-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 1500px; margin: 36px auto 0; }
 .session-results-root .session-results-summary > div { display: grid; gap: 6px; padding: 18px 20px; background: var(--proj-summary); border-radius: var(--proj-radius); }
 .session-results-root .session-results-summary small { color: var(--proj-accent); font-size: 10px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
