@@ -59,17 +59,33 @@ function RemoteAggregate({ t, aggregate, onToggleWordPin }: {
   return <AggregateBars t={t} aggregate={aggregate} />;
 }
 
+type RemoteError =
+  | { kind: "auth" }
+  | { kind: "token" }
+  | { kind: "load" }
+  | { kind: "action"; code: string };
+
+function actionError(cause: unknown): RemoteError {
+  return { kind: "action", code: cause instanceof ApiError ? cause.code : "network_error" };
+}
+
+function actionMessage(t: Translate, code: string) {
+  if (code === "network_error") return t("error.network");
+  if (code === "state_version_conflict") return t("remote.errorConflict");
+  return t("error.generic", { code });
+}
+
 export function RemoteApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [cues, setCues] = useState<Cue[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<RemoteError | null>(null);
 
   const classifyLoadError = useCallback((cause: unknown) => {
     setError(cause instanceof ApiError && (cause.status === 401 || cause.status === 403)
-      ? (token ? "token" : "auth")
-      : "load");
+      ? { kind: token ? "token" : "auth" }
+      : { kind: "load" });
   }, [token]);
 
   const { live, refresh: refreshLive } = useLiveSession({
@@ -96,9 +112,9 @@ export function RemoteApp({ t }: { t: Translate }) {
     setBusy(true);
     try {
       await sendCommand(sessionId, live.snapshot.state_version, command, token || undefined);
-      setError("");
+      setError(null);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.code : "network_error");
+      setError(actionError(cause));
     } finally {
       await refreshLive().catch(() => undefined);
       setBusy(false);
@@ -128,9 +144,9 @@ export function RemoteApp({ t }: { t: Translate }) {
         headers: token ? { authorization: `Bearer ${token}` } : undefined,
         body: JSON.stringify({ direction }),
       });
-      setError("");
+      setError(null);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.code : "network_error");
+      setError(actionError(cause));
     } finally {
       await refreshLive().catch(() => undefined);
       setBusy(false);
@@ -146,16 +162,17 @@ export function RemoteApp({ t }: { t: Translate }) {
         body: JSON.stringify({ status }),
       });
       await refreshLive();
-      setError("");
+      setError(null);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.code : "network_error");
+      setError(actionError(cause));
     } finally {
       setBusy(false);
     }
   }
 
-  if (error === "auth") return <main className="remote-shell remote-auth"><h1>{t("auth.heading")}</h1><p>{t("remote.openFromStudio")}</p><a className="primary-button" href={`/api/auth/google/start?return_to=/remote/${sessionId}`}>{t("auth.google")}</a></main>;
-  if (error === "token") return <main className="remote-shell remote-auth"><h1>{t("remote.invalid")}</h1><p>{t("remote.expired")}</p></main>;
+  if (error?.kind === "auth") return <main className="remote-shell remote-auth"><h1>{t("auth.heading")}</h1><p>{t("remote.openFromStudio")}</p><a className="primary-button" href={`/api/auth/google/start?return_to=/remote/${sessionId}`}>{t("auth.google")}</a></main>;
+  if (error?.kind === "token") return <main className="remote-shell remote-auth"><h1>{t("remote.invalid")}</h1><p>{t("remote.expired")}</p></main>;
+  if (error?.kind === "load" && !live) return <main className="remote-shell remote-auth"><h1>{t("remote.loadFailed")}</h1><p>{t("remote.loadFailedCopy")}</p></main>;
   if (!live) return <main className="center-state">{t("status.checking")}</main>;
   const snapshot = live.snapshot;
   const cueState = snapshot.current_cue_run?.state;
@@ -215,7 +232,7 @@ export function RemoteApp({ t }: { t: Translate }) {
                 <RemoteAggregate
                   t={t}
                   aggregate={aggregate}
-                  onToggleWordPin={(text, pinned) => void pinWordCloud(sessionId, token, interaction.id, text, pinned).then(() => refreshLive()).catch((cause) => setError(cause instanceof ApiError ? cause.code : "network_error"))}
+                  onToggleWordPin={(text, pinned) => void pinWordCloud(sessionId, token, interaction.id, text, pinned).then(() => refreshLive()).catch((cause) => setError(actionError(cause)))}
                 />
               ) : (
                 <p className="remote-empty">{t("projection.noResults")}</p>
@@ -229,7 +246,7 @@ export function RemoteApp({ t }: { t: Translate }) {
         <button className={showingQr ? "selected" : ""} disabled={busy} onClick={() => send({ type: "show_join_qr" })}><span>QR</span>{t("live.qrHome")}<small>{t("projection.join")}</small></button>
         {cues.map((cue) => <button className={!showingQr && cue.id === snapshot.current_cue_run?.cue_id ? "selected" : ""} disabled={busy} key={cue.id} onClick={() => send(cue.id === snapshot.current_cue_run?.cue_id ? { type: "show_cue" } : { type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
       </section>
-      {error && error !== "auth" && <p className="form-error">{t("error.generic", { code: error })}</p>}
+      {error && <p className="form-error">{error.kind === "action" ? actionMessage(t, error.code) : t("remote.loadFailed")}</p>}
     </main>
   );
 }
