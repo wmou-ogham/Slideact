@@ -7,13 +7,11 @@ import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./l
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
-import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import {
   type TemplateKind,
   generatedCueName,
   templates,
 } from "./presenterTemplates";
-import { useProjectionTheme } from "./useProjectionTheme";
 import type {
   Cue,
   Interaction,
@@ -50,7 +48,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(true);
   const [draggedCueId, setDraggedCueId] = useState("");
   const [dragOverCueId, setDragOverCueId] = useState("");
@@ -570,11 +567,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                 <button className="delete-cue-button" type="button" disabled={busy} onClick={() => void deleteCue(cue)} aria-label={t("common.delete")}>×</button>
               </form>}
             </div>
-            {cue && <div className="preview-actions">
-              <button onClick={() => setPreview("projection")}>{t("preview.projection")}</button>
-              <button onClick={() => setPreview("mobile")}>{t("preview.mobile")}</button>
-              <button onClick={() => setPreview("presenter")}>{t("preview.presenter")}</button>
-            </div>}
           </div>
           {cue ? (
             <>
@@ -619,8 +611,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         </section>
       </section>
 
-      {cue && preview && <PreviewDialog t={t} cue={cue} interaction={selectedInteraction} mode={preview} close={() => setPreview(null)} />}
-
       {liveControlsOpen && <LiveControl
         t={t}
         busy={busy}
@@ -656,48 +646,6 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
         {interactionType === "empty" && <i>+</i>}
       </span>
     </span>
-  );
-}
-
-function PreviewDialog({ t, cue, interaction, mode, close }: {
-  t: Translate;
-  cue: Cue;
-  interaction: Interaction | null;
-  mode: "projection" | "mobile" | "presenter";
-  close: () => void;
-}) {
-  const [theme, setTheme] = useProjectionTheme();
-  return (
-    <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <section className={`preview-dialog preview-${mode}`} role="dialog" aria-modal="true" aria-label={t(`preview.${mode}`)}>
-        <header>
-          <span>{t(`preview.${mode}`)}</span>
-          {mode === "projection" && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} />}
-          <button onClick={close} aria-label={t("preview.close")}>×</button>
-        </header>
-        {mode === "projection" && (
-          <div className="projection-preview" data-projection-theme={theme}>
-            <small>{theme === "terminal" ? "live" : "LIVE"} · ABC234</small>
-            <h2>{interaction?.prompt ?? cue.name}</h2>
-            <div className="preview-bars"><i /><i /><i /></div>
-          </div>
-        )}
-        {mode === "mobile" && (
-          <div className="mobile-preview">
-            <small>ABC234 · {t("audience.people", { count: 42 })}</small>
-            <h2>{interaction?.prompt ?? cue.name}</h2>
-            {interaction?.interaction_type === "single_choice" ? interaction.options.map((option, index) => <button key={option.id}><span>{String.fromCharCode(65 + index)}</span>{option.label}</button>) : interaction?.interaction_type === "qa" || interaction?.interaction_type === "word_cloud" ? <><textarea disabled placeholder={interaction.interaction_type === "qa" ? t("qa.placeholder") : t("audience.textPlaceholder")} /><button>{interaction.interaction_type === "qa" ? t("qa.ask") : t("audience.send")}</button></> : <><button>{t("audience.yes")}</button><button>{t("audience.no")}</button></>}
-          </div>
-        )}
-        {mode === "presenter" && (
-          <div className="presenter-preview">
-            <small>{t("remote.heading")}</small><h2>{cue.name}</h2>
-            <button>{t("live.open")}</button>
-            <ol>{cue.interactions.map((item) => <li key={item.id}>{typeName(t, item.interaction_type)} · {item.prompt}</li>)}</ol>
-          </div>
-        )}
-      </section>
-    </div>
   );
 }
 
