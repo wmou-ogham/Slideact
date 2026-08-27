@@ -1,7 +1,9 @@
 # Google Slides 式互動編輯器交付摘要
 
-日期：2026-08-27  
-分支：`dev/wmou/slides-interaction-editor`  
+日期：2026-08-27
+
+分支：`dev/wmou/slides-interaction-editor`
+
 遠端工作目錄：`/home/moriss/slide-helper`
 
 ## 繁體中文
