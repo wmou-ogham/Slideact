@@ -1,8 +1,9 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import type { Translate } from "./i18n";
+import { parseOptions, typeName } from "./lib/interactions";
+import { qrSvgTag } from "./lib/qr";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { projectionThemeSearch } from "./projectionTheme";
 import { useProjectionTheme } from "./useProjectionTheme";
@@ -280,10 +281,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const form = event.currentTarget;
     const data = new FormData(form);
     const type = String(data.get("interaction_type"));
-    const rawOptions = String(data.get("options") ?? "")
-      .split("\n")
-      .map((value) => value.trim())
-      .filter(Boolean);
+    const rawOptions = parseOptions(data.get("options"));
     await run(async () => {
       await postJson<Interaction>(
         `/api/projects/${projectId}/cues/${cueId}/interactions`,
@@ -787,10 +785,6 @@ export async function sendCommand(sessionId: string, expectedVersion: number, co
   return response.snapshot;
 }
 
-function typeName(t: Translate, type: Interaction["interaction_type"]) {
-  return t(`interaction.${type === "single_choice" ? "choice" : type === "word_cloud" ? "wordCloud" : type}`);
-}
-
 function defaultVisibility(type: Interaction["interaction_type"]) {
   return type === "single_choice" ? "after_reveal" : "live";
 }
@@ -843,13 +837,6 @@ function visibilityFrom(item: Interaction): ResultVisibility {
     ? (results as Record<string, unknown>).audience_visibility
     : null;
   return visibility === "live" ? "live" : "after_reveal";
-}
-
-function parseOptions(value: FormDataEntryValue | null) {
-  return String(value ?? "")
-    .split("\n")
-    .map((option) => option.trim())
-    .filter(Boolean);
 }
 
 export function parseVaultCredential(raw: string): string | null {
@@ -1103,7 +1090,7 @@ function sessionLabel(t: Translate, session: LiveSession) {
 }
 
 function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close: () => void }) {
-  const svg = useMemo(() => qrSvg(url), [url]);
+  const svg = useMemo(() => qrSvgTag(url, 4), [url]);
   return (
     <aside className="remote-access-panel" role="dialog" aria-label={t("remote.qrHeading")}>
       <header><strong>{t("remote.qrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
@@ -1113,11 +1100,4 @@ function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close
       </div>
     </aside>
   );
-}
-
-function qrSvg(value: string) {
-  const qr = qrcode(0, "M");
-  qr.addData(value);
-  qr.make();
-  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
 }

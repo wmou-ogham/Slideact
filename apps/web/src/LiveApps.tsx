@@ -1,8 +1,9 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import type { Translate } from "./i18n";
+import { typeName } from "./lib/interactions";
+import { qrSvgTag } from "./lib/qr";
 import { sendCommand } from "./PresenterApp";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { AggregateBars, CueResultVisuals, QuestionList } from "./ResultVisuals";
@@ -698,12 +699,10 @@ function useProjectionChrome() {
 }
 
 function ProjectionJoinQr({ code, label }: { code: string; label: string }) {
-  const svg = useMemo(() => {
-    const qr = qrcode(0, "M");
-    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
-    qr.make();
-    return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
-  }, [code]);
+  const svg = useMemo(
+    () => qrSvgTag(`${window.location.origin}/join/${encodeURIComponent(code)}`, 5),
+    [code],
+  );
   return <div className="projection-join-qr" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
@@ -871,8 +870,4 @@ function remoteCueLabel(t: Translate, cue: Cue) {
   return /^\d+$/.test(anchor)
     ? t("cue.slide", { slide: anchor })
     : t("cue.slideId", { id: anchor });
-}
-
-function typeName(t: Translate, type: SnapshotInteraction["interaction_type"]) {
-  return t(`interaction.${type === "single_choice" ? "choice" : type === "word_cloud" ? "wordCloud" : type}`);
 }
