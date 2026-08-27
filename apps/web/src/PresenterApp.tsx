@@ -36,7 +36,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
-  const [libraryCollapsed, setLibraryCollapsed] = useState(false);
+  const [libraryCollapsed, setLibraryCollapsed] = useState(true);
   const [expandedCueId, setExpandedCueId] = useState("");
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
   const [interactionPurpose, setInteractionPurpose] = useState<InteractionPurpose>("understanding");
@@ -478,6 +478,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                 {cues.map((item) => (
                   <article className={expandedCueId === item.id ? "cue-accordion expanded" : "cue-accordion"} key={item.id}>
                     <div className="cue-row">
+                      <span className="cue-position">{item.position + 1}</span>
                       <button
                         className={item.id === cueId ? "cue-card selected" : "cue-card"}
                         aria-expanded={expandedCueId === item.id}
@@ -486,9 +487,11 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                           setExpandedCueId((current) => current === item.id ? "" : item.id);
                         }}
                       >
-                        <span className="cue-position">{String(item.position + 1).padStart(2, "0")}</span>
-                        <span><strong>{slideAnchorLabel(t, item)}</strong><small>{item.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></span>
-                        <span className="interaction-count">{item.interactions.length}</span>
+                        <CueThumbnail t={t} cue={item} />
+                        <span className="cue-thumbnail-meta">
+                          <strong>{slideAnchorLabel(t, item)}</strong>
+                          <small>{item.interactions.length} · {item.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small>
+                        </span>
                       </button>
                       <span className="cue-order-actions">
                         <button disabled={busy || item.position === 0} onClick={() => reorderCue(item.id, -1)} aria-label={t("cue.moveUp", { name: slideAnchorLabel(t, item) })}>↑</button>
@@ -595,6 +598,26 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         send={send}
       />
     </main>
+  );
+}
+
+function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
+  const interaction = cue.interactions.at(0);
+  const interactionType = interaction?.interaction_type ?? "empty";
+  return (
+    <span className="cue-thumbnail-canvas" aria-hidden="true">
+      <span className="cue-thumbnail-kicker">
+        {interaction ? typeName(t, interaction.interaction_type) : slideAnchorLabel(t, cue)}
+      </span>
+      <span className="cue-thumbnail-title">{interaction?.prompt ?? cue.name}</span>
+      <span className={`cue-thumbnail-visual cue-thumbnail-${interactionType}`}>
+        {interactionType === "single_choice" && <><i /><i /><i /><i /></>}
+        {interactionType === "understanding" && <><i /><i /><i /></>}
+        {interactionType === "word_cloud" && <><i>IDEA</i><i>LIVE</i><i>WORD</i></>}
+        {interactionType === "qa" && <><i /><i /></>}
+        {interactionType === "empty" && <i>+</i>}
+      </span>
+    </span>
   );
 }
 
