@@ -1,6 +1,6 @@
 # Google Slides 式互動編輯器交付摘要
 
-日期：2026-08-27
+日期：2026-08-28
 
 分支：`dev/wmou/slides-interaction-editor`
 
@@ -52,6 +52,16 @@
 - `30a6de7` — 互動畫布、inspector、checkbox 與雙語文案。
 - `fc43cbc` — 瀏覽器驗收發現的畫布類名碰撞修正。
 
+### 2026-08-28 追加完成
+
+- 環境與範圍：延續同一 SSH、分支與 React/Vite 前端；未新增套件、DB migration 或 Rust API，部署只重建 web service。
+- 目標：把 Presenter 變成完整、不會整頁滾動的工作空間，並依最新 Mentimeter 參考圖簡化 Cue 與現場控制流程。
+- 完成：移除 Presenter 的網站導覽與宣傳標語；固定滿版三區編輯器；提示改為自動消失的半透明 toast；控制列改由「開始簡報」叫出；Cue 改為直接拖曳；新增 Cue 自動使用下一順序並立即開啟；Google Slides 綁定移到「03 互動內容」旁。
+- 驗證：web type check 通過，5 個 test files／14 tests 通過，production build 66 modules 成功；1280×720 文件高度等於 viewport，3 張 Cue 均可拖曳，無上下箭頭，控制列預設隱藏且可開關，console 0 warning/error。
+- 困難與 workaround：遠端 host 沒有 pnpm，直接執行的兩次失敗均保留 log；改沿用專案既有 `node:22-bookworm` 容器完成檢查。遠端也沒有 `rg`，只用 `grep` 與直接讀碼，沒有額外安裝工具。
+- 新增提交：`dbba705`（滿版工作區、toast、控制列開關）、`cea4815`（Cue 拖曳、簡化新增、Google Slides 綁定與測試），兩者皆為 Good SSH signature。
+- 完整紀錄：`/home/moriss/slide-helper/output.log`、`/home/moriss/slide-helper/reproduced.md`、`/home/moriss/slide-helper/logs/deploy-workspace-web-20260827T162626Z.log`。
+
 ## English
 
 ### Environment
@@ -97,3 +107,13 @@ Turn the presenter Cue and interaction area into a Google Slides/Mentimeter-styl
 - `dae507e` — 16:9 Cue thumbnail navigation.
 - `30a6de7` — interactive canvas, inspector, checkbox, and bilingual copy.
 - `fc43cbc` — canvas class collision fix found during browser QA.
+
+### 2026-08-28 Addendum
+
+- Environment and scope: continued on the same SSH host, branch, and React/Vite frontend. No dependency, database migration, or Rust API change was introduced; deployment rebuilt only the web service.
+- Goal: make Presenter a complete, non-page-scrolling workspace and streamline Cue/live controls based on the updated Mentimeter reference.
+- Completed: removed Presenter site navigation and marketing copy; locked the three-pane editor to the viewport; replaced inline notices with translucent auto-dismiss toasts; revealed the live dock only from Start presentation; enabled direct Cue dragging; made new Cues sequential and immediate; moved Google Slides binding beside “03 Interaction”.
+- Validation: web type check passed; 5 test files and 14 tests passed; the 66-module production build succeeded. At 1280×720, document height matched the viewport, all three Cues were draggable, arrow controls were absent, the dock was hidden by default and toggled correctly, and the browser console had no warnings/errors.
+- Challenges and workarounds: the remote host has no pnpm, so two direct attempts were retained as failed logs before using the documented `node:22-bookworm` container. The host also lacks `rg`; source inspection used `grep` and direct reads without installing tools.
+- New commits: `dbba705` (full workspace, toast, live-dock toggle) and `cea4815` (Cue drag/drop, streamlined creation, Google Slides binding, tests), both verified as Good SSH signatures.
+- Full records: `/home/moriss/slide-helper/output.log`, `/home/moriss/slide-helper/reproduced.md`, and `/home/moriss/slide-helper/logs/deploy-workspace-web-20260827T162626Z.log`.
