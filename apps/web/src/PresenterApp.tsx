@@ -653,13 +653,17 @@ function InteractionEditForm({ t, busy, item, onSave, onDelete }: {
   const [options, setOptions] = useState(() => item.options.map((option) => option.label).join("\n"));
   const [visibility, setVisibility] = useState(() => visibilityFrom(item));
 
+  // Reset only when the presenter switches to another interaction. Depending
+  // on the whole item object would wipe in-progress edits every time a
+  // background refresh replaces the snapshot with a fresh object identity.
   useEffect(() => {
     setType(item.interaction_type);
     setPurpose(interactionPurposeFrom(item));
     setPrompt(item.prompt);
     setOptions(item.options.map((option) => option.label).join("\n"));
     setVisibility(visibilityFrom(item));
-  }, [item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
 
   return (
     <form className="accordion-form interaction-edit-form" onSubmit={onSave}>
