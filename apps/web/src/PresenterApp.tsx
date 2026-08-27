@@ -254,11 +254,9 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.cueCreated"));
   }
 
-  async function updateCue(item: Cue, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function updateCue(item: Cue, value: string) {
     if (!projectId) return;
-    const data = new FormData(event.currentTarget);
-    const anchor = normalizeSlideAnchor(String(data.get("slide") ?? ""), item.position + 1);
+    const anchor = normalizeSlideAnchor(value, item.position + 1);
     await run(async () => {
       await apiJson<Cue>(`/api/projects/${projectId}/cues/${item.id}`, {
         method: "PUT",
@@ -272,15 +270,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       });
       await refreshProject();
     }, t("notice.cueUpdated"));
-  }
-
-  async function deleteCue(item: Cue) {
-    if (!projectId || !window.confirm(t("cue.deleteConfirm", { index: item.position + 1 }))) return;
-    await run(async () => {
-      await apiJson(`/api/projects/${projectId}/cues/${item.id}`, { method: "DELETE" });
-      if (cueId === item.id) setCueId("");
-      await refreshProject();
-    }, t("notice.cueDeleted"));
   }
 
   async function reorderCue(sourceId: string, targetId: string) {
@@ -558,14 +547,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           <div className="panel-heading">
             <div className="editor-heading-main">
               <span className="step">03</span><h2>{t("interaction.heading")}</h2>
-              {cue && <form key={cue.id} className="cue-binding-inline" onSubmit={(event) => updateCue(cue, event)}>
-                <label>
-                  <span>{t("cue.googleSlidesBinding")}</span>
-                  <input name="slide" defaultValue={cue.anchor_value ?? String(cue.position + 1)} required placeholder={t("cue.slidePlaceholder")} />
-                </label>
-                <button type="submit" disabled={busy} aria-label={t("common.save")}>✓</button>
-                <button className="delete-cue-button" type="button" disabled={busy} onClick={() => void deleteCue(cue)} aria-label={t("common.delete")}>×</button>
-              </form>}
+              {cue && <CueBindingField key={cue.id} t={t} cue={cue} busy={busy} onSave={(value) => updateCue(cue, value)} />}
             </div>
           </div>
           {cue ? (
@@ -646,6 +628,38 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
         {interactionType === "empty" && <i>+</i>}
       </span>
     </span>
+  );
+}
+
+function CueBindingField({ t, cue, busy, onSave }: {
+  t: Translate;
+  cue: Cue;
+  busy: boolean;
+  onSave: (value: string) => Promise<void>;
+}) {
+  const currentValue = cue.anchor_value ?? String(cue.position + 1);
+  const [value, setValue] = useState(currentValue);
+
+  useEffect(() => setValue(currentValue), [cue.id, currentValue]);
+
+  useEffect(() => {
+    const trimmed = value.trim();
+    if (!trimmed || busy || normalizeSlideAnchor(trimmed, cue.position + 1) === currentValue) return;
+    const timer = window.setTimeout(() => void onSave(trimmed), 650);
+    return () => window.clearTimeout(timer);
+  }, [busy, cue.position, currentValue, onSave, value]);
+
+  return (
+    <label className="cue-binding-inline">
+      <span>{t("cue.googleSlidesBinding")}</span>
+      <input
+        name="slide"
+        value={value}
+        disabled={busy}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={t("cue.slidePlaceholder")}
+      />
+    </label>
   );
 }
 
