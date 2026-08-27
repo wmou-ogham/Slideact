@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
@@ -9,7 +9,6 @@ import type {
   Cue,
   GuestVaultFile,
   Interaction,
-  LiveView,
   LiveSession,
   Profile,
   Project,
@@ -28,8 +27,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [presenterLive, setPresenterLive] = useState<LiveView | null>(null);
-  const cueLiveCache = useRef<Record<string, LiveView>>({});
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [expandedCueId, setExpandedCueId] = useState("");
@@ -116,35 +113,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const timer = window.setInterval(() => refreshSnapshot().catch(() => undefined), 3000);
     return () => window.clearInterval(timer);
   }, [refreshSnapshot, sessionId]);
-
-  useEffect(() => {
-    if (!sessionId || snapshot?.status === "ended" || snapshot?.status === "draft") {
-      setPresenterLive(null);
-      return;
-    }
-    if (!snapshot) return;
-    let cancelled = false;
-    let timer = 0;
-    const start = async () => {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${sessionId}/tokens`, {
-        role: "presenter",
-      });
-      const load = async () => {
-        const next = await apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
-          headers: { authorization: `Bearer ${issued.token}` },
-        });
-        if (!cancelled) setPresenterLive(rememberPresenterLive(cueLiveCache.current, next));
-      };
-      await load();
-      if (!cancelled) timer = window.setInterval(() => load().catch(() => undefined), 2500);
-    };
-    setPresenterLive(null);
-    start().catch(() => undefined);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [sessionId, snapshot?.status]);
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -950,24 +918,6 @@ export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const matched = matches.at(-1)?.[1];
   if (matched) return decodeURIComponent(matched);
   return trimmed.replace(/^id\./, "");
-}
-
-function rememberPresenterLive(cache: Record<string, LiveView>, live: LiveView) {
-  const cueId = live.snapshot.current_cue_run?.cue_id;
-  if (!cueId) return live;
-  const hasResponses = live.aggregates.some((item) => (item.aggregate.total_responses ?? 0) > 0)
-    || live.questions.length > 0;
-  if (hasResponses) {
-    cache[cueId] = live;
-    return live;
-  }
-  const remembered = cache[cueId];
-  if (!remembered) return live;
-  return {
-    ...live,
-    aggregates: remembered.aggregates,
-    questions: live.questions.length ? live.questions : remembered.questions,
-  };
 }
 
 function generatedCueName(locale: string, index: number) {
