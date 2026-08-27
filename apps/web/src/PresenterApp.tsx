@@ -1116,24 +1116,6 @@ function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close
   );
 }
 
-export function AudienceJoinQrPanel({ t, code, close }: { t: Translate; code: string; close: () => void }) {
-  const svg = useMemo(() => {
-    const qr = qrcode(0, "M");
-    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
-    qr.make();
-    return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
-  }, [code]);
-  return (
-    <aside className="audience-qr-panel" role="dialog" aria-label={t("live.joinQrHeading")}>
-      <header><strong>{t("live.joinQrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
-      <div className="audience-qr-content">
-        <div className="audience-qr-image" dangerouslySetInnerHTML={{ __html: svg }} />
-        <div><p>{t("live.joinQrCopy")}</p><strong className="audience-qr-code">{code}</strong><small>{window.location.origin}/join/{code}</small></div>
-      </div>
-    </aside>
-  );
-}
-
 function qrSvg(value: string) {
   const qr = qrcode(0, "M");
   qr.addData(value);
