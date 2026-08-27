@@ -119,3 +119,27 @@ Turn the presenter Cue and interaction area into a Google Slides/Mentimeter-styl
 - New commits: `dbba705` (full workspace, toast, live-dock toggle) and `cea4815` (Cue drag/drop, streamlined creation, Google Slides binding, tests), both verified as Good SSH signatures.
 - Full records: `/home/moriss/slide-helper/output.log`, `/home/moriss/slide-helper/reproduced.md`, and `/home/moriss/slide-helper/logs/deploy-workspace-web-20260827T162626Z.log`.
 - Follow-up simplification: removed the Projection, Mobile, and Presenter preview buttons together with their state, dialog, dedicated CSS, and unused labels. The real projection launcher remains available in live controls. Commit `34cc8a1` passed TypeScript, production build, and browser QA.
+
+## 2026-08-28 最新回饋交付摘要（繁體中文）
+
+- 環境：延續 `ssh -A moriss`、`dev/wmou/slides-interaction-editor` 與 React／Vite 前端；未新增套件、資料庫 migration 或 Rust API。
+- 目標：修正大量 Cue 重疊與版面高度浪費，讓新增互動更具引導性，並把 CSV／Extension 下載放到正確的操作情境。
+- 完成：Cue rail 改為面板內捲動且卡片不重疊；03 標頭縮至 54px；Google Slides 綁定 650ms debounce 自動儲存並移除 V／X。
+- 完成：上方「加入互動」會讓中央畫布轉淡灰並顯示操作提示；右側刪除「編輯設定」，目的選單只在建立模式出現。
+- 完成：CSV 匯出從現場控制列移至永久結果頁；Extension 配對碼旁提供 `slideact-extension.zip` 開發者下載。
+- 驗證：extension／web TypeScript 通過，web 5 個 test files／14 tests 通過；WXT ZIP 與 66-module Vite production build 成功；部署後 ZIP HTTP 200，web healthy。
+- 瀏覽器：1280×500 實測 Cue rail 可捲動且三張卡片不重疊；03 標頭、建立淡灰狀態、編輯狀態目的選單隱藏與綁定按鈕移除均符合預期，且未改寫範本資料。
+- 困難與解法：首次 Docker build 因 extension `prepare` 早於原始碼 COPY 而失敗；保留失敗 log，調整 Dockerfile 複製順序後成功，不需停用 lifecycle scripts。
+- 提交：`04a2d84`、`16451e3`、`8115774`，皆使用 `git commit -s -S`；完整紀錄見 `/home/moriss/slide-helper/output.log` 與 `/home/moriss/slide-helper/reproduced.md`。
+
+## 2026-08-28 Latest Feedback Delivery Summary (English)
+
+- Environment: continued through `ssh -A moriss` on `dev/wmou/slides-interaction-editor` with the existing React/Vite frontend; no dependency, database migration, or Rust API change was added.
+- Goal: prevent dense Cue lists from overlapping, reclaim editor height, clarify interaction creation, and place CSV/extension downloads in their proper contexts.
+- Completed: the Cue rail now scrolls internally without overlapping cards; the Stage 03 header is 54px; Google Slides binding auto-saves after a 650ms debounce and has no V/X controls.
+- Completed: entering creation mode dims the central canvas and displays a directional prompt; the “Edit settings” title is gone, and the purpose selector appears only while creating.
+- Completed: CSV export moved from the live dock to the permanent results page; the Extension pairing panel now downloads `slideact-extension.zip`.
+- Validation: extension/web TypeScript passed, all 14 web tests passed, WXT ZIP packaging and the 66-module Vite production build succeeded, the deployed ZIP returned HTTP 200, and the web container is healthy.
+- Browser QA: at 1280×500 the Cue rail overflowed internally while all three cards remained separate; header height, creation dimming, edit-mode purpose removal, and binding control removal were confirmed without saving any template data.
+- Challenge/workaround: the first Docker build ran extension `prepare` before source COPY. The failed log was retained; moving extension source earlier fixed the build without disabling lifecycle scripts.
+- Commits: `04a2d84`, `16451e3`, and `8115774`, all created with `git commit -s -S`. Full records are in `/home/moriss/slide-helper/output.log` and `/home/moriss/slide-helper/reproduced.md`.
