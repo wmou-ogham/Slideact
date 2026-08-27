@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, apiJson } from "./api";
+import type { Translate } from "./i18n";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { CueResultVisuals } from "./ResultVisuals";
 import { ProjectionHeading } from "./TypewriterText";
 import type { Question, SessionResults } from "./types";
 import { uniqueCueRuns } from "./uniqueCueRuns";
 import { ProjectionThemeContext, useProjectionTheme } from "./useProjectionTheme";
-
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
 export function ResultsApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";

@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
+import type { Translate } from "./i18n";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { projectionThemeSearch } from "./projectionTheme";
 import { useProjectionTheme } from "./useProjectionTheme";
@@ -15,8 +16,6 @@ import type {
   SessionCommand,
   SessionSnapshot,
 } from "./types";
-
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
 export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [profile, setProfile] = useState<Profile | null>();

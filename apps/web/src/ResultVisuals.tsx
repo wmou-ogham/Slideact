@@ -1,12 +1,11 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
 
+import type { Translate } from "./i18n";
 import { WORD_CLOUD_THEME } from "./projectionTheme";
 import { ProjectionHeading } from "./TypewriterText";
 import type { Aggregate, Question } from "./types";
 import { useProjectionThemeValue } from "./useProjectionTheme";
-
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
 export function QuestionList({ t, questions, busy, onVote }: {
   t: Translate;

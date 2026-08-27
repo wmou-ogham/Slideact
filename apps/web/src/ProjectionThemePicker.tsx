@@ -1,6 +1,5 @@
+import type { Translate } from "./i18n";
 import { PROJECTION_THEMES, type ProjectionTheme } from "./projectionTheme";
-
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
 export function ProjectionThemePicker({
   t,

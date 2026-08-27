@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, apiJson } from "./api";
+import type { Translate } from "./i18n";
 
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 type Version = { version: string; protocol_version: number; google_oauth_configured: boolean };
 type Readiness = { status: string; database: boolean; redis: boolean };
 type ClientError = { id: string; surface: string; route: string; message: string; created_at: string };

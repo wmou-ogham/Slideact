@@ -2,14 +2,13 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
+import type { Translate } from "./i18n";
 import { sendCommand } from "./PresenterApp";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { AggregateBars, CueResultVisuals, QuestionList } from "./ResultVisuals";
 import { ProjectionHeading } from "./TypewriterText";
 import type { Cue, LiveView, Question, SessionCommand, SessionSnapshot, SnapshotInteraction } from "./types";
 import { ProjectionThemeContext, useProjectionTheme } from "./useProjectionTheme";
-
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
 type JoinResponse = {
   session_id: string;
