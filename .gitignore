@@ -22,7 +22,7 @@
 /coverage/
 /test-results/
 /playwright-report/
-/.turbo/
+**/.turbo/
 /logs/
 /.codex-sync/
 
