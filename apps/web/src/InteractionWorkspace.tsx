@@ -35,7 +35,7 @@ export function InteractionWorkspace({
   const [purpose, setPurpose] = useState<InteractionPurpose>(initialPurpose);
   const [type, setType] = useState<Interaction["interaction_type"]>(item?.interaction_type ?? recommended.type);
   const [prompt, setPrompt] = useState(item?.prompt ?? recommended.prompt);
-  const [options, setOptions] = useState(() => initialOptions(item));
+  const [options, setOptions] = useState(() => initialOptions(t, item));
   const [visibility, setVisibility] = useState<ResultVisibility>(() => item ? visibilityFrom(item) : defaultVisibility(recommended.type));
 
   function choosePurpose(nextPurpose: InteractionPurpose) {
@@ -45,13 +45,13 @@ export function InteractionWorkspace({
     setType(nextRecommendation.type);
     setVisibility((current) => current === defaultVisibility(type) ? defaultVisibility(nextRecommendation.type) : current);
     if (!item || prompt === previousRecommendation.prompt) setPrompt(nextRecommendation.prompt);
-    if (nextRecommendation.type === "single_choice" && options.length < 2) setOptions(emptyChoiceOptions());
+    if (nextRecommendation.type === "single_choice" && options.length < 2) setOptions(emptyChoiceOptions(t));
   }
 
   function chooseType(nextType: Interaction["interaction_type"]) {
     setVisibility((current) => current === defaultVisibility(type) ? defaultVisibility(nextType) : current);
     setType(nextType);
-    if (nextType === "single_choice" && options.length < 2) setOptions(emptyChoiceOptions());
+    if (nextType === "single_choice" && options.length < 2) setOptions(emptyChoiceOptions(t));
   }
 
   function updateOption(index: number, value: string) {
@@ -63,8 +63,12 @@ export function InteractionWorkspace({
   }
 
   return (
-    <form className="interaction-workspace" onSubmit={onSubmit}>
+    <form className={item ? "interaction-workspace" : "interaction-workspace creating"} onSubmit={onSubmit}>
       <section className="interaction-stage" aria-label={t("interaction.canvasLabel")}>
+        {!item && <div className="interaction-creation-hint" role="status">
+          <strong>{t("interaction.createHintTitle")}</strong>
+          <span>{t("interaction.createHintCopy")}</span>
+        </div>}
         <div className="canvas-context">
           <span>{t("interaction.slideCanvas", { slide: cue.anchor_value ?? cue.position + 1 })}</span>
           <strong>{typeName(t, type)}</strong>
@@ -100,16 +104,15 @@ export function InteractionWorkspace({
       <aside className="interaction-inspector">
         <header>
           <small>{item ? t("interaction.editing") : t("interaction.creating")}</small>
-          <h3>{t("interaction.settings")}</h3>
         </header>
 
         <section className="inspector-section">
-          <label>
+          {!item && <label>
             <span>{t("interaction.purpose")}</span>
             <select name="interaction_purpose" value={purpose} onChange={(event) => choosePurpose(event.target.value as InteractionPurpose)}>
               {interactionPurposes.map((value) => <option value={value} key={value}>{t(`purpose.${value}`)}</option>)}
             </select>
-          </label>
+          </label>}
           <label>
             <span>{t("interaction.typeLabel")}</span>
             <select name="interaction_type" value={type} onChange={(event) => chooseType(event.target.value as Interaction["interaction_type"])}>
@@ -205,14 +208,14 @@ function InteractionCanvasBody({ t, type, options, updateOption, removeOption, a
   );
 }
 
-function emptyChoiceOptions() {
-  return ["", "", "", ""];
+function emptyChoiceOptions(t: Translate) {
+  return Array.from({ length: 4 }, (_, index) => t("interaction.optionNumber", { index: index + 1 }));
 }
 
-function initialOptions(item?: Interaction) {
-  if (!item) return emptyChoiceOptions();
+function initialOptions(t: Translate, item?: Interaction) {
+  if (!item) return emptyChoiceOptions(t);
   const options = item.options.map((option) => option.label);
-  return options.length >= 2 ? options : emptyChoiceOptions();
+  return options.length >= 2 ? options : emptyChoiceOptions(t);
 }
 
 function purposeFrom(item: Interaction): InteractionPurpose {

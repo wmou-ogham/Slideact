@@ -338,7 +338,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
             settings: {
               ...item.settings,
               schema_version: 1,
-              purpose: data.get("interaction_purpose"),
+              purpose: data.get("interaction_purpose") ?? item.settings.purpose,
               results: { audience_visibility: liveVisibilityFromForm(data.get("publish_live")) },
               response: { allow_change: true },
             },
