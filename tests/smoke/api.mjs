@@ -537,7 +537,8 @@ const reusedPairing = await requestJson("/api/extension/pair", {
   method: "POST",
   body: { code: extensionPairing.body.code, device_id: "second-extension" },
 });
-assert.equal(reusedPairing.response.status, 404);
+assert.equal(reusedPairing.response.status, 200);
+assert.equal(reusedPairing.body.session_id, commandSessionId);
 
 const followedPosition = await requestJson("/api/extension/position", {
   method: "POST",
@@ -831,6 +832,71 @@ assert.equal(wordCloud.body.aggregate.interaction_type, "word_cloud");
 assert.equal(wordCloud.body.aggregate.total_responses, 1);
 assert.equal(wordCloud.body.aggregate.entries[0].text, "clarity");
 
+const secondWordCloud = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdWordCloud.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:word-cloud-002",
+    payload: { text: "focus" },
+  },
+);
+assert.equal(secondWordCloud.response.status, 201);
+assert.equal(secondWordCloud.body.aggregate.total_responses, 2);
+assert.deepEqual(
+  secondWordCloud.body.aggregate.entries.map((entry) => entry.text).sort(),
+  ["clarity", "focus"],
+);
+
+const thirdWordCloud = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdWordCloud.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:word-cloud-003",
+    payload: { text: "clarity" },
+  },
+);
+assert.equal(thirdWordCloud.response.status, 201);
+assert.equal(thirdWordCloud.body.aggregate.total_responses, 3);
+assert.equal(
+  thirdWordCloud.body.aggregate.entries.find((entry) => entry.text === "clarity")?.count,
+  2,
+);
+
+const audienceCannotPin = await requestJson(
+  `/api/sessions/${commandSessionId}/interactions/${createdWordCloud.body.id}/word-cloud/pin`,
+  {
+    method: "PATCH",
+    token: joinedAudience.body.token,
+    body: { text: "clarity", pinned: true },
+  },
+);
+assert.equal(audienceCannotPin.response.status, 403);
+
+const pinnedWord = await requestJson(
+  `/api/sessions/${commandSessionId}/interactions/${createdWordCloud.body.id}/word-cloud/pin`,
+  {
+    method: "PATCH",
+    token: controllerIssue.body.token,
+    body: { text: "clarity", pinned: true },
+  },
+);
+assert.equal(pinnedWord.response.status, 200);
+assert.deepEqual(pinnedWord.body.pinned, ["clarity"]);
+
+const rejectedWordCloudLimit = await submitAudienceResponse(
+  joinedAudience.body.token,
+  createdWordCloud.body.id,
+  {
+    cue_run_id: openedCue.body.snapshot.current_cue_run.id,
+    idempotency_key: "smoke:word-cloud-004",
+    payload: { text: "overflow" },
+  },
+);
+assert.equal(rejectedWordCloudLimit.response.status, 409);
+assert.deepEqual(rejectedWordCloudLimit.body, { code: "response_limit_reached" });
+
 const rejectedWordCloudSpam = await submitAudienceResponse(
   joinedAudience.body.token,
   createdWordCloud.body.id,
@@ -843,25 +909,25 @@ const rejectedWordCloudSpam = await submitAudienceResponse(
 assert.equal(rejectedWordCloudSpam.response.status, 400);
 assert.deepEqual(rejectedWordCloudSpam.body, { code: "response_text_rejected" });
 
-for (let index = 0; index < 14; index += 1) {
+for (let index = 0; index < 11; index += 1) {
   const allowedUpdate = await submitAudienceResponse(
     joinedAudience.body.token,
-    createdWordCloud.body.id,
+    createdUnderstanding.body.id,
     {
       cue_run_id: openedCue.body.snapshot.current_cue_run.id,
       idempotency_key: `smoke:rate-allowed-${String(index).padStart(3, "0")}`,
-      payload: { text: "clarity" },
+      payload: { level: "green" },
     },
   );
   assert.equal(allowedUpdate.response.status, 201);
 }
 const rateLimitedResponse = await submitAudienceResponse(
   joinedAudience.body.token,
-  createdWordCloud.body.id,
+  createdUnderstanding.body.id,
   {
     cue_run_id: openedCue.body.snapshot.current_cue_run.id,
     idempotency_key: "smoke:rate-rejected-001",
-    payload: { text: "clarity" },
+    payload: { level: "red" },
   },
 );
 assert.equal(rateLimitedResponse.response.status, 429);
@@ -1061,6 +1127,12 @@ const revealedAudienceLiveView = await requestJson(
 );
 assert.equal(revealedAudienceLiveView.response.status, 200);
 assert.equal(revealedAudienceLiveView.body.aggregates.length, 3);
+assert.deepEqual(
+  revealedAudienceLiveView.body.aggregates.find(
+    (item) => item.aggregate.interaction_type === "word_cloud",
+  )?.aggregate.pinned,
+  ["clarity"],
+);
 const persistedSessionResults = await requestJson(
   `/api/sessions/${commandSessionId}/results`,
   { cookie: ownerCookie },
@@ -1186,6 +1258,34 @@ assert.equal(endedSessionResults.response.status, 200);
 assert.equal(endedSessionResults.body.status, "ended");
 assert.equal(endedSessionResults.body.cue_runs[0].interactions.length, 4);
 assert.equal(endedSessionResults.body.cue_runs[0].questions.length, 1);
+const reopenedEndedSession = await sendCommand(commandSessionId, {
+  idempotency_key: "smoke:reopen-ended-session-001",
+  expected_version: endedCommandSession.body.snapshot.state_version,
+  command: { type: "reopen_session" },
+});
+assert.equal(reopenedEndedSession.response.status, 200);
+assert.equal(reopenedEndedSession.body.snapshot.status, "lobby");
+assert.equal(
+  reopenedEndedSession.body.snapshot.current_cue_run.id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
+assert.equal(
+  reopenedEndedSession.body.snapshot.join_code,
+  openedLobby.body.snapshot.join_code,
+);
+const reopenedSessionResults = await requestJson(
+  `/api/sessions/${commandSessionId}/results`,
+  { cookie: ownerCookie },
+);
+assert.equal(reopenedSessionResults.response.status, 200);
+assert.equal(reopenedSessionResults.body.status, "lobby");
+assert.equal(reopenedSessionResults.body.cue_runs.length, 1);
+assert.equal(
+  reopenedSessionResults.body.cue_runs[0].interactions.some(
+    (interaction) => interaction.aggregate?.total_responses === 1,
+  ),
+  true,
+);
 joinedSocket.close();
 
 const strangerIssue = await issueToken(

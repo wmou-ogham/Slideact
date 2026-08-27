@@ -247,7 +247,7 @@ async fn create_pairing_code(
     )
     .bind(Uuid::new_v4())
     .bind(session_id)
-    .bind(hash_secret(&code))
+    .bind(hash_secret(&code.to_uppercase()))
     .bind(PAIRING_TTL_SECONDS)
     .execute(&state.database)
     .await
@@ -272,16 +272,16 @@ async fn redeem_pairing_code(
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     let session_id = sqlx::query_scalar::<_, Uuid>(
         r#"
-        UPDATE extension_pairing_codes SET redeemed_at = NOW()
+        UPDATE extension_pairing_codes SET redeemed_at = COALESCE(redeemed_at, NOW())
         WHERE id = (
             SELECT id FROM extension_pairing_codes
-            WHERE code_hash = $1 AND redeemed_at IS NULL AND expires_at > NOW()
-            FOR UPDATE SKIP LOCKED
+            WHERE code_hash = $1 AND expires_at > NOW()
+            FOR UPDATE
         )
         RETURNING session_id
         "#,
     )
-    .bind(hash_secret(&request.code.to_uppercase()))
+    .bind(hash_secret(&request.code.trim().to_uppercase()))
     .fetch_optional(&mut *transaction)
     .await
     .map_err(persistence_error)?

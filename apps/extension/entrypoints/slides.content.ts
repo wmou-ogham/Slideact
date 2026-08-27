@@ -1,6 +1,10 @@
 import { browser } from "wxt/browser";
 
-import { GoogleSlidesDetector } from "../src/google-slides/detector";
+import {
+  GoogleSlidesDetector,
+  isGoogleSlidesSlideshow,
+  LOCATION_CHANGE_EVENT,
+} from "../src/google-slides/detector";
 import { navigatePresentation } from "../src/google-slides/navigation";
 import { MESSAGE_TYPES, type ExtensionMessage, type NavigationCommand } from "../src/messages";
 
@@ -9,30 +13,8 @@ export default defineContentScript({
   runAt: "document_idle",
   main() {
     let overlay: HTMLIFrameElement | null = null;
-    const renderOverlay = (status: { overlayUrl?: string | null }) => {
-      if (!status.overlayUrl) {
-        overlay?.remove();
-        overlay = null;
-        return;
-      }
-      if (!overlay) {
-        overlay = document.createElement("iframe");
-        overlay.id = "slideact-live-overlay";
-        overlay.title = "Slideact live audience overlay";
-        Object.assign(overlay.style, {
-          position: "fixed", inset: "0", width: "100vw", height: "100vh",
-          border: "0", zIndex: "2147483647", pointerEvents: "none", background: "transparent",
-        });
-        document.documentElement.append(overlay);
-      }
-      if (overlay.src !== status.overlayUrl) overlay.src = status.overlayUrl;
-    };
-    void browser.runtime.sendMessage({ type: MESSAGE_TYPES.getStatus }).then(renderOverlay);
-    browser.runtime.onMessage.addListener((message: unknown) => {
-      if (typeof message === "object" && message !== null && "type" in message && message.type === MESSAGE_TYPES.statusUpdated && "payload" in message) {
-        renderOverlay(message.payload as { overlayUrl?: string | null });
-      }
-    });
+    let lastStatus: { overlayUrl?: string | null; token?: string | null } = {};
+    let pairedToken: string | null = null;
     const detector = new GoogleSlidesDetector((position) => {
       const message: ExtensionMessage = {
         type: MESSAGE_TYPES.position,
@@ -43,8 +25,44 @@ export default defineContentScript({
         // The background context can be briefly unavailable during extension updates.
       });
     });
-
+    const renderOverlay = (status: { overlayUrl?: string | null; token?: string | null } = lastStatus) => {
+      lastStatus = status;
+      if (status.token && status.token !== pairedToken) {
+        pairedToken = status.token;
+        detector.refresh();
+      }
+      const overlayUrl = status.overlayUrl && isGoogleSlidesSlideshow(location.href)
+        ? status.overlayUrl
+        : null;
+      if (!overlayUrl) {
+        overlay?.remove();
+        overlay = null;
+        return;
+      }
+      if (!overlay) {
+        overlay = document.createElement("iframe");
+        overlay.id = "slideact-live-overlay";
+        overlay.title = "Slideact live audience overlay";
+        overlay.setAttribute("allowtransparency", "true");
+        Object.assign(overlay.style, {
+          position: "fixed", inset: "0", width: "100vw", height: "100vh",
+          border: "0", zIndex: "2147483647", pointerEvents: "none",
+          background: "transparent", colorScheme: "none",
+        });
+        document.documentElement.append(overlay);
+      }
+      if (overlay.src !== overlayUrl) overlay.src = overlayUrl;
+    };
     detector.start();
+    void browser.runtime.sendMessage({ type: MESSAGE_TYPES.getStatus }).then(renderOverlay);
+    window.addEventListener("hashchange", () => renderOverlay());
+    window.addEventListener("popstate", () => renderOverlay());
+    window.addEventListener(LOCATION_CHANGE_EVENT, () => renderOverlay());
+    browser.runtime.onMessage.addListener((message: unknown) => {
+      if (typeof message === "object" && message !== null && "type" in message && message.type === MESSAGE_TYPES.statusUpdated && "payload" in message) {
+        renderOverlay(message.payload as { overlayUrl?: string | null; token?: string | null });
+      }
+    });
     let navigationPollBusy = false;
     const pollNavigation = async () => {
       if (navigationPollBusy) return;

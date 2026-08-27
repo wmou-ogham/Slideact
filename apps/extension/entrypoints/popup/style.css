@@ -62,6 +62,14 @@ p {
 .status-card div {
   display: grid;
   gap: 4px;
+  min-width: 0;
+}
+
+#position-label {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-dot {

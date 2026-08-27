@@ -1,6 +1,7 @@
 import { browser } from "wxt/browser";
 
 import {
+  DEFAULT_SERVER_URL,
   isExtensionMessage,
   MESSAGE_TYPES,
   type ExtensionStatus,
@@ -13,7 +14,7 @@ const EMPTY_STATUS: ExtensionStatus = {
   mode: "auto",
   position: null,
   updatedAt: null,
-  serverUrl: "http://10.121.180.185:18666",
+  serverUrl: DEFAULT_SERVER_URL,
   sessionId: null,
   token: null,
   overlayUrl: null,
@@ -70,7 +71,7 @@ export default defineBackground(() => {
     const current = await readStatus();
     const next: ExtensionStatus = { ...current, mode: nextMode, updatedAt: Date.now() };
     await writeStatus(next);
-    return next;
+    return followStoredPosition(next);
   });
 });
 
@@ -112,12 +113,19 @@ async function pairExtension(code: string, serverUrl: string): Promise<Extension
       lastError: null,
     };
     await writeStatus(next);
-    return next;
+    return followStoredPosition(next);
   } catch (error) {
     const next = { ...current, serverUrl: normalizedServer, lastError: error instanceof Error ? error.message : "pairing_failed", updatedAt: Date.now() };
     await writeStatus(next);
     return next;
   }
+}
+
+async function followStoredPosition(status: ExtensionStatus): Promise<ExtensionStatus> {
+  if (status.mode !== "auto" || !status.token || !status.position) {
+    return status;
+  }
+  return reportPosition(status, { ...status.position, detectedAt: Date.now() });
 }
 
 async function reportPosition(status: ExtensionStatus, position: NonNullable<ExtensionStatus["position"]>): Promise<ExtensionStatus> {

@@ -9,8 +9,10 @@ export default defineConfig({
     permissions: ["alarms", "storage"],
     host_permissions: [
       "https://docs.google.com/presentation/*",
-      "http://10.121.180.185:18666/*",
+      "https://slideact.mou.tw/*",
       "http://localhost:8080/*",
+      "http://localhost:18666/*",
+      "http://127.0.0.1:18666/*",
     ],
     action: {
       default_title: "__MSG_extensionName__",

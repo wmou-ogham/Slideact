@@ -21,7 +21,30 @@ const SLIDE_CANDIDATE_SELECTOR = [
   "[data-page-id]",
 ].join(",");
 
-const LOCATION_CHANGE_EVENT = "slide-helper:location-change";
+const EDITOR_THUMBNAILS = [
+  ".punch-filmstrip-thumbnail",
+  '[role="option"][data-slide-id]',
+  '[role="option"][data-page-id]',
+].join(",");
+
+const EDITOR_SELECTED = [
+  '.punch-filmstrip-thumbnail[aria-selected="true"]',
+  '[role="option"][aria-selected="true"][data-slide-id]',
+  '[role="option"][aria-selected="true"][data-page-id]',
+].join(",");
+
+export const LOCATION_CHANGE_EVENT = "slide-helper:location-change";
+
+const SLIDESHOW_PATH = /\/presentation\/d\/[^/]+\/(present|preview|htmlpresent|embed)(?:\/|$)/;
+
+export function isGoogleSlidesSlideshow(href: string): boolean {
+  try {
+    const url = new URL(href);
+    return url.hostname === "docs.google.com" && SLIDESHOW_PATH.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
 
 export function parseGoogleSlidesUrl(
   href: string,
@@ -67,14 +90,18 @@ export function readCurrentPosition(
   }
 
   const domPosition = readDomPosition(documentRoot);
-  if (!domPosition) {
-    return urlPosition;
-  }
-
-  return {
+  const merged: SlidePosition = {
     ...urlPosition,
-    ...domPosition,
+    ...(domPosition ?? {}),
   };
+  return {
+    ...merged,
+    slideIndex: merged.slideIndex ?? readEditorSlideIndex(documentRoot) ?? firstSlideIndex(merged.slideId),
+  };
+}
+
+export function firstSlideIndex(slideId: string | null): number | null {
+  return slideId === "p" ? 0 : null;
 }
 
 export class GoogleSlidesDetector {
@@ -114,6 +141,11 @@ export class GoogleSlidesDetector {
       subtree: true,
     });
 
+    this.detect();
+  }
+
+  refresh(): void {
+    this.lastPositionKey = null;
     this.detect();
   }
 
@@ -175,6 +207,16 @@ function readSlideId(url: URL): string | null {
 function readHashParameter(hash: string, name: string): string | null {
   const normalizedHash = hash.replace(/^#/, "");
   return new URLSearchParams(normalizedHash).get(name);
+}
+
+function readEditorSlideIndex(documentRoot: Document): number | null {
+  const selected = documentRoot.querySelector<HTMLElement>(EDITOR_SELECTED);
+  if (!selected) {
+    return null;
+  }
+  const thumbnails = Array.from(documentRoot.querySelectorAll<HTMLElement>(EDITOR_THUMBNAILS));
+  const index = thumbnails.indexOf(selected);
+  return index >= 0 ? index : null;
 }
 
 function readDomPosition(documentRoot: Document): DomPosition | null {

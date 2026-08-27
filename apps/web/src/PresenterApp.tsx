@@ -1,21 +1,30 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import qrcode from "qrcode-generator";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 
-import { ApiError, apiJson, postJson, uuid } from "./api";
+import { ApiError, apiJson, postJson } from "./api";
+import type { Translate } from "./i18n";
+import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./lib/interactions";
+import { sendCommand } from "./lib/liveSession";
+import { LiveControl } from "./LiveControl";
+import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
+import {
+  type InteractionPurpose,
+  type TemplateKind,
+  generatedCueName,
+  interactionPurposes,
+  purposeRecommendation,
+  templates,
+} from "./presenterTemplates";
+import { useProjectionTheme } from "./useProjectionTheme";
 import type {
   Cue,
-  GuestVaultFile,
   Interaction,
-  LiveView,
   LiveSession,
   Profile,
   Project,
-  SessionResults,
   SessionCommand,
   SessionSnapshot,
 } from "./types";
-
-type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
 export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [profile, setProfile] = useState<Profile | null>();
@@ -26,8 +35,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [presenterLive, setPresenterLive] = useState<LiveView | null>(null);
-  const cueLiveCache = useRef<Record<string, LiveView>>({});
   const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [expandedCueId, setExpandedCueId] = useState("");
@@ -115,34 +122,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     return () => window.clearInterval(timer);
   }, [refreshSnapshot, sessionId]);
 
-  useEffect(() => {
-    if (!sessionId) {
-      setPresenterLive(null);
-      return;
-    }
-    let cancelled = false;
-    let timer = 0;
-    const start = async () => {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${sessionId}/tokens`, {
-        role: "presenter",
-      });
-      const load = async () => {
-        const next = await apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
-          headers: { authorization: `Bearer ${issued.token}` },
-        });
-        if (!cancelled) setPresenterLive(rememberPresenterLive(cueLiveCache.current, next));
-      };
-      await load();
-      if (!cancelled) timer = window.setInterval(() => load().catch(() => undefined), 2500);
-    };
-    setPresenterLive(null);
-    start().catch(() => undefined);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [sessionId]);
-
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
     setMessage("");
@@ -172,7 +151,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   }
 
   async function createTemplate(kind: TemplateKind) {
-    const template = templates(locale)[kind];
+    const template = templates(t)[kind];
     await run(async () => {
       const createdProject = await postJson<Project>("/api/projects", {
         title: template.title,
@@ -244,7 +223,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const slide = normalizeSlideAnchor(String(data.get("slide") ?? ""), cues.length + 1);
     await run(async () => {
       const created = await postJson<Cue>(`/api/projects/${projectId}/cues`, {
-        name: generatedCueName(locale, cues.length + 1),
+        name: generatedCueName(t, cues.length + 1),
         anchor_type: "deck_slide",
         anchor_value: slide,
         trigger_mode: data.get("trigger_mode"),
@@ -266,7 +245,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       await apiJson<Cue>(`/api/projects/${projectId}/cues/${item.id}`, {
         method: "PUT",
         body: JSON.stringify({
-          name: generatedCueName(locale, item.position + 1),
+          name: generatedCueName(t, item.position + 1),
           anchor_type: "deck_slide",
           anchor_value: anchor,
           trigger_mode: data.get("trigger_mode"),
@@ -310,10 +289,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const form = event.currentTarget;
     const data = new FormData(form);
     const type = String(data.get("interaction_type"));
-    const rawOptions = String(data.get("options") ?? "")
-      .split("\n")
-      .map((value) => value.trim())
-      .filter(Boolean);
+    const rawOptions = parseOptions(data.get("options"));
     await run(async () => {
       await postJson<Interaction>(
         `/api/projects/${projectId}/cues/${cueId}/interactions`,
@@ -412,57 +388,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   }
 
   if (profile === null) {
-    return (
-      <main className="center-state auth-card">
-        <p className="eyebrow">{t("presenter.eyebrow")}</p>
-        <h1 className="compact-heading">{t("auth.heading")}</h1>
-        <p>{t("auth.description")}</p>
-        <a className="primary-button" href="/api/auth/google/start?return_to=/presenter">
-          {t("auth.google")}
-        </a>
-        <button
-          className="guest-button"
-          disabled={busy}
-          onClick={async () => {
-            await postJson("/api/auth/guest", { locale });
-            window.location.reload();
-          }}
-        >
-          {t("auth.guest")}
-        </button>
-        <small className="guest-note">{t("auth.guestNote")}</small>
-        <form
-          className="vault-restore"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            const key = new FormData(event.currentTarget).get("vaultKey");
-            if (typeof key !== "string") return;
-            await restoreGuestVault(key, setMessage, t).then((ok) => ok && location.reload());
-          }}
-        >
-          <p>{t("auth.restoreHeading")}</p>
-          <label className="guest-button vault-file">
-            {t("auth.openVault")}
-            <input
-              type="file"
-              accept="application/json,.json"
-              onChange={async (event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (!file) return;
-                const ok = await restoreGuestVault(await file.text(), setMessage, t);
-                if (ok) location.reload();
-              }}
-            />
-          </label>
-          <div className="inline-form">
-            <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" />
-            <button disabled={busy} type="submit">{t("auth.restoreVault")}</button>
-          </div>
-          {message && <p className="form-error" role="alert">{message}</p>}
-        </form>
-      </main>
-    );
+    return <PresenterLogin t={t} locale={locale} busy={busy} message={message} setMessage={setMessage} />;
   }
 
   return (
@@ -625,19 +551,19 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                   <select name="interaction_purpose" value={interactionPurpose} onChange={(event) => {
                     const purpose = event.target.value as InteractionPurpose;
                     setInteractionPurpose(purpose);
-                    setInteractionType(purposeRecommendation(locale, purpose).type);
+                    setInteractionType(purposeRecommendation(t, purpose).type);
                   }}>
                     {interactionPurposes.map((purpose) => <option value={purpose} key={purpose}>{t(`purpose.${purpose}`)}</option>)}
                   </select>
                 </label>
-                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(locale, interactionPurpose).type) })}</small>
+                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(t, interactionPurpose).type) })}</small>
                 <select name="interaction_type" value={interactionType} onChange={(event) => setInteractionType(event.target.value as Interaction["interaction_type"])}>
                   <option value="understanding">{t("interaction.understanding")}</option>
                   <option value="single_choice">{t("interaction.choice")}</option>
                   <option value="word_cloud">{t("interaction.wordCloud")}</option>
                   <option value="qa">{t("interaction.qa")}</option>
                 </select>
-                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(locale, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
+                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(t, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
                 {interactionType === "single_choice" && <textarea name="options" required placeholder={t("interaction.optionsPlaceholder")} />}
                 <label className="field-label">
                   <span>{t("interaction.visibility")}</span>
@@ -664,104 +590,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         sessionId={sessionId}
         setSessionId={setSessionId}
         snapshot={snapshot}
-        live={presenterLive}
+        refreshSnapshot={refreshSnapshot}
         createSession={createSession}
         send={send}
       />
     </main>
   );
-}
-
-type TemplateKind = "teaching" | "lightning" | "demo";
-type InteractionPurpose = "understanding" | "knowledge" | "opinions" | "questions" | "next" | "mood" | "priorities" | "ideas";
-const interactionPurposes: InteractionPurpose[] = ["understanding", "knowledge", "opinions", "questions", "next", "mood", "priorities", "ideas"];
-
-function purposeRecommendation(locale: string, purpose: InteractionPurpose): { type: Interaction["interaction_type"]; prompt: string } {
-  const zh = locale === "zh-TW";
-  const recommendations: Record<InteractionPurpose, { type: Interaction["interaction_type"]; prompt: string }> = {
-    understanding: { type: "understanding", prompt: zh ? "目前為止都理解了嗎？" : "How clear is this so far?" },
-    knowledge: { type: "single_choice", prompt: zh ? "哪一個選項最符合剛才的重點？" : "Which option best matches the key idea?" },
-    opinions: { type: "single_choice", prompt: zh ? "你最認同哪一個方向？" : "Which direction do you agree with most?" },
-    questions: { type: "qa", prompt: zh ? "你希望我進一步說明什麼？" : "What would you like me to clarify?" },
-    next: { type: "single_choice", prompt: zh ? "接下來最想先看哪個內容？" : "What should we explore next?" },
-    mood: { type: "word_cloud", prompt: zh ? "用一個詞描述你現在的感受。" : "Describe the room in one word." },
-    priorities: { type: "single_choice", prompt: zh ? "哪一項最值得優先處理？" : "What should be the top priority?" },
-    ideas: { type: "word_cloud", prompt: zh ? "用一個短詞分享你的想法。" : "Share one short idea." },
-  };
-  return recommendations[purpose];
-}
-
-type TemplateInteraction = {
-  type: Interaction["interaction_type"];
-  prompt: string;
-  description?: string;
-  options?: string[];
-};
-type PresentationTemplate = {
-  title: string;
-  cues: Array<{
-    name: string;
-    slide?: number;
-    confirm?: boolean;
-    interactions: TemplateInteraction[];
-  }>;
-};
-
-function templates(locale: string): Record<TemplateKind, PresentationTemplate> {
-  if (locale === "zh-TW") {
-    return {
-      teaching: {
-        title: "教學互動範本",
-        cues: [
-          { name: "確認理解度", slide: 2, interactions: [{ type: "understanding", prompt: "目前為止都聽懂了嗎？", description: "即時確認是否需要多做說明" }] },
-          { name: "課中小測驗", slide: 5, confirm: true, interactions: [{ type: "single_choice", prompt: "哪一個敘述最符合剛才的觀念？", options: ["選項 A", "選項 B", "選項 C", "選項 D"] }] },
-          { name: "學生提問", confirm: true, interactions: [{ type: "qa", prompt: "有什麼地方希望老師再說明？" }] },
-        ],
-      },
-      lightning: {
-        title: "Lightning Talk 互動範本",
-        cues: [
-          { name: "快速暖場", slide: 2, interactions: [{ type: "understanding", prompt: "你曾經遇過這個問題嗎？" }] },
-          { name: "一句話收斂", slide: 4, interactions: [{ type: "word_cloud", prompt: "用一個詞形容你最大的收穫" }] },
-          { name: "限時問答", confirm: true, interactions: [{ type: "qa", prompt: "把最想問的問題送上來" }] },
-        ],
-      },
-      demo: {
-        title: "產品 Demo 互動範本",
-        cues: [
-          { name: "痛點優先序", slide: 2, interactions: [{ type: "single_choice", prompt: "目前哪個問題最影響你的團隊？", options: ["效率", "協作", "成本", "可見性"] }] },
-          { name: "功能清晰度", slide: 4, interactions: [{ type: "understanding", prompt: "這個功能的價值是否清楚？" }] },
-          { name: "使用情境", slide: 6, interactions: [{ type: "word_cloud", prompt: "你最想把它用在哪個情境？" }] },
-        ],
-      },
-    };
-  }
-  return {
-    teaching: {
-      title: "Interactive teaching template",
-      cues: [
-        { name: "Check understanding", slide: 2, interactions: [{ type: "understanding", prompt: "Does everything make sense so far?", description: "See whether the room needs another explanation" }] },
-        { name: "Knowledge check", slide: 5, confirm: true, interactions: [{ type: "single_choice", prompt: "Which statement best matches the concept?", options: ["Option A", "Option B", "Option C", "Option D"] }] },
-        { name: "Student questions", confirm: true, interactions: [{ type: "qa", prompt: "What should the instructor explain again?" }] },
-      ],
-    },
-    lightning: {
-      title: "Lightning Talk template",
-      cues: [
-        { name: "Quick opener", slide: 2, interactions: [{ type: "understanding", prompt: "Have you experienced this problem?" }] },
-        { name: "One-word takeaway", slide: 4, interactions: [{ type: "word_cloud", prompt: "Describe your biggest takeaway in one word" }] },
-        { name: "Rapid Q&A", confirm: true, interactions: [{ type: "qa", prompt: "Send the one question you most want answered" }] },
-      ],
-    },
-    demo: {
-      title: "Product demo template",
-      cues: [
-        { name: "Pain-point priority", slide: 2, interactions: [{ type: "single_choice", prompt: "Which problem affects your team most?", options: ["Efficiency", "Collaboration", "Cost", "Visibility"] }] },
-        { name: "Feature clarity", slide: 4, interactions: [{ type: "understanding", prompt: "Is the value of this feature clear?" }] },
-        { name: "Use cases", slide: 6, interactions: [{ type: "word_cloud", prompt: "Where would you use this first?" }] },
-      ],
-    },
-  };
 }
 
 function PreviewDialog({ t, cue, mode, close }: {
@@ -771,13 +605,18 @@ function PreviewDialog({ t, cue, mode, close }: {
   close: () => void;
 }) {
   const interaction = cue.interactions[0];
+  const [theme, setTheme] = useProjectionTheme();
   return (
     <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
       <section className={`preview-dialog preview-${mode}`} role="dialog" aria-modal="true" aria-label={t(`preview.${mode}`)}>
-        <header><span>{t(`preview.${mode}`)}</span><button onClick={close} aria-label={t("preview.close")}>×</button></header>
+        <header>
+          <span>{t(`preview.${mode}`)}</span>
+          {mode === "projection" && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} />}
+          <button onClick={close} aria-label={t("preview.close")}>×</button>
+        </header>
         {mode === "projection" && (
-          <div className="projection-preview">
-            <small>LIVE · ABC234</small>
+          <div className="projection-preview" data-projection-theme={theme}>
+            <small>{theme === "terminal" ? "live" : "LIVE"} · ABC234</small>
             <h2>{interaction?.prompt ?? cue.name}</h2>
             <div className="preview-bars"><i /><i /><i /></div>
           </div>
@@ -801,26 +640,6 @@ function PreviewDialog({ t, cue, mode, close }: {
   );
 }
 
-export async function sendCommand(sessionId: string, expectedVersion: number, command: SessionCommand, token?: string) {
-  const response = await apiJson<{ snapshot: SessionSnapshot }>(
-    `/api/sessions/${sessionId}/commands`,
-    {
-      method: "POST",
-      headers: token ? { authorization: `Bearer ${token}` } : undefined,
-      body: JSON.stringify({ idempotency_key: uuid(), expected_version: expectedVersion, command }),
-    },
-  );
-  return response.snapshot;
-}
-
-function typeName(t: Translate, type: Interaction["interaction_type"]) {
-  return t(`interaction.${type === "single_choice" ? "choice" : type === "word_cloud" ? "wordCloud" : type}`);
-}
-
-function defaultVisibility(type: Interaction["interaction_type"]) {
-  return type === "single_choice" ? "after_reveal" : "live";
-}
-
 function InteractionEditForm({ t, busy, item, onSave, onDelete }: {
   t: Translate;
   busy: boolean;
@@ -834,13 +653,17 @@ function InteractionEditForm({ t, busy, item, onSave, onDelete }: {
   const [options, setOptions] = useState(() => item.options.map((option) => option.label).join("\n"));
   const [visibility, setVisibility] = useState(() => visibilityFrom(item));
 
+  // Reset only when the presenter switches to another interaction. Depending
+  // on the whole item object would wipe in-progress edits every time a
+  // background refresh replaces the snapshot with a fresh object identity.
   useEffect(() => {
     setType(item.interaction_type);
     setPurpose(interactionPurposeFrom(item));
     setPrompt(item.prompt);
     setOptions(item.options.map((option) => option.label).join("\n"));
     setVisibility(visibilityFrom(item));
-  }, [item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
 
   return (
     <form className="accordion-form interaction-edit-form" onSubmit={onSave}>
@@ -871,71 +694,6 @@ function visibilityFrom(item: Interaction): ResultVisibility {
   return visibility === "live" ? "live" : "after_reveal";
 }
 
-function parseOptions(value: FormDataEntryValue | null) {
-  return String(value ?? "")
-    .split("\n")
-    .map((option) => option.trim())
-    .filter(Boolean);
-}
-
-export function parseVaultCredential(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as { recovery_key?: unknown };
-    if (typeof parsed.recovery_key === "string" && parsed.recovery_key.trim()) {
-      return parsed.recovery_key.trim();
-    }
-  } catch {
-    // Plain recovery keys are accepted as well as downloaded JSON files.
-  }
-  return trimmed;
-}
-
-async function restoreGuestVault(
-  raw: string,
-  setMessage: (value: string) => void,
-  t: Translate,
-): Promise<boolean> {
-  const recovery_key = parseVaultCredential(raw);
-  if (!recovery_key) {
-    setMessage(t("auth.vaultInvalid"));
-    return false;
-  }
-  try {
-    await postJson("/api/auth/guest/restore", { recovery_key });
-    return true;
-  } catch (error) {
-    const code = error instanceof ApiError ? error.code : "network_error";
-    setMessage(code === "guest_vault_recovery_invalid" ? t("auth.vaultInvalid") : t("error.generic", { code }));
-    return false;
-  }
-}
-
-async function downloadGuestVault(
-  vaultId: string | null,
-  setMessage: (value: string) => void,
-  t: Translate,
-): Promise<void> {
-  if (!window.confirm(t("auth.takeVaultConfirm"))) return;
-  try {
-    const file = await postJson<GuestVaultFile>("/api/auth/guest/export", {});
-    const blob = new Blob([`${JSON.stringify(file, null, 2)}\n`], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `slideact-vault-${(file.vault_id || vaultId || "guest").slice(0, 8)}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    setMessage(t("auth.vaultTaken"));
-  } catch (error) {
-    const code = error instanceof ApiError ? error.code : "network_error";
-    setMessage(t("error.generic", { code }));
-  }
-}
-
 export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const trimmed = value.trim();
   if (!trimmed) return String(fallbackIndex);
@@ -943,295 +701,4 @@ export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const matched = matches.at(-1)?.[1];
   if (matched) return decodeURIComponent(matched);
   return trimmed.replace(/^id\./, "");
-}
-
-function rememberPresenterLive(cache: Record<string, LiveView>, live: LiveView) {
-  const cueId = live.snapshot.current_cue_run?.cue_id;
-  if (!cueId) return live;
-  const hasResponses = live.aggregates.some((item) => (item.aggregate.total_responses ?? 0) > 0)
-    || live.questions.length > 0;
-  if (hasResponses) {
-    cache[cueId] = live;
-    return live;
-  }
-  const remembered = cache[cueId];
-  if (!remembered) return live;
-  return {
-    ...live,
-    aggregates: remembered.aggregates,
-    questions: live.questions.length ? live.questions : remembered.questions,
-  };
-}
-
-function generatedCueName(locale: string, index: number) {
-  return locale === "zh-TW" ? `投影片 ${index}` : `Slide ${index}`;
-}
-
-function slideAnchorLabel(t: Translate, cue: Cue) {
-  const anchor = cue.anchor_value ?? String(cue.position + 1);
-  return /^\d+$/.test(anchor)
-    ? t("cue.slide", { slide: anchor })
-    : t("cue.slideId", { id: anchor });
-}
-
-function LiveControl({
-  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, live, createSession, send,
-}: {
-  t: Translate;
-  busy: boolean;
-  project: Project | null;
-  cues: Cue[];
-  sessions: LiveSession[];
-  sessionId: string;
-  setSessionId: (value: string) => void;
-  snapshot: SessionSnapshot | null;
-  live: LiveView | null;
-  createSession: () => void;
-  send: (command: SessionCommand) => void;
-}) {
-  const [pairingCode, setPairingCode] = useState("");
-  const [remoteLink, setRemoteLink] = useState("");
-  const [extensionConnected, setExtensionConnected] = useState<boolean | null>(null);
-  const [results, setResults] = useState<SessionResults | null>(null);
-  const [resultsOpen, setResultsOpen] = useState(false);
-  const [resultsBusy, setResultsBusy] = useState(false);
-  useEffect(() => {
-    if (!snapshot) return;
-    const load = () => apiJson<{ paired: boolean; connected: boolean }>(`/api/sessions/${snapshot.session_id}/extension-status`).then((value) => setExtensionConnected(value.paired ? value.connected : null)).catch(() => undefined);
-    void load();
-    const timer = window.setInterval(load, 15_000);
-    return () => window.clearInterval(timer);
-  }, [snapshot?.session_id]);
-  const statusActions = useMemo(() => {
-    if (!snapshot) return [];
-    switch (snapshot.status) {
-      case "lobby": return [["start", "live.start"]] as const;
-      case "live":
-      case "paused": return [["end", "live.end"]] as const;
-      default: return [];
-    }
-  }, [snapshot]);
-  const cueState = snapshot?.current_cue_run?.state;
-  const visibleSessions = sessions.filter((item) => item.status !== "draft");
-  const activeSession = visibleSessions.find((item) => item.status !== "ended");
-  const isControllable = snapshot && snapshot.status !== "ended" && snapshot.status !== "draft";
-  const isLive = snapshot?.status === "live";
-
-  async function showResults() {
-    if (!snapshot) return;
-    setResultsBusy(true);
-    try {
-      setResults(await apiJson<SessionResults>(`/api/sessions/${snapshot.session_id}/results`));
-      setResultsOpen(true);
-    } finally {
-      setResultsBusy(false);
-    }
-  }
-
-  async function launchOverlay() {
-    if (!snapshot) return;
-    const target = window.open("about:blank", "_blank");
-    try {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "overlay" });
-      const url = `/overlay/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
-      if (target) target.location.href = url;
-      else location.href = url;
-    } catch {
-      target?.close();
-    }
-  }
-
-  async function launchProjection() {
-    if (!snapshot) return;
-    const target = window.open("about:blank", "_blank");
-    try {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "presenter" });
-      const url = `/projection/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
-      if (target) target.location.href = url;
-      else location.href = url;
-    } catch {
-      target?.close();
-    }
-  }
-
-  async function createExtensionPairing() {
-    if (!snapshot) return;
-    const response = await postJson<{ code: string }>(
-      `/api/sessions/${snapshot.session_id}/extension-pairing`,
-      {},
-    );
-    setPairingCode(response.code);
-  }
-
-  async function createRemoteAccess() {
-    if (!snapshot) return;
-    const issued = await postJson<{ token: string; expires_in_seconds: number }>(
-      `/api/sessions/${snapshot.session_id}/tokens`,
-      { role: "controller" },
-    );
-    setRemoteLink(`${window.location.origin}/remote/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`);
-  }
-
-  async function useManualSync() {
-    if (!snapshot) return;
-    await apiJson(`/api/sessions/${snapshot.session_id}/sync-mode`, {
-      method: "PUT",
-      body: JSON.stringify({ mode: "manual" }),
-    });
-    window.location.reload();
-  }
-
-  return (
-    <section className="live-dock">
-      {snapshot?.current_cue_run && live && <PresenterInsights t={t} live={live} />}
-      <div className="live-summary">
-        <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
-        <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
-        {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
-      </div>
-      {!activeSession && <button className="primary-button ended-session-create" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
-      <div className="live-actions">
-        {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-          {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
-        </select>}
-        {statusActions.map(([type, key]) => <button disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
-        {isLive && (
-          <select
-            aria-label={t("live.selectCue")}
-            value={snapshot.presentation_view === "join_qr" ? "__join_qr__" : (snapshot.current_cue_run?.cue_id ?? "__join_qr__")}
-            disabled={busy}
-            onChange={(event) => {
-              if (event.target.value === "__join_qr__") send({ type: "show_join_qr" });
-              else if (event.target.value === snapshot.current_cue_run?.cue_id) send({ type: "show_cue" });
-              else if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value });
-            }}
-          >
-            <option value="__join_qr__">{t("live.qrHome")}</option>
-            {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
-          </select>
-        )}
-        {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
-        {isLive && (cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
-        {isControllable && cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
-        {snapshot?.status === "ended" && <button disabled={busy || !project} onClick={createSession}>{t("live.reopen")}</button>}
-        {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
-        {snapshot && <button className="secondary-link" disabled={resultsBusy} onClick={showResults}>{t("live.results")}</button>}
-        {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
-        {isControllable && <button className="secondary-link" onClick={createExtensionPairing}>{t("sync.pair")}</button>}
-        {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
-      </div>
-      {pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
-      {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
-      {resultsOpen && results && <SessionResultsDialog t={t} results={results} close={() => setResultsOpen(false)} />}
-    </section>
-  );
-}
-
-function sessionLabel(t: Translate, session: LiveSession) {
-  const date = new Date(session.created_at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-  return `${t(`statusName.${session.status}`)} · ${date}${session.status === "ended" ? "" : ` · ${session.join_code ?? ""}`}`;
-}
-
-function SessionResultsDialog({ t, results, close }: { t: Translate; results: SessionResults; close: () => void }) {
-  return (
-    <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <section className="preview-dialog session-results-dialog" role="dialog" aria-modal="true" aria-label={t("history.heading")}>
-        <header><span>{t("history.heading")}</span><button onClick={close} aria-label={t("preview.close")}>×</button></header>
-        <div className="history-summary">
-          <div><small>{t("history.status")}</small><strong>{t(`statusName.${results.status}`)}</strong></div>
-          <div><small>{t("history.audience")}</small><strong>{results.audience_count}</strong></div>
-          <div><small>{t("history.started")}</small><strong>{formatSessionDate(results.started_at ?? results.created_at)}</strong></div>
-        </div>
-        <div className="history-runs">
-          {results.cue_runs.map((run, index) => (
-            <article key={run.id} className="history-run">
-              <div className="history-run-heading"><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{run.cue_name}</h3><small>{run.anchor_value ? t("cue.slide", { slide: run.anchor_value }) : t("cue.manual")}</small></div></div>
-              {run.interactions.map((interaction) => (
-                <section className="history-interaction" key={interaction.id}>
-                  <div><span className="type-badge">{typeName(t, interaction.interaction_type as Interaction["interaction_type"])}</span><h4>{interaction.prompt}</h4></div>
-                  <HistoryAggregate t={t} aggregate={interaction.aggregate} />
-                </section>
-              ))}
-              {run.questions.length > 0 && <div className="history-questions"><h4>{t("qa.heading")}</h4>{run.questions.map((question) => <p key={question.id}>{question.body}<small>{t("qa.votes", { count: question.votes })}</small></p>)}</div>}
-            </article>
-          ))}
-          {!results.cue_runs.length && <p className="empty-copy roomy">{t("history.empty")}</p>}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function HistoryAggregate({ t, aggregate }: { t: Translate; aggregate: SessionResults["cue_runs"][number]["interactions"][number]["aggregate"] }) {
-  if (!aggregate || !aggregate.total_responses) return <p className="history-empty">{t("history.noResponses")}</p>;
-  if (aggregate.interaction_type === "understanding") return <div className="history-signals"><span className="signal-green">{t("audience.green")} <b>{aggregate.green ?? 0}</b></span><span className="signal-yellow">{t("audience.yellow")} <b>{aggregate.yellow ?? 0}</b></span><span className="signal-red">{t("audience.red")} <b>{aggregate.red ?? 0}</b></span></div>;
-  if (aggregate.interaction_type === "word_cloud") return <div className="history-words">{aggregate.entries?.map((entry) => <span key={entry.text}>{entry.text} <b>×{entry.count}</b></span>)}</div>;
-  return <div className="history-options">{aggregate.options?.map((option) => <div key={option.option_id}><span>{option.label}</span><b>{option.count}</b></div>)}</div>;
-}
-
-function formatSessionDate(value: string) {
-  return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-function PresenterInsights({ t, live }: { t: Translate; live: LiveView }) {
-  const aggregate = live.aggregates.find((item) => item.aggregate.interaction_type === "understanding")?.aggregate
-    ?? live.aggregates[0]?.aggregate;
-  const total = aggregate?.total_responses ?? 0;
-  const responseRate = live.audience_count ? Math.round(total * 100 / live.audience_count) : 0;
-  const needsAttention = aggregate?.interaction_type === "understanding"
-    && total > 0
-    && (((aggregate.yellow ?? 0) + (aggregate.red ?? 0)) * 100 / total >= 25);
-  return (
-    <aside className={needsAttention ? "presenter-insights needs-attention" : "presenter-insights"} aria-live="polite">
-      <div><small>{t("live.audience")}</small><strong>{live.audience_count}</strong></div>
-      <div><small>{t("live.responses")}</small><strong>{total}</strong></div>
-      <div><small>{t("live.responseRate")}</small><strong>{responseRate}%</strong></div>
-      {aggregate?.interaction_type === "understanding" && <div className="signal-counts">
-        <span className="signal-green">{t("audience.green")} <b>{aggregate.green ?? 0}</b></span>
-        <span className="signal-yellow">{t("audience.yellow")} <b>{aggregate.yellow ?? 0}</b></span>
-        <span className="signal-red">{t("audience.red")} <b>{aggregate.red ?? 0}</b></span>
-      </div>}
-      {needsAttention && <p role="alert">{t("live.attention")}</p>}
-    </aside>
-  );
-}
-
-function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close: () => void }) {
-  const svg = useMemo(() => qrSvg(url), [url]);
-  return (
-    <aside className="remote-access-panel" role="dialog" aria-label={t("remote.qrHeading")}>
-      <header><strong>{t("remote.qrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
-      <div className="remote-access-content">
-        <div className="remote-access-qr" dangerouslySetInnerHTML={{ __html: svg }} />
-        <div><p>{t("remote.qrCopy")}</p><input readOnly value={url} onFocus={(event) => event.currentTarget.select()} aria-label={t("remote.link")} /><a href={url} target="_blank" rel="noreferrer">{t("remote.open")}</a><small>{t("remote.expires")}</small></div>
-      </div>
-    </aside>
-  );
-}
-
-export function AudienceJoinQrPanel({ t, code, close }: { t: Translate; code: string; close: () => void }) {
-  const svg = useMemo(() => {
-    const qr = qrcode(0, "M");
-    qr.addData(`${window.location.origin}/join/${encodeURIComponent(code)}`);
-    qr.make();
-    return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
-  }, [code]);
-  return (
-    <aside className="audience-qr-panel" role="dialog" aria-label={t("live.joinQrHeading")}>
-      <header><strong>{t("live.joinQrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
-      <div className="audience-qr-content">
-        <div className="audience-qr-image" dangerouslySetInnerHTML={{ __html: svg }} />
-        <div><p>{t("live.joinQrCopy")}</p><strong className="audience-qr-code">{code}</strong><small>{window.location.origin}/join/{code}</small></div>
-      </div>
-    </aside>
-  );
-}
-
-function qrSvg(value: string) {
-  const qr = qrcode(0, "M");
-  qr.addData(value);
-  qr.make();
-  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
 }

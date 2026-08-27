@@ -1,0 +1,18 @@
+[Unit]
+Description=Slideact (slide-helper) Docker Compose stack
+Documentation=https://github.com/slide-helper/slide-helper
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/moriss/slide-helper
+EnvironmentFile=-/home/moriss/slide-helper/.env
+ExecStart=/home/moriss/slide-helper/scripts/compose-up.sh
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

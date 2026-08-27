@@ -9,6 +9,8 @@
 **/.next/
 **/.output/
 **/.wxt/
+/apps/extension/slideact-extension/
+/apps/extension/slideact-extension.zip
 *.tsbuildinfo
 
 # Environment and secrets
@@ -20,7 +22,7 @@
 /coverage/
 /test-results/
 /playwright-report/
-/.turbo/
+**/.turbo/
 /logs/
 /.codex-sync/
 

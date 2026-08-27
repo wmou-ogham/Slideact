@@ -1,6 +1,10 @@
 # Slide Helper Development Progress
 
-最後更新：2026-08-14
+最後更新：2026-08-27
+
+## Cursor 提示音
+
+- [x] 遠端 Machine 設定關閉無障礙提示音（`editor.accessibilitySupport`、`accessibility.signalOptions.volume`）
 
 ## 作業規範
 
@@ -113,7 +117,7 @@
 - [x] 建立可重現的 Beta 交付狀態與測試證據文件
 - [x] 確認六個部署服務健康、Extension 產物 checksum 與 commit 簽章
 - [x] 確認 GitHub Actions workflow 已納入程式庫並保存完整 CI log artifact
-- [ ] 注入正式 Google OAuth 憑證並以 HTTPS callback 驗收
+- [x] 注入 Google OAuth 憑證（HTTPS callback + AUTH_COOKIE_SECURE=true）
 - [ ] 使用已登入 Google 的 Chrome 與真實 Slides deck 完成 Extension E2E
 - [ ] 由 5～10 位真人講者完成封閉 Beta 腳本
 - [ ] 使用 GitHub 管理權限設定 About description 並確認雲端 Actions run
@@ -155,3 +159,105 @@
 - [x] 切回同一投影片沿用原 Cue run，僅切換其他投影片時建立新一輪
 - [x] 上一頁／下一頁切換其他投影片時沿用該頁既有 Cue run，不清空已作答內容
 - [x] 訪客 Vault 可下載金鑰檔，並在其他電腦開啟同一個工作區
+
+## Git 工作區檢查
+
+- [x] 盤點尚未 staged 的修改與未追蹤檔
+- [x] Extension 建置產物 `apps/extension/slideact-extension/` 與 `.zip` 加入 `.gitignore`
+- [x] 獨立結果頁、配對碼重用、systemd 開機啟動一併提交；不 ignore 功能／部署程式
+
+## 文字雲動態效果
+
+- [x] 新詞交錯進場、既有詞輕微漂浮
+- [x] 詞頻上升時短暫放大，高頻詞加上柔光
+- [x] 旋轉與顏色依詞彙本身決定，避免即時更新時整片重排跳色
+- [x] `prefers-reduced-motion` 既有規則會關掉這些動畫
+- [x] 字級依詞數縮放：單一答案約占畫面高度 1/3，詞變多後再縮小並保留詞頻對比
+- [x] 文字雲同一觀眾可送出最多 3 則，不再覆寫第一則
+- [x] 講者可點選文字雲詞彙釘住：位置固定、加上金框，其他人送答案時其餘詞仍可動
+- [x] 投影頁標題縮小，文字雲畫布約占畫面高度 2/3
+- [x] 投影頁狀態（即時結果／收集中）改放 LIVE 右側，不再單獨佔一列
+
+## 邏輯與 UX 整理重構（dev/wmou/logic-ux-cleanup）
+
+### 階段 0：基線
+
+- [x] 建立測試綠色基線（2026-08-27）。主機無 node/pnpm，`scripts/ci.sh` 容器化 CI 過重，改在 `node:22-bookworm` 容器內跑：
+  - `docker run --rm -v "$PWD":/workspace -w /workspace node:22-bookworm sh -c "corepack enable; pnpm install --frozen-lockfile"`（原 `node_modules` 過舊，缺 `qrcode-generator`，重裝後解決）
+  - `pnpm --filter @slide-helper/web test`：4 檔 10 tests 全過
+  - `pnpm --filter @slide-helper/web check`（tsc --noEmit）：過
+  - `pnpm --filter @slide-helper/web build`（vite build）：過
+  - 全 workspace `pnpm check && pnpm test`（含 extension 2 檔 10 tests）：全過
+- [x] 未跑 `cargo test`（後端由另一位平行處理，避免 target/ 競爭）
+
+### 階段 1：實際走查（五角色流程）
+
+- [x] Compose stack 已於本機 18666 埠運行（`/api/version` 健康），沿用現有容器
+- [x] 走查方式：本機無瀏覽器可操作 GUI，改以腳本走完整 API 流程（`node:22` 容器 + `--network host`），並比對前端程式碼行為；腳本內容見 commit 訊息（暫存於 /tmp，不入版控）
+- [x] 流程全數通過：guest 登入 → 建專案/cue/四種互動 → 開場次（open_lobby → start → prepare_cue，immediate cue 直接進 open）→ 觀眾加入作答（理解度/單選/文字雲/Q&A）→ controller token 走 Remote（snapshot、live、翻頁、釘問題、釘文字雲）→ presenter/overlay token 取 live view → reveal → QR 首頁切換（cue run 保留）→ end → results + CSV 匯出
+- [x] 結果可見性驗證：單選（after_reveal）在 reveal 前 audience/overlay 的 live view 都看不到統計，reveal 後看得到；文字雲/理解度（live）即時可見
+
+#### 走查發現的 UX 問題清單（僅記錄；視覺相關不動手）
+
+- [ ] （行為、後端）觀眾送出 after_reveal 單選答案時，POST 回應本身就附上完整統計 aggregate（含各選項票數），揭曉前就能從 network 面板看到；live view 有正確隱藏，但作答回應洩漏。屬後端行為，本次不動
+- [ ] （行為）Remote 翻頁在 Extension 未配對時仍回 accepted=true，指令進佇列後沒人消費，使用者按「下一頁」毫無回饋也不知道沒效果
+- [ ] （行為）觀眾文字雲輸入框 maxLength=200，但後端對重複字元等內容會回 response_text_rejected，觀眾只看到 generic 錯誤碼訊息，不知道為什麼被拒
+- [ ] （行為）Landing 首頁參加碼輸入框接受英數字（pattern A-Za-z0-9），但送出時 `join()` 會把非數字全部剝掉（\D）：輸入「AB12」會導去 /join/12；現行參加碼已是六位純數字，兩處輸入規則不一致
+- [ ] （行為）LiveControl 的「配對 Extension」「手機遙控」「開投影」等按鈕的 API 失敗沒有接 report()，按了沒反應也沒錯誤訊息（unhandled rejection）
+- [x] （計畫已列）手動 sync 直接 window.location.reload()，丟掉所有 UI 狀態 → 階段 4 已修
+- [x] （計畫已列）InteractionEditForm useEffect 依賴整個 item object，refreshProject 後物件 identity 變了會把使用者正在編輯的內容洗掉 → 階段 4 已修
+- [x] （計畫已列）Remote 錯誤處理用 "auth"/"token"/"load" 魔術字串，其餘錯誤直接把 API error code 丟給使用者 → 階段 4 已修
+- [x] （計畫已列）Extension popup 與 Presenter 模板/cue 名稱硬編碼中英文，未走 packages/i18n → 階段 4 已修
+
+### 階段 2：低風險清理
+
+- [x] 刪除 presenterLive dead 輪詢（state、cueLiveCache ref、effect、rememberPresenterLive；每 2.5 秒白打一次 token + live API）
+- [x] 刪除無人引用的 AudienceJoinQrPanel（i18n key 與 CSS 先保留，維持純 dead code 移除）
+- [x] Translate 型別集中到 `apps/web/src/i18n.ts`，key 改用 `MessageKey`（原本六個檔案各自宣告 `key: any`，繞過 i18n 型別檢查；tsc 證明所有動態 key 都存在於 catalog）
+- [x] 合併重複邏輯到 `apps/web/src/lib/`：`typeName`（原兩份）、`parseOptions`（原兩份）、QR SVG 產生（原兩份，保留各自 cellSize 維持視覺不變）
+- [x] 每步皆通過 vitest（10 tests）+ tsc --noEmit
+
+### 階段 3：抽 hook 與拆檔（行為不變）
+
+- [x] 抽出 `lib/liveSession.ts`：`useLiveSession` hook 統一 loadLiveView + 輪詢 + WebSocket + rememberCueLive；輪詢間隔集中為 `LIVE_POLL_INTERVAL_MS`（audience 3.5s / remote 3s / projection、overlay 2s）
+- [x] 修 RemoteApp 雙重真相：移除獨立 snapshot 與 questions state，全部改以 live view 為單一來源（先讀後端 live_views.rs 確認 controller 拿到的 snapshot/questions 與獨立端點相同）；指令成功或失敗後都 refresh live
+- [x] `sendCommand` 從 PresenterApp 移到 `lib/liveSession.ts`，解除 LiveApps→PresenterApp 反向依賴
+- [x] `LiveApps.tsx`（~780 行）拆成 `AudienceApp.tsx` / `RemoteApp.tsx` / `ProjectionApp.tsx` / `OverlayApp.tsx`（純搬移）
+- [x] `PresenterApp.tsx`（~1100 行 → ~700 行）拆出 `LiveControl.tsx`、`presenterTemplates.ts`、`PresenterAuth.tsx`；共用 label helpers 移入 `lib/interactions.ts`
+- [x] 每步皆通過 vitest + tsc；階段末加跑 vite build 綠色
+
+### 階段 4：UX 行為修正
+
+- [x] 手動 sync 切換不再 `window.location.reload()`：LiveControl 收 `refreshSnapshot` prop，就地重載 snapshot，保留 UI 狀態
+- [x] InteractionEditForm 重置條件從整個 `item` object 改為 `item.id`：背景 refreshProject 不再洗掉編輯中內容，切換互動時仍會重置
+- [x] Remote 錯誤改 discriminated union（auth / token / load / action{code}）：初次載入失敗有可讀畫面（新增 `remote.loadFailed*`，原本卡在「檢查中」）；操作失敗把 `network_error`、`state_version_conflict` 映射成友善訊息（`error.network`、`remote.errorConflict`），其餘保留 generic + code 供除錯
+- [x] 模板與 Extension popup 文案移入 `packages/i18n`：`template.*`、`purposePrompt.*`、`cue.generatedName`、`extension.*` 雙語 key；`presenterTemplates.ts` 改收 `Translate`，popup 改用 `resolveLocale`/`translate`；兩語系顯示文字不變
+- [x] 階段末測試：全 workspace `pnpm check`（含 extension wxt prepare + tsc）、`pnpm test`（5 個 test task）、`pnpm --filter @slide-helper/web build` 全綠
+- [x] 附帶：`.gitignore` 的 `/.turbo/` 放寬為 `**/.turbo/`（容器內跑 turbo 在各套件留下快取目錄）
+
+### 階段 5：後端大檔拆分（隔離 worktree 合併回來）
+
+- [x] 從隔離 worktree 分支 `dev/wmou/logic-ux-cleanup-backend-split` merge 進 `dev/wmou/logic-ux-cleanup`（2026-08-27）
+- [x] merge-base `8f4b3c0`；前端改 `apps/`、`packages/`、`.gitignore`、`progress.md`，後端改 `services/api/src/{auth,commands,resources}*`，路徑不相交、無衝突
+- [x] merge commit `98e9bb3`（`git commit -s -S`，ED25519 簽署成功）；parents `446ca06`（前端階段 0–4）+ `67938c2`（resources 拆分）
+- [x] 引入的後端 commit：`d842c78` split `auth.rs`、`b33b480` split `commands.rs`、`67938c2` split `resources.rs`（純搬移，路由／簽名／錯誤碼不變）
+
+### 階段 6：驗證與收尾（2026-08-27）
+
+- [x] 未跑完整 `scripts/ci.sh`：會重建 `slide-helper-rust-ci:dev`、`slide-helper-node-ci:dev` 並拉起獨立 compose CI stack，過重；改用與先前階段相同的容器指令
+- [x] 前端（`node:22-bookworm` 掛 workspace）：`pnpm check`（4 packages）、`pnpm test`（i18n 4 + protocol 3 + extension 10 + web 10）、`pnpm --filter @slide-helper/web build` 全綠（turbo cache hit，merge 未改前端檔）
+- [x] 後端（`slide-helper-rust-ci:dev`，映像內 `/workspace/target` 複製到 named volume `slide-helper-stage6-target` 以免蓋掉編譯快取）：`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace --all-targets` 全綠（api 24 + domain 21 + protocol 6 = 51 tests）
+- [x] smoke：compose 已在 18666 跑（容器約 12 天，仍是拆分前的 API 映像，未重建以免打擾現況）。`/api/version` 健康；重跑 `/tmp/walkthrough.mjs`（guest → 建專案/cue/四種互動 → 開場次 → 觀眾作答 → remote → projection/overlay → reveal → QR 首頁 → end → results/CSV）全過。五角色 GUI 走查仍無法做（本機無瀏覽器）
+- [x] 剩餘未修 UX（階段 1 清單前五項仍開著）：after_reveal 作答 POST 洩漏 aggregate、Remote 未配對 Extension 時翻頁無回饋、文字雲拒絕原因不友善、Landing 參加碼英數字 vs 六位純數字不一致、LiveControl 若干按鈕 API 失敗沒有錯誤訊息
+
+## 投影畫面三種風格
+
+- [x] 抽出 `data-projection-theme`，讓投影／結果頁可抽換風格
+- [x] 經典：沿用現有深綠、金色、Georgia 高貴感
+- [x] 活潑：淺色、圓角、高彩度長條，接近 Mentimeter
+- [x] 終端機：黑底綠字、等寬字體、標題打字機效果
+- [x] 講者控制列與投影頁皆可切換，並以 localStorage／BroadcastChannel 同步
+- [x] 已重建 `slide-helper-web:dev` 並重啟 web 容器（2026-08-15 14:25）
+- [x] 活潑主題高分詞改紫光、拿掉黃字；終端機理解度改 zsh 綠／黃／紅
+- [x] 投影頁切換風格／點文字雲時不再留下瀏覽器 focus 藍框
+- [x] 活潑主題高分詞取消光暈陰影
