@@ -226,6 +226,16 @@
 - [x] `PresenterApp.tsx`（~1100 行 → ~700 行）拆出 `LiveControl.tsx`、`presenterTemplates.ts`、`PresenterAuth.tsx`；共用 label helpers 移入 `lib/interactions.ts`
 - [x] 每步皆通過 vitest + tsc；階段末加跑 vite build 綠色
 
+### 階段 4：UX 行為修正
+
+- [x] 手動 sync 切換不再 `window.location.reload()`：LiveControl 收 `refreshSnapshot` prop，就地重載 snapshot，保留 UI 狀態
+- [x] InteractionEditForm 重置條件從整個 `item` object 改為 `item.id`：背景 refreshProject 不再洗掉編輯中內容，切換互動時仍會重置
+- [x] Remote 錯誤改 discriminated union（auth / token / load / action{code}）：初次載入失敗有可讀畫面（新增 `remote.loadFailed*`，原本卡在「檢查中」）；操作失敗把 `network_error`、`state_version_conflict` 映射成友善訊息（`error.network`、`remote.errorConflict`），其餘保留 generic + code 供除錯
+- [x] 模板與 Extension popup 文案移入 `packages/i18n`：`template.*`、`purposePrompt.*`、`cue.generatedName`、`extension.*` 雙語 key；`presenterTemplates.ts` 改收 `Translate`，popup 改用 `resolveLocale`/`translate`；兩語系顯示文字不變
+- [x] 階段末測試：全 workspace `pnpm check`（含 extension wxt prepare + tsc）、`pnpm test`（5 個 test task）、`pnpm --filter @slide-helper/web build` 全綠
+- [x] 附帶：`.gitignore` 的 `/.turbo/` 放寬為 `**/.turbo/`（容器內跑 turbo 在各套件留下快取目錄）
+- [ ] 階段 6 端到端驗證：不在本次範圍，由後續驗證工作者負責
+
 ## 投影畫面三種風格
 
 - [x] 抽出 `data-projection-theme`，讓投影／結果頁可抽換風格
