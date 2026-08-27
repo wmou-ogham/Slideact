@@ -1,8 +1,9 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
-import { ApiError, apiJson, postJson, uuid } from "./api";
+import { ApiError, apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
 import { parseOptions, typeName } from "./lib/interactions";
+import { sendCommand } from "./lib/liveSession";
 import { qrSvgTag } from "./lib/qr";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { projectionThemeSearch } from "./projectionTheme";
@@ -771,18 +772,6 @@ function PreviewDialog({ t, cue, mode, close }: {
       </section>
     </div>
   );
-}
-
-export async function sendCommand(sessionId: string, expectedVersion: number, command: SessionCommand, token?: string) {
-  const response = await apiJson<{ snapshot: SessionSnapshot }>(
-    `/api/sessions/${sessionId}/commands`,
-    {
-      method: "POST",
-      headers: token ? { authorization: `Bearer ${token}` } : undefined,
-      body: JSON.stringify({ idempotency_key: uuid(), expected_version: expectedVersion, command }),
-    },
-  );
-  return response.snapshot;
 }
 
 function defaultVisibility(type: Interaction["interaction_type"]) {

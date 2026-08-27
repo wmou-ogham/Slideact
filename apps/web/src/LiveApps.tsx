@@ -7,10 +7,10 @@ import {
   LIVE_POLL_INTERVAL_MS,
   aggregateFor,
   pinWordCloud,
+  sendCommand,
   useLiveSession,
 } from "./lib/liveSession";
 import { qrSvgTag } from "./lib/qr";
-import { sendCommand } from "./PresenterApp";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { AggregateBars, CueResultVisuals, QuestionList } from "./ResultVisuals";
 import { ProjectionHeading } from "./TypewriterText";

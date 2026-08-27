@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { apiJson } from "../api";
-import type { LiveView } from "../types";
+import { apiJson, uuid } from "../api";
+import type { LiveView, SessionCommand, SessionSnapshot } from "../types";
 
 /** Polling cadence per live surface, previously scattered magic numbers. */
 export const LIVE_POLL_INTERVAL_MS = {
@@ -15,6 +15,23 @@ export async function loadLiveView(sessionId: string, token: string) {
   return apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
     headers: { authorization: `Bearer ${token}` },
   });
+}
+
+export async function sendCommand(
+  sessionId: string,
+  expectedVersion: number,
+  command: SessionCommand,
+  token?: string,
+) {
+  const response = await apiJson<{ snapshot: SessionSnapshot }>(
+    `/api/sessions/${sessionId}/commands`,
+    {
+      method: "POST",
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+      body: JSON.stringify({ idempotency_key: uuid(), expected_version: expectedVersion, command }),
+    },
+  );
+  return response.snapshot;
 }
 
 export async function pinWordCloud(
