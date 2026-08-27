@@ -49,6 +49,15 @@ Compose 已在跑時，可讓重開機後自動拉起（單位檔會把路徑換
 sudo ./scripts/install-autostart.sh --system
 ```
 
+## 投影畫面風格
+
+投影頁與結果頁可在三種風格間抽換：經典（現有深綠金框）、活潑（Mentimeter 風格）、終端機（黑底綠字打字機）。
+
+- 講者工作室現場控制列有「投影畫面風格」下拉選單；開啟投影頁會帶上 `?theme=`。
+- 投影頁將滑鼠移到畫面時，右下角會出現風格按鈕；已開啟的投影視窗會用 BroadcastChannel 同步。
+- 偏好存在瀏覽器 `localStorage` 的 `slide-helper-projection-theme`。
+- 終端機主題的打字效果會遵守 `prefers-reduced-motion`。
+
 ## 文字雲動態效果
 
 前端是包進 nginx 映像，改 `apps/web` 後要重建 web 服務才看得到：

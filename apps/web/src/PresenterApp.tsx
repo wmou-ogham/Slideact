@@ -2,6 +2,9 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
+import { projectionThemeSearch } from "./projectionTheme";
+import { useProjectionTheme } from "./useProjectionTheme";
 import type {
   Cue,
   GuestVaultFile,
@@ -770,13 +773,18 @@ function PreviewDialog({ t, cue, mode, close }: {
   close: () => void;
 }) {
   const interaction = cue.interactions[0];
+  const [theme, setTheme] = useProjectionTheme();
   return (
     <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
       <section className={`preview-dialog preview-${mode}`} role="dialog" aria-modal="true" aria-label={t(`preview.${mode}`)}>
-        <header><span>{t(`preview.${mode}`)}</span><button onClick={close} aria-label={t("preview.close")}>×</button></header>
+        <header>
+          <span>{t(`preview.${mode}`)}</span>
+          {mode === "projection" && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} />}
+          <button onClick={close} aria-label={t("preview.close")}>×</button>
+        </header>
         {mode === "projection" && (
-          <div className="projection-preview">
-            <small>LIVE · ABC234</small>
+          <div className="projection-preview" data-projection-theme={theme}>
+            <small>{theme === "terminal" ? "live" : "LIVE"} · ABC234</small>
             <h2>{interaction?.prompt ?? cue.name}</h2>
             <div className="preview-bars"><i /><i /><i /></div>
           </div>
@@ -996,6 +1004,7 @@ function LiveControl({
   const [pairingOpen, setPairingOpen] = useState(false);
   const [remoteLink, setRemoteLink] = useState("");
   const [extensionConnected, setExtensionConnected] = useState<boolean | null>(null);
+  const [theme, setTheme] = useProjectionTheme();
   useEffect(() => {
     if (!snapshot || snapshot.status === "ended" || snapshot.status === "draft") {
       setExtensionConnected(null);
@@ -1048,7 +1057,7 @@ function LiveControl({
     const target = window.open("about:blank", "_blank");
     try {
       const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "presenter" });
-      const url = `/projection/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
+      const url = `/projection/${snapshot.session_id}?${projectionThemeSearch(theme)}#token=${encodeURIComponent(issued.token)}`;
       if (target) target.location.href = url;
       else location.href = url;
     } catch {
@@ -1124,6 +1133,7 @@ function LiveControl({
         {isLive && (cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
         {isControllable && cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         {snapshot?.status === "ended" && <button disabled={busy || !project} onClick={() => send({ type: "reopen_session" })}>{t("live.reopen")}</button>}
+        {isControllable && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />}
         {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}

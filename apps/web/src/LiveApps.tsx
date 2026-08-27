@@ -3,8 +3,11 @@ import qrcode from "qrcode-generator";
 
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import { sendCommand } from "./PresenterApp";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { AggregateBars, CueResultVisuals, QuestionList } from "./ResultVisuals";
+import { ProjectionHeading } from "./TypewriterText";
 import type { Cue, LiveView, Question, SessionCommand, SessionSnapshot, SnapshotInteraction } from "./types";
+import { ProjectionThemeContext, useProjectionTheme } from "./useProjectionTheme";
 
 type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
@@ -589,20 +592,19 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
+  const [theme, setTheme] = useProjectionTheme({ applyToBody: true, syncUrl: true });
   const cueLiveCache = useRef<Record<string, LiveView>>({});
   const refresh = useCallback(async () => {
     if (!token) throw new Error("projection_token_missing");
     setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
   }, [sessionId, token]);
 
+  useProjectionChrome();
+
   useEffect(() => {
-    document.body.classList.add("projection-body");
     refresh().catch(() => setError("projection_token_invalid"));
     const timer = window.setInterval(() => refresh().catch(() => undefined), 2000);
-    return () => {
-      document.body.classList.remove("projection-body");
-      window.clearInterval(timer);
-    };
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   useEffect(() => {
@@ -624,45 +626,76 @@ export function ProjectionApp({ t }: { t: Translate }) {
         : cueRun.state === "revealed"
           ? t("audience.results")
           : t("audience.closed");
+  const joinCode = live.snapshot.join_code ?? "";
   return (
-    <main className="projection-root projection-live">
-      <header>
-        <span>
-          SLIDEACT · LIVE
-          {liveStatus ? <span className="projection-live-status">{liveStatus}</span> : null}
-        </span>
-        <strong>{live.snapshot.join_code}</strong>
-      </header>
-      {live.snapshot.presentation_view === "join_qr" || !cueRun ? (
-        <section className="projection-waiting"><p>{t("projection.join")}</p><strong>{live.snapshot.join_code}</strong><ProjectionJoinQr code={live.snapshot.join_code ?? ""} label={t("live.joinQr")} /><small>{t("projection.waiting")}</small></section>
-      ) : cueRun.state === "ready" ? (
-        <section className="projection-results projection-cue-ready">
-          {multi
-            ? interactions.map((interaction) => <h1 key={interaction.id}>{interaction.prompt}</h1>)
-            : <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
-        </section>
-      ) : (
-        <section className={multi ? "projection-results projection-multi" : "projection-results"}>
-          {!multi && <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}
-          <CueResultVisuals
-            t={t}
-            interactions={interactions.map((interaction) => ({
-              id: interaction.id,
-              prompt: interaction.prompt,
-              interaction_type: interaction.interaction_type,
-              aggregate: aggregateFor(live, interaction.id),
-            }))}
-            questions={live.questions}
-            onToggleWordPin={(interactionId, text, pinned) => {
-              void pinWordCloud(sessionId, token, interactionId, text, pinned)
-                .then(() => refresh())
-                .catch(() => undefined);
-            }}
-          />
-        </section>
-      )}
-    </main>
+    <ProjectionThemeContext.Provider value={theme}>
+      <main className="projection-root projection-live" data-projection-theme={theme}>
+        <header>
+          <span>
+            {theme === "terminal" ? "live" : "SLIDEACT · LIVE"}
+            {liveStatus ? <span className="projection-live-status">{liveStatus}</span> : null}
+          </span>
+          <strong>{joinCode}</strong>
+        </header>
+        {live.snapshot.presentation_view === "join_qr" || !cueRun ? (
+          <section className="projection-waiting">
+            <p>{t("projection.join")}</p>
+            <strong><ProjectionHeading theme={theme} text={joinCode} /></strong>
+            <ProjectionJoinQr code={joinCode} label={t("live.joinQr")} />
+            <small>{t("projection.waiting")}</small>
+          </section>
+        ) : cueRun.state === "ready" ? (
+          <section className="projection-results projection-cue-ready">
+            {multi
+              ? interactions.map((interaction) => (
+                <h1 key={interaction.id}><ProjectionHeading theme={theme} text={interaction.prompt} /></h1>
+              ))
+              : <h1><ProjectionHeading theme={theme} text={interactions[0]?.prompt ?? cueRun.cue_name} /></h1>}
+          </section>
+        ) : (
+          <section className={multi ? "projection-results projection-multi" : "projection-results"}>
+            {!multi && <h1><ProjectionHeading theme={theme} text={interactions[0]?.prompt ?? cueRun.cue_name} /></h1>}
+            <CueResultVisuals
+              t={t}
+              interactions={interactions.map((interaction) => ({
+                id: interaction.id,
+                prompt: interaction.prompt,
+                interaction_type: interaction.interaction_type,
+                aggregate: aggregateFor(live, interaction.id),
+              }))}
+              questions={live.questions}
+              onToggleWordPin={(interactionId, text, pinned) => {
+                void pinWordCloud(sessionId, token, interactionId, text, pinned)
+                  .then(() => refresh())
+                  .catch(() => undefined);
+              }}
+            />
+          </section>
+        )}
+        <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} />
+      </main>
+    </ProjectionThemeContext.Provider>
   );
+}
+
+function useProjectionChrome() {
+  useEffect(() => {
+    let hideTimer = 0;
+    const show = () => {
+      document.body.classList.add("is-chrome-visible");
+      window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => document.body.classList.remove("is-chrome-visible"), 2400);
+    };
+    show();
+    window.addEventListener("mousemove", show);
+    window.addEventListener("keydown", show);
+    return () => {
+      window.clearTimeout(hideTimer);
+      window.removeEventListener("mousemove", show);
+      window.removeEventListener("keydown", show);
+      document.body.classList.remove("is-chrome-visible");
+    };
+  }, []);
 }
 
 function ProjectionJoinQr({ code, label }: { code: string; label: string }) {

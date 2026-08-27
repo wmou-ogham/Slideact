@@ -1,7 +1,10 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
 
+import { WORD_CLOUD_THEME } from "./projectionTheme";
+import { ProjectionHeading } from "./TypewriterText";
 import type { Aggregate, Question } from "./types";
+import { useProjectionThemeValue } from "./useProjectionTheme";
 
 type Translate = (key: any, params?: Readonly<Record<string, string | number>>) => string;
 
@@ -78,11 +81,12 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
   onToggleWordPin?: (interactionId: string, text: string, pinned: boolean) => void;
 }) {
   const multi = interactions.length > 1;
+  const theme = useProjectionThemeValue();
   return (
     <div className="projection-visuals">
       {interactions.map((interaction) => (
         <article className="projection-interaction" key={interaction.id}>
-          {multi && <h2>{interaction.prompt}</h2>}
+          {multi && <h2><ProjectionHeading theme={theme} text={interaction.prompt} /></h2>}
           {interaction.interaction_type === "qa" ? (
             questions.length
               ? <div className="projection-questions"><QuestionList t={t} questions={questions} busy /></div>
@@ -104,7 +108,6 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
   );
 }
 
-const WORD_CLOUD_COLORS = ["#f8f6ef", "#f2ce6e", "#8dd5ae", "#f0a89f", "#d9c2f0", "#7ed0e6", "#ffc09a"];
 const WORD_CLOUD_ANGLES = [0, 0, 0, -7, 7, -13, 13, -20, 20];
 const WORD_CLOUD_RANDOM = () => 0.5;
 const WORD_CLOUD_WIDTH = 720;
@@ -152,7 +155,8 @@ function wordTone(text: string): number {
   return hash >>> 0;
 }
 
-function wordCloudRotate(word: { text: string }): number {
+function wordCloudRotate(word: { text: string }, rotate: boolean): number {
+  if (!rotate) return 0;
   return WORD_CLOUD_ANGLES[wordTone(word.text) % WORD_CLOUD_ANGLES.length];
 }
 
@@ -181,6 +185,12 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   pinLabel: string;
   unpinLabel: string;
 }) {
+  const theme = useProjectionThemeValue();
+  const palette = WORD_CLOUD_THEME[theme];
+  const rotate = useMemo(
+    () => (word: { text: string }) => wordCloudRotate(word, palette.rotate),
+    [palette.rotate],
+  );
   const wordSignature = entries.slice(0, 80).map((entry) => `${entry.text}\t${entry.count}`).join("\n");
   const words = useMemo(
     () => entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count })),
@@ -266,10 +276,10 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
           height={WORD_CLOUD_HEIGHT}
           words={words}
           padding={8}
-          font="Inter, ui-sans-serif, system-ui, sans-serif"
+          font={palette.font}
           fontSize={fontSize}
           fontWeight={fontWeight}
-          rotate={wordCloudRotate}
+          rotate={rotate}
           spiral="archimedean"
           random={WORD_CLOUD_RANDOM}
         >
@@ -299,7 +309,10 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
                 key={text}
                 className={onTogglePin ? "word-cloud-hit" : undefined}
                 transform={`translate(${word.x ?? 0}, ${word.y ?? 0}) rotate(${word.rotate ?? 0})`}
-                onClick={onTogglePin ? () => onTogglePin(text, !isPinned) : undefined}
+                onClick={onTogglePin ? (event) => {
+                  onTogglePin(text, !isPinned);
+                  if (event.detail) event.currentTarget.blur();
+                } : undefined}
                 role={onTogglePin ? "button" : undefined}
                 tabIndex={onTogglePin ? 0 : undefined}
                 aria-pressed={onTogglePin ? isPinned : undefined}
@@ -327,7 +340,7 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
                 >
                   <g className={isPinned ? undefined : "word-cloud-float"}>
                     <text
-                      fill={WORD_CLOUD_COLORS[wordTone(text) % WORD_CLOUD_COLORS.length]}
+                      fill={palette.colors[wordTone(text) % palette.colors.length]}
                       fontFamily={word.font}
                       fontSize={word.size}
                       fontWeight={word.weight}
