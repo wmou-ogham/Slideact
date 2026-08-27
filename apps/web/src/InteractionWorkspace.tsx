@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { Translate } from "./i18n";
 import { defaultVisibility, typeName } from "./lib/interactions";
@@ -9,7 +9,15 @@ import {
 } from "./presenterTemplates";
 import type { Cue, Interaction } from "./types";
 
-type ResultVisibility = "after_reveal" | "live";
+export type ResultVisibility = "after_reveal" | "live";
+
+export type InteractionDraft = {
+  interaction_type: Interaction["interaction_type"];
+  prompt: string;
+  purpose: InteractionPurpose;
+  visibility: ResultVisibility;
+  options: string[];
+};
 
 type InteractionWorkspaceProps = {
   t: Translate;
@@ -17,6 +25,7 @@ type InteractionWorkspaceProps = {
   cue: Cue;
   item?: Interaction;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onAutoSave?: (draft: InteractionDraft) => Promise<void>;
   onDelete?: () => void;
   onCancel?: () => void;
 };
@@ -27,6 +36,7 @@ export function InteractionWorkspace({
   cue,
   item,
   onSubmit,
+  onAutoSave,
   onDelete,
   onCancel,
 }: InteractionWorkspaceProps) {
@@ -37,6 +47,39 @@ export function InteractionWorkspace({
   const [prompt, setPrompt] = useState(item?.prompt ?? recommended.prompt);
   const [options, setOptions] = useState(() => initialOptions(t, item));
   const [visibility, setVisibility] = useState<ResultVisibility>(() => item ? visibilityFrom(item) : defaultVisibility(recommended.type));
+  const draft: InteractionDraft = {
+    interaction_type: type,
+    prompt,
+    purpose,
+    visibility,
+    options: type === "single_choice" ? options : [],
+  };
+  const fingerprint = JSON.stringify(draft);
+  const savedFingerprint = useRef(fingerprint);
+  const autoSaveCallback = useRef(onAutoSave);
+  const [autoSaveState, setAutoSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  useEffect(() => {
+    autoSaveCallback.current = onAutoSave;
+  }, [onAutoSave]);
+
+  useEffect(() => {
+    if (!item || busy || autoSaveState === "saving" || !interactionDraftValid(draft)) return;
+    if (fingerprint === savedFingerprint.current) return;
+    const timer = window.setTimeout(() => {
+      const save = autoSaveCallback.current;
+      if (!save) return;
+      const savingFingerprint = fingerprint;
+      setAutoSaveState("saving");
+      void save(draft)
+        .then(() => {
+          savedFingerprint.current = savingFingerprint;
+          setAutoSaveState("saved");
+        })
+        .catch(() => setAutoSaveState("idle"));
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [autoSaveState, busy, fingerprint, item]);
 
   function choosePurpose(nextPurpose: InteractionPurpose) {
     const previousRecommendation = purposeRecommendation(t, purpose);
@@ -63,7 +106,10 @@ export function InteractionWorkspace({
   }
 
   return (
-    <form className={item ? "interaction-workspace" : "interaction-workspace creating"} onSubmit={onSubmit}>
+    <form
+      className={item ? "interaction-workspace" : "interaction-workspace creating"}
+      onSubmit={(event) => item ? event.preventDefault() : onSubmit(event)}
+    >
       <section className="interaction-stage" aria-label={t("interaction.canvasLabel")}>
         {!item && <div className="interaction-creation-hint" role="status">
           <strong>{t("interaction.createHintTitle")}</strong>
@@ -71,7 +117,15 @@ export function InteractionWorkspace({
         </div>}
         <div className="canvas-context">
           <span>{t("interaction.slideCanvas", { slide: cue.anchor_value ?? cue.position + 1 })}</span>
-          <strong>{typeName(t, type)}</strong>
+          <div className="canvas-context-actions">
+            <strong>{typeName(t, type)}</strong>
+            {onDelete && <button
+              type="button"
+              className="canvas-delete-button"
+              disabled={busy}
+              onClick={onDelete}
+            >{t("common.delete")}</button>}
+          </div>
         </div>
         <div className={`interaction-canvas canvas-type-${type}`}>
           <span className={`type-badge type-${type}`}>{typeName(t, type)}</span>
@@ -104,6 +158,13 @@ export function InteractionWorkspace({
       <aside className="interaction-inspector">
         <header>
           <small>{item ? t("interaction.editing") : t("interaction.creating")}</small>
+          {item && <span className={`autosave-status ${autoSaveState}`}>
+            {t(autoSaveState === "saving"
+              ? "interaction.saving"
+              : autoSaveState === "saved"
+                ? "interaction.saved"
+                : "interaction.autoSave")}
+          </span>}
         </header>
 
         <section className="inspector-section">
@@ -138,11 +199,10 @@ export function InteractionWorkspace({
           </label>
         </section>
 
-        <div className="inspector-actions">
-          <button className="primary-button" disabled={busy}>{item ? t("common.save") : t("interaction.create")}</button>
+        {(!item || onCancel) && <div className="inspector-actions">
+          {!item && <button className="primary-button" disabled={busy}>{t("interaction.create")}</button>}
           {onCancel && <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>{t("common.cancel")}</button>}
-          {onDelete && <button type="button" className="danger-button" disabled={busy} onClick={onDelete}>{t("common.delete")}</button>}
-        </div>
+        </div>}
       </aside>
     </form>
   );
@@ -173,7 +233,7 @@ function InteractionCanvasBody({ t, type, options, updateOption, removeOption, a
             {options.length > 2 && <button type="button" onClick={() => removeOption(index)} aria-label={t("interaction.removeOption", { index: index + 1 })}>×</button>}
           </div>
         ))}
-        <button type="button" className="add-option" onClick={addOption}>+ {t("interaction.addOption")}</button>
+        {options.length < 6 && <button type="button" className="add-option" onClick={addOption}>+ {t("interaction.addOption")}</button>}
       </div>
     );
   }
@@ -235,4 +295,16 @@ function visibilityFrom(item: Interaction): ResultVisibility {
 
 export function liveVisibilityFromForm(value: FormDataEntryValue | null): ResultVisibility {
   return value === "on" ? "live" : "after_reveal";
+}
+
+export function interactionDraftValid(draft: InteractionDraft) {
+  const prompt = draft.prompt.trim();
+  if (!prompt || prompt.length > 500) return false;
+  if (draft.interaction_type !== "single_choice") return true;
+  return draft.options.length >= 2
+    && draft.options.length <= 6
+    && draft.options.every((option) => {
+      const label = option.trim();
+      return Boolean(label) && label.length <= 200;
+    });
 }

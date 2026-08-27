@@ -251,6 +251,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .interaction-creation-hint span { max-width: 390px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .canvas-context { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 820px; margin: 0 auto 10px; color: var(--muted); font-size: 8px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .canvas-context strong { color: var(--green); font-size: 8px; }
+.canvas-context-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.canvas-delete-button { min-height: 26px; padding: 0 9px; color: #8a302b; background: #f8e4e1; border: 1px solid #e8bbb6; border-radius: 7px; font-size: 8px; font-weight: 800; }
 .interaction-canvas { position: relative; display: flex; aspect-ratio: 16 / 9; width: 100%; max-width: 820px; margin: 0 auto; padding: clamp(24px, 4vw, 50px); overflow: hidden; flex-direction: column; color: #173c36; background: #fff; border: 1px solid rgba(18,60,52,.13); border-radius: 8px; box-shadow: 0 16px 42px rgba(23,60,54,.14); }
 .interaction-canvas > .type-badge { align-self: flex-start; margin-bottom: clamp(8px, 1.4vw, 18px); }
 .canvas-title-field { display: block; }
@@ -283,9 +285,13 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .canvas-qa { display: grid; gap: 8px; margin-top: auto; padding-bottom: 16px; }
 .canvas-qa > div { display: flex; gap: 9px; align-items: center; min-height: 44px; padding: 10px 13px; color: var(--muted); background: #f1f5f3; border: 1px solid rgba(39,107,94,.12); border-radius: 10px; font-size: clamp(8px, .9vw, 11px); }
 .canvas-qa i { width: 23px; height: 23px; flex: 0 0 auto; background: #cee3f1; border-radius: 50%; }
-.interaction-inspector { display: flex; min-width: 0; min-height: 0; overflow-y: auto; flex-direction: column; background: #fffdf9; border-left: 1px solid var(--line); }
-.interaction-inspector > header { padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.interaction-inspector { display: flex; min-width: 0; min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; flex-direction: column; background: #fffdf9; border-left: 1px solid var(--line); }
+.interaction-inspector > header, .interaction-inspector > .inspector-section, .interaction-inspector > .inspector-actions { flex: 0 0 auto; }
+.interaction-inspector > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .interaction-inspector > header small { color: var(--orange); font-size: 8px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.autosave-status { color: var(--muted); font-size: 8px; font-weight: 700; white-space: nowrap; }
+.autosave-status.saving { color: var(--orange); }
+.autosave-status.saved { color: var(--green); }
 .inspector-section { display: grid; gap: 14px; padding: 20px; border-bottom: 1px solid var(--line); }
 .inspector-section > h4 { margin: 0; font-size: 11px; }
 .inspector-section > label:not(.visibility-checkbox) { display: grid; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
@@ -302,7 +308,6 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .inspector-actions button { width: 100%; min-height: 40px; border-radius: 9px; font-size: 10px; font-weight: 800; }
 .inspector-actions .primary-button { color: #fff; background: var(--green); border-color: var(--green); }
 .inspector-actions .secondary-button { color: var(--green); background: transparent; border: 1px solid var(--line); }
-.inspector-actions .danger-button { color: #8a302b; background: #f8e4e1; border: 1px solid #e8bbb6; }
 .empty-copy { margin: 18px 4px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .empty-copy.roomy { margin-top: 80px; text-align: center; }
 

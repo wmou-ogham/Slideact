@@ -2,7 +2,11 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiError, apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
-import { InteractionWorkspace, liveVisibilityFromForm } from "./InteractionWorkspace";
+import {
+  InteractionWorkspace,
+  type InteractionDraft,
+  liveVisibilityFromForm,
+} from "./InteractionWorkspace";
 import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
@@ -428,36 +432,41 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.interactionCreated"));
   }
 
-  async function updateInteraction(item: Interaction, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function updateInteraction(item: Interaction, draft: InteractionDraft) {
     if (!projectId || !cueId) return;
-    const data = new FormData(event.currentTarget);
-    const type = String(data.get("interaction_type"));
-    const rawOptions = parseOptions(data.get("options"));
-    await run(async () => {
-      await apiJson<Interaction>(
+    try {
+      const updated = await apiJson<Interaction>(
         `/api/projects/${projectId}/cues/${cueId}/interactions/${item.id}`,
         {
           method: "PUT",
           body: JSON.stringify({
-            interaction_type: type,
-            prompt: data.get("prompt"),
+            interaction_type: draft.interaction_type,
+            prompt: draft.prompt,
             description: item.description,
             settings: {
               ...item.settings,
               schema_version: 1,
-              purpose: data.get("interaction_purpose") ?? item.settings.purpose,
-              results: { audience_visibility: liveVisibilityFromForm(data.get("publish_live")) },
+              purpose: item.settings.purpose,
+              results: { audience_visibility: draft.visibility },
               response: { allow_change: true },
             },
-            options: type === "single_choice"
-              ? rawOptions.map((label) => ({ label, is_correct: null }))
+            options: draft.interaction_type === "single_choice"
+              ? draft.options.map((label) => ({ label, is_correct: null }))
               : [],
           }),
         },
       );
-      await refreshProject();
-    }, t("notice.interactionUpdated"));
+      setCues((current) => current.map((currentCue) => currentCue.id === cueId
+        ? {
+            ...currentCue,
+            interactions: currentCue.interactions.map((interaction) =>
+              interaction.id === updated.id ? updated : interaction),
+          }
+        : currentCue));
+    } catch (error) {
+      report(error);
+      throw error;
+    }
   }
 
   async function deleteInteraction(item: Interaction) {
@@ -715,7 +724,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                   busy={busy}
                   cue={cue}
                   item={selectedInteraction}
-                  onSubmit={(event) => updateInteraction(selectedInteraction, event)}
+                  onSubmit={(event) => event.preventDefault()}
+                  onAutoSave={(draft) => updateInteraction(selectedInteraction, draft)}
                   onDelete={() => deleteInteraction(selectedInteraction)}
                 />
               )}
