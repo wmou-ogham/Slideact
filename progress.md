@@ -217,6 +217,15 @@
 - [x] 合併重複邏輯到 `apps/web/src/lib/`：`typeName`（原兩份）、`parseOptions`（原兩份）、QR SVG 產生（原兩份，保留各自 cellSize 維持視覺不變）
 - [x] 每步皆通過 vitest（10 tests）+ tsc --noEmit
 
+### 階段 3：抽 hook 與拆檔（行為不變）
+
+- [x] 抽出 `lib/liveSession.ts`：`useLiveSession` hook 統一 loadLiveView + 輪詢 + WebSocket + rememberCueLive；輪詢間隔集中為 `LIVE_POLL_INTERVAL_MS`（audience 3.5s / remote 3s / projection、overlay 2s）
+- [x] 修 RemoteApp 雙重真相：移除獨立 snapshot 與 questions state，全部改以 live view 為單一來源（先讀後端 live_views.rs 確認 controller 拿到的 snapshot/questions 與獨立端點相同）；指令成功或失敗後都 refresh live
+- [x] `sendCommand` 從 PresenterApp 移到 `lib/liveSession.ts`，解除 LiveApps→PresenterApp 反向依賴
+- [x] `LiveApps.tsx`（~780 行）拆成 `AudienceApp.tsx` / `RemoteApp.tsx` / `ProjectionApp.tsx` / `OverlayApp.tsx`（純搬移）
+- [x] `PresenterApp.tsx`（~1100 行 → ~700 行）拆出 `LiveControl.tsx`、`presenterTemplates.ts`、`PresenterAuth.tsx`；共用 label helpers 移入 `lib/interactions.ts`
+- [x] 每步皆通過 vitest + tsc；階段末加跑 vite build 綠色
+
 ## 投影畫面三種風格
 
 - [x] 抽出 `data-projection-theme`，讓投影／結果頁可抽換風格
