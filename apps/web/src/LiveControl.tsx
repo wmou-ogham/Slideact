@@ -10,7 +10,7 @@ import { useProjectionTheme } from "./useProjectionTheme";
 import type { Cue, LiveSession, Project, SessionCommand, SessionSnapshot } from "./types";
 
 export function LiveControl({
-  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, createSession, send,
+  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, refreshSnapshot, createSession, send,
 }: {
   t: Translate;
   busy: boolean;
@@ -20,6 +20,7 @@ export function LiveControl({
   sessionId: string;
   setSessionId: (value: string) => void;
   snapshot: SessionSnapshot | null;
+  refreshSnapshot: () => Promise<void>;
   createSession: () => void;
   send: (command: SessionCommand) => void;
 }) {
@@ -121,7 +122,7 @@ export function LiveControl({
       method: "PUT",
       body: JSON.stringify({ mode: "manual" }),
     });
-    window.location.reload();
+    await refreshSnapshot().catch(() => undefined);
   }
 
   return (

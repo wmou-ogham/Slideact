@@ -590,6 +590,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         sessionId={sessionId}
         setSessionId={setSessionId}
         snapshot={snapshot}
+        refreshSnapshot={refreshSnapshot}
         createSession={createSession}
         send={send}
       />
