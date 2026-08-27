@@ -190,6 +190,25 @@
   - 全 workspace `pnpm check && pnpm test`（含 extension 2 檔 10 tests）：全過
 - [x] 未跑 `cargo test`（後端由另一位平行處理，避免 target/ 競爭）
 
+### 階段 1：實際走查（五角色流程）
+
+- [x] Compose stack 已於本機 18666 埠運行（`/api/version` 健康），沿用現有容器
+- [x] 走查方式：本機無瀏覽器可操作 GUI，改以腳本走完整 API 流程（`node:22` 容器 + `--network host`），並比對前端程式碼行為；腳本內容見 commit 訊息（暫存於 /tmp，不入版控）
+- [x] 流程全數通過：guest 登入 → 建專案/cue/四種互動 → 開場次（open_lobby → start → prepare_cue，immediate cue 直接進 open）→ 觀眾加入作答（理解度/單選/文字雲/Q&A）→ controller token 走 Remote（snapshot、live、翻頁、釘問題、釘文字雲）→ presenter/overlay token 取 live view → reveal → QR 首頁切換（cue run 保留）→ end → results + CSV 匯出
+- [x] 結果可見性驗證：單選（after_reveal）在 reveal 前 audience/overlay 的 live view 都看不到統計，reveal 後看得到；文字雲/理解度（live）即時可見
+
+#### 走查發現的 UX 問題清單（僅記錄；視覺相關不動手）
+
+- [ ] （行為、後端）觀眾送出 after_reveal 單選答案時，POST 回應本身就附上完整統計 aggregate（含各選項票數），揭曉前就能從 network 面板看到；live view 有正確隱藏，但作答回應洩漏。屬後端行為，本次不動
+- [ ] （行為）Remote 翻頁在 Extension 未配對時仍回 accepted=true，指令進佇列後沒人消費，使用者按「下一頁」毫無回饋也不知道沒效果
+- [ ] （行為）觀眾文字雲輸入框 maxLength=200，但後端對重複字元等內容會回 response_text_rejected，觀眾只看到 generic 錯誤碼訊息，不知道為什麼被拒
+- [ ] （行為）Landing 首頁參加碼輸入框接受英數字（pattern A-Za-z0-9），但送出時 `join()` 會把非數字全部剝掉（\D）：輸入「AB12」會導去 /join/12；現行參加碼已是六位純數字，兩處輸入規則不一致
+- [ ] （行為）LiveControl 的「配對 Extension」「手機遙控」「開投影」等按鈕的 API 失敗沒有接 report()，按了沒反應也沒錯誤訊息（unhandled rejection）
+- [ ] （計畫已列）手動 sync 直接 window.location.reload()，丟掉所有 UI 狀態 → 階段 4 修
+- [ ] （計畫已列）InteractionEditForm useEffect 依賴整個 item object，refreshProject 後物件 identity 變了會把使用者正在編輯的內容洗掉 → 階段 4 修
+- [ ] （計畫已列）Remote 錯誤處理用 "auth"/"token"/"load" 魔術字串，其餘錯誤直接把 API error code 丟給使用者 → 階段 4 修
+- [ ] （計畫已列）Extension popup 與 Presenter 模板/cue 名稱硬編碼中英文，未走 packages/i18n → 階段 4 修
+
 ## 投影畫面三種風格
 
 - [x] 抽出 `data-projection-theme`，讓投影／結果頁可抽換風格
