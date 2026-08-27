@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSlideAnchor, parseVaultCredential } from "./PresenterApp";
+import { normalizeSlideAnchor } from "./PresenterApp";
+import { parseVaultCredential } from "./PresenterAuth";
 
 describe("normalizeSlideAnchor", () => {
   it("uses the next one-based slide index when the field is empty", () => {

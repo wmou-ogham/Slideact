@@ -1,16 +1,23 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiError, apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
-import { parseOptions, typeName } from "./lib/interactions";
+import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
-import { qrSvgTag } from "./lib/qr";
+import { LiveControl } from "./LiveControl";
+import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
-import { projectionThemeSearch } from "./projectionTheme";
+import {
+  type InteractionPurpose,
+  type TemplateKind,
+  generatedCueName,
+  interactionPurposes,
+  purposeRecommendation,
+  templates,
+} from "./presenterTemplates";
 import { useProjectionTheme } from "./useProjectionTheme";
 import type {
   Cue,
-  GuestVaultFile,
   Interaction,
   LiveSession,
   Profile,
@@ -381,57 +388,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   }
 
   if (profile === null) {
-    return (
-      <main className="center-state auth-card">
-        <p className="eyebrow">{t("presenter.eyebrow")}</p>
-        <h1 className="compact-heading">{t("auth.heading")}</h1>
-        <p>{t("auth.description")}</p>
-        <a className="primary-button" href="/api/auth/google/start?return_to=/presenter">
-          {t("auth.google")}
-        </a>
-        <button
-          className="guest-button"
-          disabled={busy}
-          onClick={async () => {
-            await postJson("/api/auth/guest", { locale });
-            window.location.reload();
-          }}
-        >
-          {t("auth.guest")}
-        </button>
-        <small className="guest-note">{t("auth.guestNote")}</small>
-        <form
-          className="vault-restore"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            const key = new FormData(event.currentTarget).get("vaultKey");
-            if (typeof key !== "string") return;
-            await restoreGuestVault(key, setMessage, t).then((ok) => ok && location.reload());
-          }}
-        >
-          <p>{t("auth.restoreHeading")}</p>
-          <label className="guest-button vault-file">
-            {t("auth.openVault")}
-            <input
-              type="file"
-              accept="application/json,.json"
-              onChange={async (event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (!file) return;
-                const ok = await restoreGuestVault(await file.text(), setMessage, t);
-                if (ok) location.reload();
-              }}
-            />
-          </label>
-          <div className="inline-form">
-            <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" />
-            <button disabled={busy} type="submit">{t("auth.restoreVault")}</button>
-          </div>
-          {message && <p className="form-error" role="alert">{message}</p>}
-        </form>
-      </main>
-    );
+    return <PresenterLogin t={t} locale={locale} busy={busy} message={message} setMessage={setMessage} />;
   }
 
   return (
@@ -640,98 +597,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   );
 }
 
-type TemplateKind = "teaching" | "lightning" | "demo";
-type InteractionPurpose = "understanding" | "knowledge" | "opinions" | "questions" | "next" | "mood" | "priorities" | "ideas";
-const interactionPurposes: InteractionPurpose[] = ["understanding", "knowledge", "opinions", "questions", "next", "mood", "priorities", "ideas"];
-
-function purposeRecommendation(locale: string, purpose: InteractionPurpose): { type: Interaction["interaction_type"]; prompt: string } {
-  const zh = locale === "zh-TW";
-  const recommendations: Record<InteractionPurpose, { type: Interaction["interaction_type"]; prompt: string }> = {
-    understanding: { type: "understanding", prompt: zh ? "目前為止都理解了嗎？" : "How clear is this so far?" },
-    knowledge: { type: "single_choice", prompt: zh ? "哪一個選項最符合剛才的重點？" : "Which option best matches the key idea?" },
-    opinions: { type: "single_choice", prompt: zh ? "你最認同哪一個方向？" : "Which direction do you agree with most?" },
-    questions: { type: "qa", prompt: zh ? "你希望我進一步說明什麼？" : "What would you like me to clarify?" },
-    next: { type: "single_choice", prompt: zh ? "接下來最想先看哪個內容？" : "What should we explore next?" },
-    mood: { type: "word_cloud", prompt: zh ? "用一個詞描述你現在的感受。" : "Describe the room in one word." },
-    priorities: { type: "single_choice", prompt: zh ? "哪一項最值得優先處理？" : "What should be the top priority?" },
-    ideas: { type: "word_cloud", prompt: zh ? "用一個短詞分享你的想法。" : "Share one short idea." },
-  };
-  return recommendations[purpose];
-}
-
-type TemplateInteraction = {
-  type: Interaction["interaction_type"];
-  prompt: string;
-  description?: string;
-  options?: string[];
-};
-type PresentationTemplate = {
-  title: string;
-  cues: Array<{
-    name: string;
-    slide?: number;
-    confirm?: boolean;
-    interactions: TemplateInteraction[];
-  }>;
-};
-
-function templates(locale: string): Record<TemplateKind, PresentationTemplate> {
-  if (locale === "zh-TW") {
-    return {
-      teaching: {
-        title: "教學互動範本",
-        cues: [
-          { name: "確認理解度", slide: 2, interactions: [{ type: "understanding", prompt: "目前為止都聽懂了嗎？", description: "即時確認是否需要多做說明" }] },
-          { name: "課中小測驗", slide: 5, confirm: true, interactions: [{ type: "single_choice", prompt: "哪一個敘述最符合剛才的觀念？", options: ["選項 A", "選項 B", "選項 C", "選項 D"] }] },
-          { name: "學生提問", confirm: true, interactions: [{ type: "qa", prompt: "有什麼地方希望老師再說明？" }] },
-        ],
-      },
-      lightning: {
-        title: "Lightning Talk 互動範本",
-        cues: [
-          { name: "快速暖場", slide: 2, interactions: [{ type: "understanding", prompt: "你曾經遇過這個問題嗎？" }] },
-          { name: "一句話收斂", slide: 4, interactions: [{ type: "word_cloud", prompt: "用一個詞形容你最大的收穫" }] },
-          { name: "限時問答", confirm: true, interactions: [{ type: "qa", prompt: "把最想問的問題送上來" }] },
-        ],
-      },
-      demo: {
-        title: "產品 Demo 互動範本",
-        cues: [
-          { name: "痛點優先序", slide: 2, interactions: [{ type: "single_choice", prompt: "目前哪個問題最影響你的團隊？", options: ["效率", "協作", "成本", "可見性"] }] },
-          { name: "功能清晰度", slide: 4, interactions: [{ type: "understanding", prompt: "這個功能的價值是否清楚？" }] },
-          { name: "使用情境", slide: 6, interactions: [{ type: "word_cloud", prompt: "你最想把它用在哪個情境？" }] },
-        ],
-      },
-    };
-  }
-  return {
-    teaching: {
-      title: "Interactive teaching template",
-      cues: [
-        { name: "Check understanding", slide: 2, interactions: [{ type: "understanding", prompt: "Does everything make sense so far?", description: "See whether the room needs another explanation" }] },
-        { name: "Knowledge check", slide: 5, confirm: true, interactions: [{ type: "single_choice", prompt: "Which statement best matches the concept?", options: ["Option A", "Option B", "Option C", "Option D"] }] },
-        { name: "Student questions", confirm: true, interactions: [{ type: "qa", prompt: "What should the instructor explain again?" }] },
-      ],
-    },
-    lightning: {
-      title: "Lightning Talk template",
-      cues: [
-        { name: "Quick opener", slide: 2, interactions: [{ type: "understanding", prompt: "Have you experienced this problem?" }] },
-        { name: "One-word takeaway", slide: 4, interactions: [{ type: "word_cloud", prompt: "Describe your biggest takeaway in one word" }] },
-        { name: "Rapid Q&A", confirm: true, interactions: [{ type: "qa", prompt: "Send the one question you most want answered" }] },
-      ],
-    },
-    demo: {
-      title: "Product demo template",
-      cues: [
-        { name: "Pain-point priority", slide: 2, interactions: [{ type: "single_choice", prompt: "Which problem affects your team most?", options: ["Efficiency", "Collaboration", "Cost", "Visibility"] }] },
-        { name: "Feature clarity", slide: 4, interactions: [{ type: "understanding", prompt: "Is the value of this feature clear?" }] },
-        { name: "Use cases", slide: 6, interactions: [{ type: "word_cloud", prompt: "Where would you use this first?" }] },
-      ],
-    },
-  };
-}
-
 function PreviewDialog({ t, cue, mode, close }: {
   t: Translate;
   cue: Cue;
@@ -772,10 +637,6 @@ function PreviewDialog({ t, cue, mode, close }: {
       </section>
     </div>
   );
-}
-
-function defaultVisibility(type: Interaction["interaction_type"]) {
-  return type === "single_choice" ? "after_reveal" : "live";
 }
 
 function InteractionEditForm({ t, busy, item, onSave, onDelete }: {
@@ -828,64 +689,6 @@ function visibilityFrom(item: Interaction): ResultVisibility {
   return visibility === "live" ? "live" : "after_reveal";
 }
 
-export function parseVaultCredential(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as { recovery_key?: unknown };
-    if (typeof parsed.recovery_key === "string" && parsed.recovery_key.trim()) {
-      return parsed.recovery_key.trim();
-    }
-  } catch {
-    // Plain recovery keys are accepted as well as downloaded JSON files.
-  }
-  return trimmed;
-}
-
-async function restoreGuestVault(
-  raw: string,
-  setMessage: (value: string) => void,
-  t: Translate,
-): Promise<boolean> {
-  const recovery_key = parseVaultCredential(raw);
-  if (!recovery_key) {
-    setMessage(t("auth.vaultInvalid"));
-    return false;
-  }
-  try {
-    await postJson("/api/auth/guest/restore", { recovery_key });
-    return true;
-  } catch (error) {
-    const code = error instanceof ApiError ? error.code : "network_error";
-    setMessage(code === "guest_vault_recovery_invalid" ? t("auth.vaultInvalid") : t("error.generic", { code }));
-    return false;
-  }
-}
-
-async function downloadGuestVault(
-  vaultId: string | null,
-  setMessage: (value: string) => void,
-  t: Translate,
-): Promise<void> {
-  if (!window.confirm(t("auth.takeVaultConfirm"))) return;
-  try {
-    const file = await postJson<GuestVaultFile>("/api/auth/guest/export", {});
-    const blob = new Blob([`${JSON.stringify(file, null, 2)}\n`], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `slideact-vault-${(file.vault_id || vaultId || "guest").slice(0, 8)}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    setMessage(t("auth.vaultTaken"));
-  } catch (error) {
-    const code = error instanceof ApiError ? error.code : "network_error";
-    setMessage(t("error.generic", { code }));
-  }
-}
-
 export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const trimmed = value.trim();
   if (!trimmed) return String(fallbackIndex);
@@ -893,200 +696,4 @@ export function normalizeSlideAnchor(value: string, fallbackIndex: number) {
   const matched = matches.at(-1)?.[1];
   if (matched) return decodeURIComponent(matched);
   return trimmed.replace(/^id\./, "");
-}
-
-function generatedCueName(locale: string, index: number) {
-  return locale === "zh-TW" ? `投影片 ${index}` : `Slide ${index}`;
-}
-
-function slideAnchorLabel(t: Translate, cue: Cue) {
-  const name = cue.name.trim();
-  if (name) return truncateLabel(name, 28);
-  const anchor = cue.anchor_value ?? String(cue.position + 1);
-  if (/^\d+$/.test(anchor)) return t("cue.slide", { slide: anchor });
-  return t("cue.slideId", { id: truncateLabel(anchor, 16) });
-}
-
-function truncateLabel(value: string, max: number) {
-  return value.length > max ? `${value.slice(0, Math.max(1, max - 1))}…` : value;
-}
-
-function LiveControl({
-  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, createSession, send,
-}: {
-  t: Translate;
-  busy: boolean;
-  project: Project | null;
-  cues: Cue[];
-  sessions: LiveSession[];
-  sessionId: string;
-  setSessionId: (value: string) => void;
-  snapshot: SessionSnapshot | null;
-  createSession: () => void;
-  send: (command: SessionCommand) => void;
-}) {
-  const [pairingCode, setPairingCode] = useState("");
-  const [pairingOpen, setPairingOpen] = useState(false);
-  const [remoteLink, setRemoteLink] = useState("");
-  const [extensionConnected, setExtensionConnected] = useState<boolean | null>(null);
-  const [theme, setTheme] = useProjectionTheme();
-  useEffect(() => {
-    if (!snapshot || snapshot.status === "ended" || snapshot.status === "draft") {
-      setExtensionConnected(null);
-      return;
-    }
-    const load = () => apiJson<{ paired: boolean; connected: boolean }>(`/api/sessions/${snapshot.session_id}/extension-status`).then((value) => setExtensionConnected(value.paired ? value.connected : null)).catch(() => undefined);
-    void load();
-    const timer = window.setInterval(load, 15_000);
-    return () => window.clearInterval(timer);
-  }, [snapshot?.session_id, snapshot?.status]);
-  useEffect(() => {
-    setPairingCode("");
-    setPairingOpen(false);
-  }, [snapshot?.session_id]);
-  const statusActions = useMemo(() => {
-    if (!snapshot) return [];
-    switch (snapshot.status) {
-      case "lobby": return [["start", "live.start"]] as const;
-      case "live":
-      case "paused": return [["end", "live.end"]] as const;
-      default: return [];
-    }
-  }, [snapshot]);
-  const cueState = snapshot?.current_cue_run?.state;
-  const visibleSessions = sessions.filter((item) => item.status !== "draft");
-  const activeSession = visibleSessions.find((item) => item.status !== "ended");
-  const isControllable = snapshot && snapshot.status !== "ended" && snapshot.status !== "draft";
-  const isLive = snapshot?.status === "live";
-
-  function showResults() {
-    if (!snapshot) return;
-    window.open(`/results/${snapshot.session_id}`, "_blank", "noopener,noreferrer");
-  }
-
-  async function launchOverlay() {
-    if (!snapshot) return;
-    const target = window.open("about:blank", "_blank");
-    try {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "overlay" });
-      const url = `/overlay/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`;
-      if (target) target.location.href = url;
-      else location.href = url;
-    } catch {
-      target?.close();
-    }
-  }
-
-  async function launchProjection() {
-    if (!snapshot) return;
-    const target = window.open("about:blank", "_blank");
-    try {
-      const issued = await postJson<{ token: string }>(`/api/sessions/${snapshot.session_id}/tokens`, { role: "presenter" });
-      const url = `/projection/${snapshot.session_id}?${projectionThemeSearch(theme)}#token=${encodeURIComponent(issued.token)}`;
-      if (target) target.location.href = url;
-      else location.href = url;
-    } catch {
-      target?.close();
-    }
-  }
-
-  async function toggleExtensionPairing() {
-    if (pairingOpen) {
-      setPairingOpen(false);
-      return;
-    }
-    if (pairingCode) {
-      setPairingOpen(true);
-      return;
-    }
-    if (!snapshot) return;
-    const response = await postJson<{ code: string }>(
-      `/api/sessions/${snapshot.session_id}/extension-pairing`,
-      {},
-    );
-    setPairingCode(response.code);
-    setPairingOpen(true);
-  }
-
-  async function createRemoteAccess() {
-    if (!snapshot) return;
-    const issued = await postJson<{ token: string; expires_in_seconds: number }>(
-      `/api/sessions/${snapshot.session_id}/tokens`,
-      { role: "controller" },
-    );
-    setRemoteLink(`${window.location.origin}/remote/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`);
-  }
-
-  async function useManualSync() {
-    if (!snapshot) return;
-    await apiJson(`/api/sessions/${snapshot.session_id}/sync-mode`, {
-      method: "PUT",
-      body: JSON.stringify({ mode: "manual" }),
-    });
-    window.location.reload();
-  }
-
-  return (
-    <section className="live-dock">
-      <div className="live-summary">
-        <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
-        <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
-        {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
-        {statusActions.map(([type, key]) => <button className="live-end-button" disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
-      </div>
-      {!activeSession && <button className="primary-button ended-session-create" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
-      <div className="live-actions">
-        {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-          {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
-        </select>}
-        {isLive && (
-          <select
-            aria-label={t("live.selectCue")}
-            value={snapshot.presentation_view === "join_qr" ? "__join_qr__" : (snapshot.current_cue_run?.cue_id ?? "__join_qr__")}
-            disabled={busy}
-            onChange={(event) => {
-              if (event.target.value === "__join_qr__") send({ type: "show_join_qr" });
-              else if (event.target.value === snapshot.current_cue_run?.cue_id) send({ type: "show_cue" });
-              else if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value });
-            }}
-          >
-            <option value="__join_qr__">{t("live.qrHome")}</option>
-            {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
-          </select>
-        )}
-        {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
-        {isLive && (cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
-        {isControllable && cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
-        {snapshot?.status === "ended" && <button disabled={busy || !project} onClick={() => send({ type: "reopen_session" })}>{t("live.reopen")}</button>}
-        {isControllable && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />}
-        {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
-        {snapshot && <button className="secondary-link" onClick={showResults}>{t("live.results")}</button>}
-        {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
-        {isControllable && <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>}
-        {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
-      </div>
-      {pairingOpen && pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
-      {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
-    </section>
-  );
-}
-
-function sessionLabel(t: Translate, session: LiveSession) {
-  const date = new Date(session.created_at).toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-  return `${t(`statusName.${session.status}`)} · ${date}${session.status === "ended" ? "" : ` · ${session.join_code ?? ""}`}`;
-}
-
-function RemoteAccessPanel({ t, url, close }: { t: Translate; url: string; close: () => void }) {
-  const svg = useMemo(() => qrSvgTag(url, 4), [url]);
-  return (
-    <aside className="remote-access-panel" role="dialog" aria-label={t("remote.qrHeading")}>
-      <header><strong>{t("remote.qrHeading")}</strong><button onClick={close} aria-label={t("preview.close")}>×</button></header>
-      <div className="remote-access-content">
-        <div className="remote-access-qr" dangerouslySetInnerHTML={{ __html: svg }} />
-        <div><p>{t("remote.qrCopy")}</p><input readOnly value={url} onFocus={(event) => event.currentTarget.select()} aria-label={t("remote.link")} /><a href={url} target="_blank" rel="noreferrer">{t("remote.open")}</a><small>{t("remote.expires")}</small></div>
-      </div>
-    </aside>
-  );
 }
