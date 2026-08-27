@@ -209,6 +209,14 @@
 - [ ] （計畫已列）Remote 錯誤處理用 "auth"/"token"/"load" 魔術字串，其餘錯誤直接把 API error code 丟給使用者 → 階段 4 修
 - [ ] （計畫已列）Extension popup 與 Presenter 模板/cue 名稱硬編碼中英文，未走 packages/i18n → 階段 4 修
 
+### 階段 2：低風險清理
+
+- [x] 刪除 presenterLive dead 輪詢（state、cueLiveCache ref、effect、rememberPresenterLive；每 2.5 秒白打一次 token + live API）
+- [x] 刪除無人引用的 AudienceJoinQrPanel（i18n key 與 CSS 先保留，維持純 dead code 移除）
+- [x] Translate 型別集中到 `apps/web/src/i18n.ts`，key 改用 `MessageKey`（原本六個檔案各自宣告 `key: any`，繞過 i18n 型別檢查；tsc 證明所有動態 key 都存在於 catalog）
+- [x] 合併重複邏輯到 `apps/web/src/lib/`：`typeName`（原兩份）、`parseOptions`（原兩份）、QR SVG 產生（原兩份，保留各自 cellSize 維持視覺不變）
+- [x] 每步皆通過 vitest（10 tests）+ tsc --noEmit
+
 ## 投影畫面三種風格
 
 - [x] 抽出 `data-projection-theme`，讓投影／結果頁可抽換風格
