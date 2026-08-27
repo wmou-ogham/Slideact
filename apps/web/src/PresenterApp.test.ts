@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSlideAnchor, reorderCueIds } from "./PresenterApp";
+import {
+  cueShortcutAction,
+  insertCueIdAtPosition,
+  moveCueIds,
+  normalizeSlideAnchor,
+  reorderCueIds,
+} from "./PresenterApp";
 import { parseVaultCredential } from "./PresenterAuth";
 
 describe("normalizeSlideAnchor", () => {
@@ -40,6 +46,52 @@ describe("reorderCueIds", () => {
   it("keeps the order stable for missing or identical cues", () => {
     expect(reorderCueIds(cues, "missing", "cue-a")).toEqual(["cue-a", "cue-b", "cue-c"]);
     expect(reorderCueIds(cues, "cue-b", "cue-b")).toEqual(["cue-a", "cue-b", "cue-c"]);
+  });
+
+  it("moves the selected cue by one keyboard step and stops at either edge", () => {
+    expect(moveCueIds(cues, "cue-b", -1)).toEqual(["cue-b", "cue-a", "cue-c"]);
+    expect(moveCueIds(cues, "cue-b", 1)).toEqual(["cue-a", "cue-c", "cue-b"]);
+    expect(moveCueIds(cues, "cue-a", -1)).toEqual(["cue-a", "cue-b", "cue-c"]);
+    expect(moveCueIds(cues, "cue-c", 1)).toEqual(["cue-a", "cue-b", "cue-c"]);
+  });
+
+  it("inserts a restored cue at its previous position", () => {
+    expect(insertCueIdAtPosition(cues, "cue-restored", 1))
+      .toEqual(["cue-a", "cue-restored", "cue-b", "cue-c"]);
+    expect(insertCueIdAtPosition(cues, "cue-b", 0))
+      .toEqual(["cue-b", "cue-a", "cue-c"]);
+  });
+});
+
+describe("cueShortcutAction", () => {
+  const shortcut = (key: string, overrides: Partial<KeyboardEvent> = {}) => cueShortcutAction({
+    key,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...overrides,
+  }, false);
+
+  it("maps delete, backspace, arrow movement, and platform undo", () => {
+    expect(shortcut("Delete")).toBe("delete");
+    expect(shortcut("Backspace")).toBe("delete");
+    expect(shortcut("ArrowUp")).toBe("move-up");
+    expect(shortcut("ArrowDown")).toBe("move-down");
+    expect(shortcut("z", { metaKey: true })).toBe("undo");
+    expect(shortcut("Z", { ctrlKey: true })).toBe("undo");
+  });
+
+  it("preserves native editing shortcuts and ignores modified movement", () => {
+    expect(cueShortcutAction({
+      key: "Backspace",
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+    }, true)).toBeNull();
+    expect(shortcut("ArrowDown", { metaKey: true })).toBeNull();
+    expect(shortcut("z", { ctrlKey: true, shiftKey: true })).toBeNull();
   });
 });
 

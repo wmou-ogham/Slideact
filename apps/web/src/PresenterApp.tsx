@@ -22,6 +22,13 @@ import type {
   SessionSnapshot,
 } from "./types";
 
+type DeletedCueSnapshot = {
+  projectId: string;
+  cue: Cue;
+};
+
+export type CueShortcutAction = "delete" | "undo" | "move-up" | "move-down" | null;
+
 export function reorderCueIds(
   source: ReadonlyArray<Pick<Cue, "id" | "position">>,
   sourceId: string,
@@ -39,6 +46,45 @@ export function reorderCueIds(
   return ordered.map((item) => item.id);
 }
 
+export function moveCueIds(
+  source: ReadonlyArray<Pick<Cue, "id" | "position">>,
+  sourceId: string,
+  offset: -1 | 1,
+) {
+  const ordered = [...source].sort((left, right) => left.position - right.position);
+  const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
+  const target = ordered[sourceIndex + offset];
+  return target ? reorderCueIds(ordered, sourceId, target.id) : ordered.map((item) => item.id);
+}
+
+export function insertCueIdAtPosition(
+  source: ReadonlyArray<Pick<Cue, "id" | "position">>,
+  cueId: string,
+  position: number,
+) {
+  const cueIds = [...source]
+    .sort((left, right) => left.position - right.position)
+    .map((item) => item.id)
+    .filter((id) => id !== cueId);
+  cueIds.splice(Math.min(Math.max(position, 0), cueIds.length), 0, cueId);
+  return cueIds;
+}
+
+export function cueShortcutAction(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  editableTarget: boolean,
+): CueShortcutAction {
+  if (editableTarget || event.altKey) return null;
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
+    return "undo";
+  }
+  if (event.metaKey || event.ctrlKey || event.shiftKey) return null;
+  if (event.key === "Delete" || event.key === "Backspace") return "delete";
+  if (event.key === "ArrowUp") return "move-up";
+  if (event.key === "ArrowDown") return "move-down";
+  return null;
+}
+
 export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [profile, setProfile] = useState<Profile | null>();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -54,6 +100,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
   const [creatingInteraction, setCreatingInteraction] = useState(false);
   const [liveControlsOpen, setLiveControlsOpen] = useState(false);
+  const [deletedCueStack, setDeletedCueStack] = useState<DeletedCueSnapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -119,6 +166,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   useEffect(() => {
     refreshProject().catch(report);
   }, [refreshProject, report]);
+
+  useEffect(() => setDeletedCueStack([]), [projectId]);
 
   const refreshSnapshot = useCallback(async () => {
     if (!sessionId) {
@@ -272,9 +321,59 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.cueUpdated"));
   }
 
-  async function reorderCue(sourceId: string, targetId: string) {
+  async function deleteCue(item: Cue) {
+    if (!projectId || !window.confirm(t("cue.deleteConfirm", { index: item.position + 1 }))) return;
+    const ordered = [...cues].sort((left, right) => left.position - right.position);
+    const deletedIndex = ordered.findIndex((candidate) => candidate.id === item.id);
+    const replacement = ordered[deletedIndex + 1] ?? ordered[deletedIndex - 1] ?? null;
+    const snapshot: DeletedCueSnapshot = { projectId, cue: item };
+    await run(async () => {
+      await apiJson(`/api/projects/${projectId}/cues/${item.id}`, { method: "DELETE" });
+      setDeletedCueStack((current) => [...current, snapshot]);
+      await refreshProject();
+      setCueId(replacement?.id ?? "");
+      setExpandedInteractionId(replacement?.interactions.at(0)?.id ?? "");
+      setCreatingInteraction(false);
+    }, t("notice.cueDeletedUndo"));
+  }
+
+  async function undoDeletedCue() {
+    const snapshot = deletedCueStack.at(-1);
+    if (!projectId || !snapshot || snapshot.projectId !== projectId) return;
+    await run(async () => {
+      const restored = await postJson<Cue>(`/api/projects/${projectId}/cues`, {
+        name: snapshot.cue.name,
+        anchor_type: snapshot.cue.anchor_type,
+        anchor_value: snapshot.cue.anchor_value,
+        trigger_mode: snapshot.cue.trigger_mode,
+        delay_seconds: snapshot.cue.delay_seconds,
+      });
+      let firstInteractionId = "";
+      const interactions = [...snapshot.cue.interactions]
+        .sort((left, right) => left.position - right.position);
+      for (const interaction of interactions) {
+        const created = await postJson<Interaction>(
+          `/api/projects/${projectId}/cues/${restored.id}/interactions`,
+          interactionInput(interaction),
+        );
+        if (!firstInteractionId) firstInteractionId = created.id;
+      }
+      const latest = await apiJson<Cue[]>(`/api/projects/${projectId}/cues`);
+      const cueIds = insertCueIdAtPosition(latest, restored.id, snapshot.cue.position);
+      const next = await apiJson<Cue[]>(`/api/projects/${projectId}/cues/reorder`, {
+        method: "PUT",
+        body: JSON.stringify({ cue_ids: cueIds }),
+      });
+      setCues(next);
+      setCueId(restored.id);
+      setExpandedInteractionId(firstInteractionId);
+      setCreatingInteraction(false);
+      setDeletedCueStack((current) => current.slice(0, -1));
+    }, t("notice.cueRestored"));
+  }
+
+  async function saveCueOrder(sourceId: string, cueIds: string[]) {
     if (!projectId) return;
-    const cueIds = reorderCueIds(cues, sourceId, targetId);
     const currentCueIds = [...cues]
       .sort((left, right) => left.position - right.position)
       .map((item) => item.id);
@@ -287,6 +386,15 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       setCues(next);
       setCueId(sourceId);
     }, t("notice.cuesReordered"));
+  }
+
+  async function reorderCue(sourceId: string, targetId: string) {
+    const cueIds = reorderCueIds(cues, sourceId, targetId);
+    await saveCueOrder(sourceId, cueIds);
+  }
+
+  async function moveCue(item: Cue, offset: -1 | 1) {
+    await saveCueOrder(item.id, moveCueIds(cues, item.id, offset));
   }
 
   async function createInteraction(event: FormEvent<HTMLFormElement>) {
@@ -363,6 +471,27 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       await refreshProject();
     }, t("notice.interactionDeleted"));
   }
+
+  useEffect(() => {
+    const handleCueShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || busy) return;
+      const action = cueShortcutAction(event, isEditableShortcutTarget(event.target));
+      if (!action) return;
+      if (action === "undo") {
+        if (!deletedCueStack.length) return;
+        event.preventDefault();
+        void undoDeletedCue();
+        return;
+      }
+      if (!cue) return;
+      event.preventDefault();
+      if (action === "delete") void deleteCue(cue);
+      if (action === "move-up") void moveCue(cue, -1);
+      if (action === "move-down") void moveCue(cue, 1);
+    };
+    window.addEventListener("keydown", handleCueShortcut);
+    return () => window.removeEventListener("keydown", handleCueShortcut);
+  }, [busy, cue, cues, deletedCueStack, projectId]);
 
   async function createSession() {
     if (!projectId) return;
@@ -521,6 +650,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                       <span className="cue-position">{item.position + 1}</span>
                       <button
                         className={item.id === cueId ? "cue-card selected" : "cue-card"}
+                        aria-current={item.id === cueId ? "true" : undefined}
+                        title={t("cue.keyboardHelp")}
                         onClick={() => {
                           setCueId(item.id);
                           setExpandedInteractionId(item.interactions.at(0)?.id ?? "");
@@ -629,6 +760,24 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
       </span>
     </span>
   );
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  return target instanceof Element
+    && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function interactionInput(item: Interaction) {
+  return {
+    interaction_type: item.interaction_type,
+    prompt: item.prompt,
+    description: item.description,
+    settings: item.settings,
+    options: item.options
+      .slice()
+      .sort((left, right) => left.position - right.position)
+      .map((option) => ({ label: option.label, is_correct: option.is_correct })),
+  };
 }
 
 function CueBindingField({ t, cue, busy, onSave }: {
