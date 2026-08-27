@@ -1,6 +1,10 @@
 # Slide Helper Development Progress
 
-最後更新：2026-08-15
+最後更新：2026-08-27
+
+## Cursor 提示音
+
+- [x] 遠端 Machine 設定關閉無障礙提示音（`editor.accessibilitySupport`、`accessibility.signalOptions.volume`）
 
 ## 作業規範
 
@@ -173,6 +177,18 @@
 - [x] 講者可點選文字雲詞彙釘住：位置固定、加上金框，其他人送答案時其餘詞仍可動
 - [x] 投影頁標題縮小，文字雲畫布約占畫面高度 2/3
 - [x] 投影頁狀態（即時結果／收集中）改放 LIVE 右側，不再單獨佔一列
+
+## 邏輯與 UX 整理重構（dev/wmou/logic-ux-cleanup）
+
+### 階段 0：基線
+
+- [x] 建立測試綠色基線（2026-08-27）。主機無 node/pnpm，`scripts/ci.sh` 容器化 CI 過重，改在 `node:22-bookworm` 容器內跑：
+  - `docker run --rm -v "$PWD":/workspace -w /workspace node:22-bookworm sh -c "corepack enable; pnpm install --frozen-lockfile"`（原 `node_modules` 過舊，缺 `qrcode-generator`，重裝後解決）
+  - `pnpm --filter @slide-helper/web test`：4 檔 10 tests 全過
+  - `pnpm --filter @slide-helper/web check`（tsc --noEmit）：過
+  - `pnpm --filter @slide-helper/web build`（vite build）：過
+  - 全 workspace `pnpm check && pnpm test`（含 extension 2 檔 10 tests）：全過
+- [x] 未跑 `cargo test`（後端由另一位平行處理，避免 target/ 競爭）
 
 ## 投影畫面三種風格
 
