@@ -69,7 +69,7 @@ export function InteractionWorkspace({
           <span>{t("interaction.slideCanvas", { slide: cue.anchor_value ?? cue.position + 1 })}</span>
           <strong>{typeName(t, type)}</strong>
         </div>
-        <div className={`interaction-canvas canvas-${type}`}>
+        <div className={`interaction-canvas canvas-type-${type}`}>
           <span className={`type-badge type-${type}`}>{typeName(t, type)}</span>
           <label className="canvas-title-field">
             <span>{t("interaction.promptLabel")}</span>
