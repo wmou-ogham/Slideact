@@ -31,14 +31,15 @@ export function App() {
   }, [locale]);
 
   const path = window.location.pathname;
+  const isPresenter = path.startsWith("/presenter");
   if (path.startsWith("/overlay/")) return <OverlayApp t={t} />;
   if (path.startsWith("/projection/")) return <ProjectionApp t={t} />;
   if (path.startsWith("/results/")) return <ResultsApp t={t} />;
   if (path.startsWith("/remote/")) return <div className="app-frame"><RemoteApp t={t} /></div>;
   return (
-    <div className="app-frame">
+    <div className={isPresenter ? "app-frame presenter-app-frame" : "app-frame"}>
       <a className="skip-link" href="#main-content">{t("a11y.skip")}</a>
-      <Topbar locale={locale} setLocale={setLocale} t={t} />
+      {!isPresenter && <Topbar locale={locale} setLocale={setLocale} t={t} />}
       <div id="main-content" tabIndex={-1}>
         {path.startsWith("/diagnostics") ? (
           <DiagnosticsApp t={t} />

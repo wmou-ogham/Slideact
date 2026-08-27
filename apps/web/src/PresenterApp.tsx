@@ -38,6 +38,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [expandedCueId, setExpandedCueId] = useState("");
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
   const [creatingInteraction, setCreatingInteraction] = useState(false);
+  const [liveControlsOpen, setLiveControlsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -121,6 +122,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const timer = window.setInterval(() => refreshSnapshot().catch(() => undefined), 3000);
     return () => window.clearInterval(timer);
   }, [refreshSnapshot, sessionId]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(""), 3200);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -391,30 +398,38 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 
   return (
     <main className="presenter-layout">
-      <header className="workspace-header">
-        <div>
-          <p className="eyebrow">{t("presenter.eyebrow")}</p>
-          <h1 className="workspace-title">{t("presenter.heading")}</h1>
-        </div>
-        <div className="profile-chip">
-          <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
-          {profile.account_type === "guest" && (
-            <button disabled={busy} onClick={() => downloadGuestVault(profile.vault_id, setMessage, t)}>
-              {t("auth.takeVault")}
+      <header className="workspace-toolbar">
+        <a className="workspace-brand" href="/" aria-label={t("app.name")}><span>S</span></a>
+        <strong className="workspace-project-title" title={project?.title}>{project?.title ?? t("project.heading")}</strong>
+        <div className="workspace-toolbar-actions">
+          <div className="profile-chip">
+            <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
+            {profile.account_type === "guest" && (
+              <button disabled={busy} onClick={() => downloadGuestVault(profile.vault_id, setMessage, t)}>
+                {t("auth.takeVault")}
+              </button>
+            )}
+            <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
+              {t("auth.logout")}
             </button>
-          )}
-          <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
-            {t("auth.logout")}
+            <button className="delete-account" onClick={async () => {
+              if (!window.confirm(t("auth.deleteConfirm"))) return;
+              await apiJson("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
+              location.assign("/");
+            }}>{t("auth.delete")}</button>
+          </div>
+          <button
+            className="start-presentation-button"
+            type="button"
+            aria-expanded={liveControlsOpen}
+            onClick={() => setLiveControlsOpen(true)}
+          >
+            <span aria-hidden="true">▶</span>{t("live.startPresentation")}
           </button>
-          <button className="delete-account" onClick={async () => {
-            if (!window.confirm(t("auth.deleteConfirm"))) return;
-            await apiJson("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
-            location.assign("/");
-          }}>{t("auth.delete")}</button>
         </div>
       </header>
 
-      {message && <div className="notice" role="status">{message}</div>}
+      {message && <div className="workspace-toast" role="status">{message}</div>}
 
       <section className={libraryCollapsed ? "studio-grid library-collapsed" : "studio-grid"} aria-busy={busy}>
         <aside className={libraryCollapsed ? "panel library-panel collapsed" : "panel library-panel"}>
@@ -577,7 +592,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 
       {cue && preview && <PreviewDialog t={t} cue={cue} interaction={selectedInteraction} mode={preview} close={() => setPreview(null)} />}
 
-      <LiveControl
+      {liveControlsOpen && <LiveControl
         t={t}
         busy={busy}
         project={project}
@@ -589,7 +604,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         refreshSnapshot={refreshSnapshot}
         createSession={createSession}
         send={send}
-      />
+        onClose={() => setLiveControlsOpen(false)}
+      />}
     </main>
   );
 }

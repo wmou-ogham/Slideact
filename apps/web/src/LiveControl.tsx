@@ -10,7 +10,7 @@ import { useProjectionTheme } from "./useProjectionTheme";
 import type { Cue, LiveSession, Project, SessionCommand, SessionSnapshot } from "./types";
 
 export function LiveControl({
-  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, refreshSnapshot, createSession, send,
+  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, refreshSnapshot, createSession, send, onClose,
 }: {
   t: Translate;
   busy: boolean;
@@ -23,6 +23,7 @@ export function LiveControl({
   refreshSnapshot: () => Promise<void>;
   createSession: () => void;
   send: (command: SessionCommand) => void;
+  onClose: () => void;
 }) {
   const [pairingCode, setPairingCode] = useState("");
   const [pairingOpen, setPairingOpen] = useState(false);
@@ -166,6 +167,7 @@ export function LiveControl({
         {isControllable && <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>}
         {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
+      <button className="live-dock-close" type="button" onClick={onClose} aria-label={t("live.hideControls")}>×</button>
       {pairingOpen && pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
     </section>
