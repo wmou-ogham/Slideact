@@ -204,10 +204,10 @@
 - [ ] （行為）觀眾文字雲輸入框 maxLength=200，但後端對重複字元等內容會回 response_text_rejected，觀眾只看到 generic 錯誤碼訊息，不知道為什麼被拒
 - [ ] （行為）Landing 首頁參加碼輸入框接受英數字（pattern A-Za-z0-9），但送出時 `join()` 會把非數字全部剝掉（\D）：輸入「AB12」會導去 /join/12；現行參加碼已是六位純數字，兩處輸入規則不一致
 - [ ] （行為）LiveControl 的「配對 Extension」「手機遙控」「開投影」等按鈕的 API 失敗沒有接 report()，按了沒反應也沒錯誤訊息（unhandled rejection）
-- [ ] （計畫已列）手動 sync 直接 window.location.reload()，丟掉所有 UI 狀態 → 階段 4 修
-- [ ] （計畫已列）InteractionEditForm useEffect 依賴整個 item object，refreshProject 後物件 identity 變了會把使用者正在編輯的內容洗掉 → 階段 4 修
-- [ ] （計畫已列）Remote 錯誤處理用 "auth"/"token"/"load" 魔術字串，其餘錯誤直接把 API error code 丟給使用者 → 階段 4 修
-- [ ] （計畫已列）Extension popup 與 Presenter 模板/cue 名稱硬編碼中英文，未走 packages/i18n → 階段 4 修
+- [x] （計畫已列）手動 sync 直接 window.location.reload()，丟掉所有 UI 狀態 → 階段 4 已修
+- [x] （計畫已列）InteractionEditForm useEffect 依賴整個 item object，refreshProject 後物件 identity 變了會把使用者正在編輯的內容洗掉 → 階段 4 已修
+- [x] （計畫已列）Remote 錯誤處理用 "auth"/"token"/"load" 魔術字串，其餘錯誤直接把 API error code 丟給使用者 → 階段 4 已修
+- [x] （計畫已列）Extension popup 與 Presenter 模板/cue 名稱硬編碼中英文，未走 packages/i18n → 階段 4 已修
 
 ### 階段 2：低風險清理
 
@@ -234,7 +234,21 @@
 - [x] 模板與 Extension popup 文案移入 `packages/i18n`：`template.*`、`purposePrompt.*`、`cue.generatedName`、`extension.*` 雙語 key；`presenterTemplates.ts` 改收 `Translate`，popup 改用 `resolveLocale`/`translate`；兩語系顯示文字不變
 - [x] 階段末測試：全 workspace `pnpm check`（含 extension wxt prepare + tsc）、`pnpm test`（5 個 test task）、`pnpm --filter @slide-helper/web build` 全綠
 - [x] 附帶：`.gitignore` 的 `/.turbo/` 放寬為 `**/.turbo/`（容器內跑 turbo 在各套件留下快取目錄）
-- [ ] 階段 6 端到端驗證：不在本次範圍，由後續驗證工作者負責
+
+### 階段 5：後端大檔拆分（隔離 worktree 合併回來）
+
+- [x] 從隔離 worktree 分支 `dev/wmou/logic-ux-cleanup-backend-split` merge 進 `dev/wmou/logic-ux-cleanup`（2026-08-27）
+- [x] merge-base `8f4b3c0`；前端改 `apps/`、`packages/`、`.gitignore`、`progress.md`，後端改 `services/api/src/{auth,commands,resources}*`，路徑不相交、無衝突
+- [x] merge commit `98e9bb3`（`git commit -s -S`，ED25519 簽署成功）；parents `446ca06`（前端階段 0–4）+ `67938c2`（resources 拆分）
+- [x] 引入的後端 commit：`d842c78` split `auth.rs`、`b33b480` split `commands.rs`、`67938c2` split `resources.rs`（純搬移，路由／簽名／錯誤碼不變）
+
+### 階段 6：驗證與收尾（2026-08-27）
+
+- [x] 未跑完整 `scripts/ci.sh`：會重建 `slide-helper-rust-ci:dev`、`slide-helper-node-ci:dev` 並拉起獨立 compose CI stack，過重；改用與先前階段相同的容器指令
+- [x] 前端（`node:22-bookworm` 掛 workspace）：`pnpm check`（4 packages）、`pnpm test`（i18n 4 + protocol 3 + extension 10 + web 10）、`pnpm --filter @slide-helper/web build` 全綠（turbo cache hit，merge 未改前端檔）
+- [x] 後端（`slide-helper-rust-ci:dev`，映像內 `/workspace/target` 複製到 named volume `slide-helper-stage6-target` 以免蓋掉編譯快取）：`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace --all-targets` 全綠（api 24 + domain 21 + protocol 6 = 51 tests）
+- [x] smoke：compose 已在 18666 跑（容器約 12 天，仍是拆分前的 API 映像，未重建以免打擾現況）。`/api/version` 健康；重跑 `/tmp/walkthrough.mjs`（guest → 建專案/cue/四種互動 → 開場次 → 觀眾作答 → remote → projection/overlay → reveal → QR 首頁 → end → results/CSV）全過。五角色 GUI 走查仍無法做（本機無瀏覽器）
+- [x] 剩餘未修 UX（階段 1 清單前五項仍開著）：after_reveal 作答 POST 洩漏 aggregate、Remote 未配對 Extension 時翻頁無回饋、文字雲拒絕原因不友善、Landing 參加碼英數字 vs 六位純數字不一致、LiveControl 若干按鈕 API 失敗沒有錯誤訊息
 
 ## 投影畫面三種風格
 

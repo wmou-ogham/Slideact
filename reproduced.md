@@ -73,3 +73,40 @@ docker compose up --detach --build --wait web proxy
 ```sh
 docker compose up --detach --build --wait api worker web proxy
 ```
+
+## 邏輯與 UX 整理驗證（主機無 node / cargo）
+
+完整 `scripts/ci.sh` 會重建 rust-ci / node-ci 映像並另起 compose CI stack，本機驗證改跑下列較輕的容器指令。
+
+前端（workspace `pnpm check` + `pnpm test` + web build）：
+
+```sh
+docker run --rm -v "$PWD":/workspace -w /workspace \
+  -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+  node:22-bookworm \
+  sh -c 'corepack enable >/dev/null 2>&1; pnpm check && pnpm test && pnpm --filter @slide-helper/web build'
+```
+
+後端（沿用已建好的 `slide-helper-rust-ci:dev`，把映像內的 `target/` 掛成 named volume 以免 bind-mount 蓋掉編譯快取）：
+
+```sh
+docker volume create slide-helper-stage6-target
+docker run --rm -v slide-helper-stage6-target:/out slide-helper-rust-ci:dev \
+  sh -c 'test -f /out/CACHEDIR.TAG || cp -a /workspace/target/. /out/'
+docker run --rm \
+  -v "$PWD":/workspace \
+  -v slide-helper-stage6-target:/workspace/target \
+  -w /workspace \
+  slide-helper-rust-ci:dev \
+  sh -c 'cargo fmt --all -- --check && cargo clippy --locked --workspace --all-targets -- -D warnings && cargo test --locked --workspace --all-targets'
+```
+
+若 compose 已在 18666 跑，可對現況 API 做五角色 smoke（腳本不入版控，先前走查放在 `/tmp/walkthrough.mjs`）：
+
+```sh
+curl -fsS http://127.0.0.1:18666/api/version
+docker run --rm --network host -v /tmp/walkthrough.mjs:/walkthrough.mjs \
+  node:22-bookworm-slim node /walkthrough.mjs
+```
+
+注意：未重建 compose 的 api/web 映像時，18666 上的是舊容器，只能證明現況 stack 仍可走完流程，不能證明剛合併的後端子模組已部署。
