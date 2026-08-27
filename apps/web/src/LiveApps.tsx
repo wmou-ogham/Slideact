@@ -3,6 +3,15 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { ApiError, apiJson, postJson, uuid } from "./api";
 import type { Translate } from "./i18n";
 import { typeName } from "./lib/interactions";
+import {
+  LIVE_POLL_INTERVAL_MS,
+  aggregateFor,
+  connectLiveSocket,
+  loadLiveView,
+  pinWordCloud,
+  rememberCueLive,
+  useLiveSession,
+} from "./lib/liveSession";
 import { qrSvgTag } from "./lib/qr";
 import { sendCommand } from "./PresenterApp";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
@@ -32,13 +41,11 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   const pathCode = decodeURIComponent(location.pathname.split("/")[2] ?? "");
   const [code, setCode] = useState(pathCode);
   const [joined, setJoined] = useState<JoinResponse | null>(null);
-  const [live, setLive] = useState<LiveView | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pendingAnswer, setPendingAnswer] = useState<PendingAnswer | null>(null);
   const [online, setOnline] = useState(() => navigator.onLine);
-  const cueLiveCache = useRef<Record<string, LiveView>>({});
 
   useEffect(() => {
     const connected = () => setOnline(true);
@@ -51,22 +58,18 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!joined) return;
-    const next = await loadLiveView(joined.session_id, joined.token);
-    setLive(rememberCueLive(cueLiveCache.current, next));
-    setAnswers((current) => mergeAudienceAnswers(joined.session_id, joined.participant_id, current, next.my_responses));
-  }, [joined]);
-
-  useEffect(() => {
-    if (!joined) return;
-    const stopSocket = connectLiveSocket(joined.token, joined.topic, refresh);
-    const timer = window.setInterval(() => refresh().catch(() => undefined), 3500);
-    return () => {
-      stopSocket();
-      window.clearInterval(timer);
-    };
-  }, [joined, refresh]);
+  const { live, setLive, refresh } = useLiveSession({
+    sessionId: joined?.session_id ?? "",
+    token: joined?.token ?? "",
+    topic: joined?.topic ?? "",
+    pollMs: LIVE_POLL_INTERVAL_MS.audience,
+    enabled: joined !== null,
+    immediate: false,
+    onLive: (next) => {
+      if (!joined) return;
+      setAnswers((current) => mergeAudienceAnswers(joined.session_id, joined.participant_id, current, next.my_responses));
+    },
+  });
 
   async function join(event?: FormEvent) {
     event?.preventDefault();
@@ -590,27 +593,17 @@ export function RemoteApp({ t }: { t: Translate }) {
 export function ProjectionApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
-  const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
   const [theme, setTheme] = useProjectionTheme({ applyToBody: true, syncUrl: true });
-  const cueLiveCache = useRef<Record<string, LiveView>>({});
-  const refresh = useCallback(async () => {
-    if (!token) throw new Error("projection_token_missing");
-    setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
-  }, [sessionId, token]);
+  const { live, refresh } = useLiveSession({
+    sessionId,
+    token,
+    topic: `session:${sessionId}:presenter`,
+    pollMs: LIVE_POLL_INTERVAL_MS.projection,
+    onInitialError: () => setError("projection_token_invalid"),
+  });
 
   useProjectionChrome();
-
-  useEffect(() => {
-    refresh().catch(() => setError("projection_token_invalid"));
-    const timer = window.setInterval(() => refresh().catch(() => undefined), 2000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!token) return;
-    return connectLiveSocket(token, `session:${sessionId}:presenter`, refresh);
-  }, [refresh, sessionId, token]);
 
   if (error) return <main className="projection-error">{t("projection.invalid")}</main>;
   if (!live) return <main className="projection-root"><span className="waiting-orbit"><i /></span></main>;
@@ -709,30 +702,23 @@ function ProjectionJoinQr({ code, label }: { code: string; label: string }) {
 export function OverlayApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
-  const [live, setLive] = useState<LiveView | null>(null);
   const [error, setError] = useState("");
-  const cueLiveCache = useRef<Record<string, LiveView>>({});
-  const refresh = useCallback(async () => {
-    if (!token) throw new Error("token_missing");
-    setLive(rememberCueLive(cueLiveCache.current, await loadLiveView(sessionId, token)));
-  }, [sessionId, token]);
+  const { live } = useLiveSession({
+    sessionId,
+    token,
+    topic: `session:${sessionId}:overlay`,
+    pollMs: LIVE_POLL_INTERVAL_MS.overlay,
+    onInitialError: () => setError("overlay_token_invalid"),
+  });
 
   useEffect(() => {
     document.documentElement.classList.add("overlay-html");
     document.body.classList.add("overlay-body");
-    refresh().catch(() => setError("overlay_token_invalid"));
-    const timer = window.setInterval(() => refresh().catch(() => undefined), 2000);
     return () => {
       document.documentElement.classList.remove("overlay-html");
       document.body.classList.remove("overlay-body");
-      window.clearInterval(timer);
     };
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!token) return;
-    return connectLiveSocket(token, `session:${sessionId}:overlay`, refresh);
-  }, [refresh, sessionId, token]);
+  }, []);
 
   if (error) return <main className="overlay-error"><span>{t("overlay.invalid")}</span></main>;
   if (!live) return <main className="overlay-root"><span className="waiting-orbit"><i /></span></main>;
@@ -763,48 +749,6 @@ export function OverlayApp({ t }: { t: Translate }) {
       </section>
     </main>
   );
-}
-
-async function loadLiveView(sessionId: string, token: string) {
-  return apiJson<LiveView>(`/api/live/sessions/${sessionId}`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-}
-
-async function pinWordCloud(
-  sessionId: string,
-  token: string,
-  interactionId: string,
-  text: string,
-  pinned: boolean,
-) {
-  await apiJson(`/api/sessions/${sessionId}/interactions/${interactionId}/word-cloud/pin`, {
-    method: "PATCH",
-    headers: { authorization: `Bearer ${token}` },
-    body: JSON.stringify({ text, pinned }),
-  });
-}
-
-function aggregateFor(live: LiveView | null, interactionId: string) {
-  return live?.aggregates.find((item) => item.interaction_id === interactionId)?.aggregate;
-}
-
-function rememberCueLive(cache: Record<string, LiveView>, live: LiveView) {
-  const cueId = live.snapshot.current_cue_run?.cue_id;
-  if (!cueId) return live;
-  const hasResponses = live.aggregates.some((item) => (item.aggregate.total_responses ?? 0) > 0)
-    || live.questions.length > 0;
-  if (hasResponses) {
-    cache[cueId] = live;
-    return live;
-  }
-  const remembered = cache[cueId];
-  if (!remembered) return live;
-  return {
-    ...live,
-    aggregates: remembered.aggregates,
-    questions: live.questions.length ? live.questions : remembered.questions,
-  };
 }
 
 function mergeAudienceAnswers(
@@ -848,21 +792,6 @@ function readStoredAnswers(sessionId: string, participantId: string) {
 
 function storeAnswers(sessionId: string, participantId: string, answers: Record<string, string>) {
   localStorage.setItem(answersStorageKey(sessionId, participantId), JSON.stringify(answers));
-}
-
-function connectLiveSocket(token: string, topic: string, refresh: () => Promise<void>) {
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${protocol}//${location.host}/api/ws?token=${encodeURIComponent(token)}`);
-  socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "subscribe", topic })));
-  socket.addEventListener("message", (event) => {
-    try {
-      const message = JSON.parse(String(event.data)) as { type?: string };
-      if (message.type === "event") refresh().catch(() => undefined);
-    } catch {
-      // The server only sends JSON protocol messages; polling remains the fallback.
-    }
-  });
-  return () => socket.close();
 }
 
 function remoteCueLabel(t: Translate, cue: Cue) {
