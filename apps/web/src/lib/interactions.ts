@@ -7,8 +7,24 @@ export function typeName(t: Translate, type: Interaction["interaction_type"]) {
   );
 }
 
+export type InteractionResultVisibility = "background" | "after_reveal";
+
 export function defaultVisibility(type: Interaction["interaction_type"]) {
-  return type === "single_choice" ? "after_reveal" : "live";
+  return type === "understanding" ? "background" : "after_reveal";
+}
+
+export function interactionResultVisibility(settings: Record<string, unknown>): InteractionResultVisibility {
+  const results = settings.results;
+  const visibility = typeof results === "object" && results !== null
+    ? (results as Record<string, unknown>).audience_visibility
+    : null;
+  return visibility === "background" || visibility === "presenter_only"
+    ? "background"
+    : "after_reveal";
+}
+
+export function projectionInteractionIsVisible(interaction: Pick<Interaction, "settings">) {
+  return interactionResultVisibility(interaction.settings) !== "background";
 }
 
 export function slideAnchorLabel(t: Translate, cue: Cue) {

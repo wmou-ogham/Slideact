@@ -68,12 +68,15 @@ impl SessionSnapshot {
     pub(crate) fn current_qa_is_live(&self) -> bool {
         self.current_cue_run.as_ref().is_some_and(|cue_run| {
             cue_run.interactions.iter().any(|interaction| {
-                interaction.interaction_type == "qa"
-                    && interaction
-                        .settings
-                        .pointer("/results/audience_visibility")
-                        .and_then(Value::as_str)
-                        == Some("live")
+                if interaction.interaction_type != "qa" {
+                    return false;
+                }
+                let visibility = interaction
+                    .settings
+                    .pointer("/results/audience_visibility")
+                    .and_then(Value::as_str)
+                    .unwrap_or("after_reveal");
+                matches!(visibility, "after_reveal" | "live") && cue_run.state == "revealed"
             })
         })
     }

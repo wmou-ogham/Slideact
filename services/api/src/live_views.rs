@@ -85,12 +85,11 @@ async fn get_live_view(
           )
           AND (
               $2
-              OR interactions.settings #>> '{results,audience_visibility}' = 'live'
               OR (
                   COALESCE(
                       interactions.settings #>> '{results,audience_visibility}',
                       'after_reveal'
-                  ) = 'after_reveal'
+                  ) IN ('after_reveal', 'live')
                   AND cue_runs.state = 'revealed'
               )
           )

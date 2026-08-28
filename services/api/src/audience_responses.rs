@@ -831,8 +831,8 @@ fn audience_can_see_aggregate(settings: &Value, cue_state: &str) -> bool {
         .and_then(Value::as_str)
         .unwrap_or("after_reveal")
     {
-        "live" => true,
-        "after_reveal" => cue_state == "revealed",
+        "after_reveal" | "live" => cue_state == "revealed",
+        "background" => false,
         _ => false,
     }
 }
@@ -904,10 +904,18 @@ mod tests {
     }
 
     #[test]
-    fn audience_aggregate_visibility_defaults_to_reveal() {
-        assert!(audience_can_see_aggregate(
+    fn audience_aggregate_visibility_waits_for_presenter_publication() {
+        assert!(!audience_can_see_aggregate(
             &json!({"results": {"audience_visibility": "live"}}),
             "open"
+        ));
+        assert!(audience_can_see_aggregate(
+            &json!({"results": {"audience_visibility": "live"}}),
+            "revealed"
+        ));
+        assert!(!audience_can_see_aggregate(
+            &json!({"results": {"audience_visibility": "background"}}),
+            "revealed"
         ));
         assert!(!audience_can_see_aggregate(&json!({}), "open"));
         assert!(audience_can_see_aggregate(&json!({}), "revealed"));

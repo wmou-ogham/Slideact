@@ -5,7 +5,7 @@ import type { Translate } from "./i18n";
 import {
   InteractionWorkspace,
   type InteractionDraft,
-  liveVisibilityFromForm,
+  resultVisibilityFromForm,
   responseSettingsFromForm,
 } from "./InteractionWorkspace";
 import { defaultVisibility, parseOptions, typeName } from "./lib/interactions";
@@ -413,7 +413,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           settings: {
             schema_version: 1,
             purpose: data.get("interaction_purpose"),
-            results: { audience_visibility: liveVisibilityFromForm(data.get("publish_live")) },
+            results: { audience_visibility: resultVisibilityFromForm(data.get("result_visibility")) },
             response: responseSettingsFromForm(type, data),
           },
           options:

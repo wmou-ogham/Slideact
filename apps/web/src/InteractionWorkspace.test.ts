@@ -2,19 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   interactionDraftValid,
-  liveVisibilityFromForm,
+  resultVisibilityFromForm,
   responseSettingsFromForm,
   responseSettingsFromInteraction,
 } from "./InteractionWorkspace";
 
-describe("liveVisibilityFromForm", () => {
-  it("maps the checked checkbox value to live visibility", () => {
-    expect(liveVisibilityFromForm("on")).toBe("live");
+describe("resultVisibilityFromForm", () => {
+  it("maps background questions and published results to separate modes", () => {
+    expect(resultVisibilityFromForm("background")).toBe("background");
+    expect(resultVisibilityFromForm("after_reveal")).toBe("after_reveal");
   });
 
-  it("keeps results gated when the checkbox is absent", () => {
-    expect(liveVisibilityFromForm(null)).toBe("after_reveal");
-    expect(liveVisibilityFromForm("unexpected")).toBe("after_reveal");
+  it("keeps results gated when the radio value is absent", () => {
+    expect(resultVisibilityFromForm(null)).toBe("after_reveal");
+    expect(resultVisibilityFromForm("unexpected")).toBe("after_reveal");
   });
 });
 

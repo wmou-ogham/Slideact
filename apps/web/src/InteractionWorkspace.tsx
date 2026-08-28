@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { Translate } from "./i18n";
-import { defaultVisibility, typeName } from "./lib/interactions";
+import { defaultVisibility, interactionResultVisibility, typeName } from "./lib/interactions";
 import {
   type InteractionPurpose,
   interactionPurposes,
@@ -9,7 +9,7 @@ import {
 } from "./presenterTemplates";
 import type { Cue, Interaction } from "./types";
 
-export type ResultVisibility = "after_reveal" | "live";
+export type ResultVisibility = "background" | "after_reveal";
 export const DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT = 3;
 export const MAX_WORD_CLOUD_SUBMISSION_LIMIT = 10;
 
@@ -262,15 +262,27 @@ export function InteractionWorkspace({
         <section className="inspector-section">
           <h4>{t("interaction.resultSettings")}</h4>
           <p className="inspector-section-help">{t("interaction.resultSettingsHelp")}</p>
-          <label className="visibility-checkbox">
+          <label className="result-visibility-option">
             <input
-              type="checkbox"
-              name="publish_live"
-              checked={visibility === "live"}
-              onChange={(event) => setVisibility(event.target.checked ? "live" : "after_reveal")}
+              type="radio"
+              name="result_visibility"
+              value="background"
+              checked={visibility === "background"}
+              onChange={() => setVisibility("background")}
             />
-            <span className="checkbox-mark" aria-hidden="true">✓</span>
-            <span><strong>{t("interaction.publishLive")}</strong><small>{visibility === "live" ? t("interaction.publishLiveHelp") : t("interaction.publishAfterHelp")}</small></span>
+            <span className="radio-mark" aria-hidden="true" />
+            <span><strong>{t("interaction.backgroundQuestion")}</strong><small>{t("interaction.backgroundQuestionHelp")}</small></span>
+          </label>
+          <label className="result-visibility-option">
+            <input
+              type="radio"
+              name="result_visibility"
+              value="after_reveal"
+              checked={visibility === "after_reveal"}
+              onChange={() => setVisibility("after_reveal")}
+            />
+            <span className="radio-mark" aria-hidden="true" />
+            <span><strong>{t("interaction.publishLive")}</strong><small>{t("interaction.publishLiveHelp")}</small></span>
           </label>
         </section>
 
@@ -361,15 +373,11 @@ function purposeFrom(item: Interaction): InteractionPurpose {
 }
 
 function visibilityFrom(item: Interaction): ResultVisibility {
-  const results = item.settings.results;
-  const visibility = typeof results === "object" && results !== null
-    ? (results as Record<string, unknown>).audience_visibility
-    : null;
-  return visibility === "live" ? "live" : "after_reveal";
+  return interactionResultVisibility(item.settings);
 }
 
-export function liveVisibilityFromForm(value: FormDataEntryValue | null): ResultVisibility {
-  return value === "on" ? "live" : "after_reveal";
+export function resultVisibilityFromForm(value: FormDataEntryValue | null): ResultVisibility {
+  return value === "background" ? "background" : "after_reveal";
 }
 
 export function responseSettingsFromForm(
