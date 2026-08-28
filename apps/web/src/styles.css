@@ -234,7 +234,7 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .type-word_cloud { color: #4c356b; background: #e4d4f1; }
 .type-qa { color: #254d70; background: #cee3f1; }
 .editor-panel { display: grid; grid-template-rows: 58px minmax(0, 1fr); height: 100%; min-height: 0; padding: 0; overflow: hidden; background: #efeee9; }
-.editor-panel > .panel-heading { min-height: 58px; margin: 0; padding: 7px 14px 0; align-items: stretch; gap: 12px; background: rgba(255,255,255,.72); border-bottom: 1px solid var(--line); }
+.editor-panel > .panel-heading { width: 100%; min-width: 0; min-height: 58px; margin: 0; padding: 7px 14px 0; align-items: stretch; gap: 12px; background: rgba(255,255,255,.72); border-bottom: 1px solid var(--line); }
 .editor-heading-main { display: flex; align-items: flex-end; gap: 10px; min-width: 0; overflow: hidden; }
 .editor-heading-main > .step, .editor-heading-main > h2 { align-self: center; flex: 0 0 auto; }
 .cue-binding-inline { display: flex; align-items: center; gap: 7px; min-width: 0; margin-left: auto; padding: 0 0 7px 12px; color: var(--muted); border-left: 1px solid var(--line); font-size: 10px; font-weight: 750; white-space: nowrap; }
