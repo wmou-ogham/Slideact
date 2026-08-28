@@ -66,12 +66,25 @@ export function rememberCueLive(cache: Record<string, LiveView>, live: LiveView)
     return live;
   }
   const remembered = cache[cueId];
-  if (!remembered) return live;
+  if (!remembered || !canReuseRememberedCue(remembered, live)) return live;
   return {
     ...live,
     aggregates: remembered.aggregates,
     questions: live.questions.length ? live.questions : remembered.questions,
   };
+}
+
+function canReuseRememberedCue(remembered: LiveView, live: LiveView) {
+  const rememberedRun = remembered.snapshot.current_cue_run;
+  const currentRun = live.snapshot.current_cue_run;
+  if (!rememberedRun || !currentRun
+    || rememberedRun.id !== currentRun.id
+    || rememberedRun.state !== "revealed"
+    || currentRun.state !== "revealed") {
+    return false;
+  }
+  return JSON.stringify(rememberedRun.interactions.map(({ id, settings }) => ({ id, settings })))
+    === JSON.stringify(currentRun.interactions.map(({ id, settings }) => ({ id, settings })));
 }
 
 export function connectLiveSocket(token: string, topic: string, refresh: () => Promise<void>) {
