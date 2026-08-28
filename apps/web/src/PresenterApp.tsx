@@ -115,6 +115,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       const code = error instanceof ApiError ? error.code : "network_error";
       setMessage(code === "project_has_history"
         ? t("project.deleteHistory")
+        : code === "cue_has_history"
+          ? t("cue.deleteHistory")
         : t("error.generic", { code }));
     },
     [t],

@@ -448,6 +448,13 @@ assert.equal(preparedCue.body.snapshot.current_cue_run.state, "ready");
 assert.equal(preparedCue.body.snapshot.current_cue_run.interactions.length, 4);
 assert.equal(preparedCue.body.snapshot.current_cue_run.interactions[0].options.length, 2);
 
+const protectedCueDelete = await requestJson(
+  `/api/projects/${projectId}/cues/${cueId}`,
+  { method: "DELETE", cookie: ownerCookie },
+);
+assert.equal(protectedCueDelete.response.status, 409);
+assert.deepEqual(protectedCueDelete.body, { code: "cue_has_history" });
+
 const openedCue = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:open-cue-001",
   expected_version: 3,
