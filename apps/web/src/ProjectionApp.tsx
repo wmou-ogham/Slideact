@@ -7,7 +7,7 @@ import {
   pinWordCloud,
   useLiveSession,
 } from "./lib/liveSession";
-import { projectionInteractionIsVisible } from "./lib/interactions";
+import { projectionInteractionIsVisible, projectionInteractionShowsResults } from "./lib/interactions";
 import { qrSvgTag } from "./lib/qr";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { CueResultVisuals } from "./ResultVisuals";
@@ -79,7 +79,9 @@ export function ProjectionApp({ t }: { t: Translate }) {
                   id: interaction.id,
                   prompt: interaction.prompt,
                   interaction_type: interaction.interaction_type,
-                  aggregate: aggregateFor(live, interaction.id),
+                  aggregate: projectionInteractionShowsResults(interaction, cueRun.state)
+                    ? aggregateFor(live, interaction.id)
+                    : null,
                 }))}
                 questions={live.questions}
                 onToggleWordPin={(interactionId, text, pinned) => {

@@ -6,7 +6,7 @@ import {
   aggregateFor,
   useLiveSession,
 } from "./lib/liveSession";
-import { projectionInteractionIsVisible } from "./lib/interactions";
+import { projectionInteractionIsVisible, projectionInteractionShowsResults } from "./lib/interactions";
 import { ProjectionJoinQr } from "./ProjectionApp";
 import { AggregateBars } from "./ResultVisuals";
 
@@ -46,7 +46,9 @@ export function OverlayApp({ t }: { t: Translate }) {
       <section className="overlay-card">
         <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
         {interactions.map((interaction) => {
-          const aggregate = aggregateFor(live, interaction.id);
+          const aggregate = projectionInteractionShowsResults(interaction, cueRun.state)
+            ? aggregateFor(live, interaction.id)
+            : null;
           return (
             <article className="overlay-interaction" key={interaction.id}>
               <h1>{interaction.prompt}</h1>

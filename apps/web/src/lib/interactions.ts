@@ -70,6 +70,14 @@ export function projectionInteractionIsVisible(
   return !interactionResultSettings(interaction.settings, interaction.interaction_type).background_question;
 }
 
+export function projectionInteractionShowsResults(
+  interaction: Pick<Interaction, "interaction_type" | "settings">,
+  cueState: "ready" | "open" | "closed" | "revealed" | "skipped",
+) {
+  const results = interactionResultSettings(interaction.settings, interaction.interaction_type);
+  return !results.background_question && results.publish_results && cueState === "revealed";
+}
+
 export function slideAnchorLabel(t: Translate, cue: Cue) {
   const name = cue.name.trim();
   if (name) return truncateLabel(name, 28);

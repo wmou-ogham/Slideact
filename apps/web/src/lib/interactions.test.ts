@@ -4,6 +4,7 @@ import {
   defaultResultSettings,
   interactionResultSettings,
   projectionInteractionIsVisible,
+  projectionInteractionShowsResults,
   resultSettingsPayload,
 } from "./interactions";
 
@@ -40,6 +41,18 @@ describe("interaction result visibility", () => {
       interaction_type: "single_choice",
       settings: { results: { background_question: false, publish_results: false } },
     })).toBe(true);
+    expect(projectionInteractionShowsResults({
+      interaction_type: "single_choice",
+      settings: { results: { background_question: false, publish_results: false } },
+    }, "revealed")).toBe(false);
+    expect(projectionInteractionShowsResults({
+      interaction_type: "single_choice",
+      settings: { results: { background_question: false, publish_results: true } },
+    }, "open")).toBe(false);
+    expect(projectionInteractionShowsResults({
+      interaction_type: "single_choice",
+      settings: { results: { background_question: false, publish_results: true } },
+    }, "revealed")).toBe(true);
   });
 
   it("writes a legacy-compatible visibility value", () => {
