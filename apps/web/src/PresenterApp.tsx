@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
@@ -89,6 +89,10 @@ export function cueShortcutAction(
   return null;
 }
 
+export function shouldCollapseLibraryByDefault(projects: ReadonlyArray<Pick<Project, "id">>) {
+  return projects.length > 0;
+}
+
 export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [profile, setProfile] = useState<Profile | null>();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -98,7 +102,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [libraryCollapsed, setLibraryCollapsed] = useState(true);
+  const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [draggedCueId, setDraggedCueId] = useState("");
   const [dragOverCueId, setDragOverCueId] = useState("");
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
@@ -107,6 +111,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [deletedCueStack, setDeletedCueStack] = useState<DeletedCueSnapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const libraryDefaultApplied = useRef(false);
 
   const project = projects.find((item) => item.id === projectId) ?? null;
   const cue = cues.find((item) => item.id === cueId) ?? null;
@@ -127,6 +132,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const refreshProjects = useCallback(async () => {
     const next = await apiJson<Project[]>("/api/projects");
     setProjects(next);
+    if (!libraryDefaultApplied.current) {
+      setLibraryCollapsed(shouldCollapseLibraryByDefault(next));
+      libraryDefaultApplied.current = true;
+    }
     setProjectId((current) =>
       next.some((item) => item.id === current) ? current : (next[0]?.id ?? ""),
     );

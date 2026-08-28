@@ -6,6 +6,7 @@ import {
   moveCueIds,
   normalizeSlideAnchor,
   reorderCueIds,
+  shouldCollapseLibraryByDefault,
 } from "./PresenterApp";
 import { parseVaultCredential } from "./PresenterAuth";
 
@@ -105,5 +106,12 @@ describe("parseVaultCredential", () => {
       recovery_key: "svlt1.secret-key",
     }))).toBe("svlt1.secret-key");
     expect(parseVaultCredential("   ")).toBeNull();
+  });
+});
+
+describe("shouldCollapseLibraryByDefault", () => {
+  it("opens onboarding for a new account and collapses an existing project library", () => {
+    expect(shouldCollapseLibraryByDefault([])).toBe(false);
+    expect(shouldCollapseLibraryByDefault([{ id: "project-a" }])).toBe(true);
   });
 });

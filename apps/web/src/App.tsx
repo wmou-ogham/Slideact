@@ -67,8 +67,11 @@ function Topbar({ locale, setLocale, t }: {
         <a href="/presenter">{t("nav.presenter")}</a>
         <a href="/diagnostics">{t("nav.diagnostics")}</a>
         <label className="language-picker">
-          <span>{t("language.label")}</span>
-          <select value={locale} onChange={(event) => setLocale(event.target.value as SupportedLocale)}>
+          <select
+            aria-label={t("language.label")}
+            value={locale}
+            onChange={(event) => setLocale(event.target.value as SupportedLocale)}
+          >
             {supportedLocales.map((option) => <option key={option} value={option}>{t(`locale.${option}`)}</option>)}
           </select>
         </label>
