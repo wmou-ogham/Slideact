@@ -826,10 +826,10 @@ async fn authorize_word_cloud_operator(
 }
 
 fn audience_can_see_aggregate(settings: &Value, cue_state: &str) -> bool {
-    if background_question_enabled(settings) || !publish_results_enabled(settings) {
+    if background_question_enabled(settings) {
         return false;
     }
-    cue_state == "revealed"
+    publish_results_enabled(settings) || cue_state == "revealed"
 }
 
 fn result_setting<'a>(settings: &'a Value, key: &str) -> Option<&'a Value> {
@@ -854,12 +854,7 @@ fn background_question_enabled(settings: &Value) -> bool {
 fn publish_results_enabled(settings: &Value) -> bool {
     result_setting(settings, "publish_results")
         .and_then(Value::as_bool)
-        .unwrap_or_else(|| {
-            !matches!(
-                legacy_visibility(settings),
-                Some("background" | "presenter_only" | "question_only")
-            )
-        })
+        .unwrap_or_else(|| matches!(legacy_visibility(settings), Some("live")))
 }
 
 async fn load_aggregate(
@@ -930,7 +925,7 @@ mod tests {
 
     #[test]
     fn audience_aggregate_visibility_waits_for_presenter_publication() {
-        assert!(!audience_can_see_aggregate(
+        assert!(audience_can_see_aggregate(
             &json!({"results": {"audience_visibility": "live"}}),
             "open"
         ));
@@ -945,6 +940,14 @@ mod tests {
         assert!(!audience_can_see_aggregate(&json!({}), "open"));
         assert!(audience_can_see_aggregate(&json!({}), "revealed"));
         assert!(!audience_can_see_aggregate(
+            &json!({"results": {"audience_visibility": "after_reveal"}}),
+            "open"
+        ));
+        assert!(audience_can_see_aggregate(
+            &json!({"results": {"audience_visibility": "after_reveal"}}),
+            "revealed"
+        ));
+        assert!(!audience_can_see_aggregate(
             &json!({"results": {"audience_visibility": "presenter_only"}}),
             "revealed"
         ));
@@ -952,13 +955,17 @@ mod tests {
             &json!({"results": {"background_question": true, "publish_results": true}}),
             "revealed"
         ));
-        assert!(!audience_can_see_aggregate(
+        assert!(audience_can_see_aggregate(
             &json!({"results": {"background_question": false, "publish_results": false}}),
             "revealed"
         ));
+        assert!(!audience_can_see_aggregate(
+            &json!({"results": {"background_question": false, "publish_results": false}}),
+            "open"
+        ));
         assert!(audience_can_see_aggregate(
             &json!({"results": {"background_question": false, "publish_results": true}}),
-            "revealed"
+            "open"
         ));
     }
 

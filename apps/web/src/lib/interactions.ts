@@ -37,11 +37,14 @@ export function interactionResultSettings(
       : defaults.background_question;
   const publishResults = typeof resultSettings.publish_results === "boolean"
     ? resultSettings.publish_results
-    : legacyVisibility === "background"
-      || legacyVisibility === "presenter_only"
-      || legacyVisibility === "question_only"
-      ? false
-      : defaults.publish_results;
+    : legacyVisibility === "live"
+      ? true
+      : legacyVisibility === "background"
+        || legacyVisibility === "presenter_only"
+        || legacyVisibility === "question_only"
+        || legacyVisibility === "after_reveal"
+        ? false
+        : defaults.publish_results;
   return {
     background_question: backgroundQuestion,
     publish_results: backgroundQuestion ? false : publishResults,
@@ -59,8 +62,8 @@ export function resultSettingsPayload(settings: InteractionResultSettings) {
     audience_visibility: normalized.background_question
       ? "background"
       : normalized.publish_results
-        ? "after_reveal"
-        : "question_only",
+        ? "live"
+        : "after_reveal",
   };
 }
 
@@ -75,7 +78,7 @@ export function projectionInteractionShowsResults(
   cueState: "ready" | "open" | "closed" | "revealed" | "skipped",
 ) {
   const results = interactionResultSettings(interaction.settings, interaction.interaction_type);
-  return !results.background_question && results.publish_results && cueState === "revealed";
+  return !results.background_question && (results.publish_results || cueState === "revealed");
 }
 
 export function slideAnchorLabel(t: Translate, cue: Cue) {

@@ -95,16 +95,17 @@ async fn get_live_view(
                           ELSE 'false'
                       END
                   ) <> 'true'
-                  AND COALESCE(
-                      interactions.settings #>> '{results,publish_results}',
-                      CASE
-                          WHEN interactions.settings #>> '{results,audience_visibility}'
-                              IN ('background', 'presenter_only', 'question_only')
-                          THEN 'false'
-                          ELSE 'true'
-                      END
-                  ) = 'true'
-                  AND cue_runs.state = 'revealed'
+                  AND (
+                      COALESCE(
+                          interactions.settings #>> '{results,publish_results}',
+                          CASE
+                              WHEN interactions.settings #>> '{results,audience_visibility}' = 'live'
+                              THEN 'true'
+                              ELSE 'false'
+                          END
+                      ) = 'true'
+                      OR cue_runs.state = 'revealed'
+                  )
               )
           )
         ORDER BY response_aggregates.interaction_id

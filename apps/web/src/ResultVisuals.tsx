@@ -74,6 +74,7 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
     id: string;
     prompt: string;
     interaction_type: string;
+    results_visible?: boolean;
     aggregate?: Aggregate | null;
   }>;
   questions: Question[];
@@ -87,9 +88,9 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
         <article className="projection-interaction" key={interaction.id}>
           {multi && <h2><ProjectionHeading theme={theme} text={interaction.prompt} /></h2>}
           {interaction.interaction_type === "qa" ? (
-            questions.length
+            interaction.results_visible !== false && questions.length
               ? <div className="projection-questions"><QuestionList t={t} questions={questions} busy /></div>
-              : <span className="projection-empty">{t("qa.empty")}</span>
+              : <span className="projection-empty">{t(interaction.results_visible !== false ? "qa.empty" : "projection.noResults")}</span>
           ) : interaction.aggregate ? (
             <AggregateBars
               t={t}

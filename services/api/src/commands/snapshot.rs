@@ -78,19 +78,15 @@ impl SessionSnapshot {
                 let background_question = results
                     .and_then(|value| value.get("background_question"))
                     .and_then(Value::as_bool)
-                    .unwrap_or_else(|| {
-                        matches!(legacy_visibility, Some("background" | "presenter_only"))
-                    });
+                    .unwrap_or(matches!(
+                        legacy_visibility,
+                        Some("background" | "presenter_only")
+                    ));
                 let publish_results = results
                     .and_then(|value| value.get("publish_results"))
                     .and_then(Value::as_bool)
-                    .unwrap_or_else(|| {
-                        !matches!(
-                            legacy_visibility,
-                            Some("background" | "presenter_only" | "question_only")
-                        )
-                    });
-                !background_question && publish_results && cue_run.state == "revealed"
+                    .unwrap_or(matches!(legacy_visibility, Some("live")));
+                !background_question && (publish_results || cue_run.state == "revealed")
             })
         })
     }

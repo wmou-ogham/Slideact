@@ -44,15 +44,23 @@ describe("interaction result visibility", () => {
     expect(projectionInteractionShowsResults({
       interaction_type: "single_choice",
       settings: { results: { background_question: false, publish_results: false } },
-    }, "revealed")).toBe(false);
+    }, "revealed")).toBe(true);
     expect(projectionInteractionShowsResults({
       interaction_type: "single_choice",
-      settings: { results: { background_question: false, publish_results: true } },
+      settings: { results: { background_question: false, publish_results: false } },
     }, "open")).toBe(false);
     expect(projectionInteractionShowsResults({
       interaction_type: "single_choice",
       settings: { results: { background_question: false, publish_results: true } },
+    }, "open")).toBe(true);
+    expect(projectionInteractionShowsResults({
+      interaction_type: "single_choice",
+      settings: { results: { background_question: false, publish_results: true } },
     }, "revealed")).toBe(true);
+    expect(projectionInteractionShowsResults({
+      interaction_type: "single_choice",
+      settings: { results: { background_question: true, publish_results: true } },
+    }, "revealed")).toBe(false);
   });
 
   it("writes a legacy-compatible visibility value", () => {
@@ -62,7 +70,10 @@ describe("interaction result visibility", () => {
       audience_visibility: "background",
     });
     expect(resultSettingsPayload({ background_question: false, publish_results: false })).toMatchObject({
-      audience_visibility: "question_only",
+      audience_visibility: "after_reveal",
+    });
+    expect(resultSettingsPayload({ background_question: false, publish_results: true })).toMatchObject({
+      audience_visibility: "live",
     });
   });
 });

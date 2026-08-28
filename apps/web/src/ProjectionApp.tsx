@@ -79,6 +79,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
                   id: interaction.id,
                   prompt: interaction.prompt,
                   interaction_type: interaction.interaction_type,
+                  results_visible: projectionInteractionShowsResults(interaction, cueRun.state),
                   aggregate: projectionInteractionShowsResults(interaction, cueRun.state)
                     ? aggregateFor(live, interaction.id)
                     : null,
