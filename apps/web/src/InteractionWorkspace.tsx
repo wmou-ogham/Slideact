@@ -10,6 +10,15 @@ import {
 import type { Cue, Interaction } from "./types";
 
 export type ResultVisibility = "after_reveal" | "live";
+export const DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT = 3;
+export const MAX_WORD_CLOUD_SUBMISSION_LIMIT = 10;
+
+export type InteractionResponseSettings = {
+  allow_change: boolean;
+  multiple_selection: boolean;
+  submission_limit: number;
+  allow_duplicate: boolean;
+};
 
 export type InteractionDraft = {
   interaction_type: Interaction["interaction_type"];
@@ -17,6 +26,7 @@ export type InteractionDraft = {
   purpose: InteractionPurpose;
   visibility: ResultVisibility;
   options: string[];
+  response: InteractionResponseSettings;
 };
 
 type InteractionWorkspaceProps = {
@@ -47,12 +57,23 @@ export function InteractionWorkspace({
   const [prompt, setPrompt] = useState(item?.prompt ?? recommended.prompt);
   const [options, setOptions] = useState(() => initialOptions(t, item));
   const [visibility, setVisibility] = useState<ResultVisibility>(() => item ? visibilityFrom(item) : defaultVisibility(recommended.type));
+  const initialResponse = responseSettingsFromInteraction(item);
+  const [allowChange, setAllowChange] = useState(initialResponse.allow_change);
+  const [multipleSelection, setMultipleSelection] = useState(initialResponse.multiple_selection);
+  const [submissionLimit, setSubmissionLimit] = useState(initialResponse.submission_limit);
+  const [allowDuplicate, setAllowDuplicate] = useState(initialResponse.allow_duplicate);
   const draft: InteractionDraft = {
     interaction_type: type,
     prompt,
     purpose,
     visibility,
     options: type === "single_choice" ? options : [],
+    response: {
+      allow_change: allowChange,
+      multiple_selection: multipleSelection,
+      submission_limit: submissionLimit,
+      allow_duplicate: allowDuplicate,
+    },
   };
   const fingerprint = JSON.stringify(draft);
   const savedFingerprint = useRef(fingerprint);
@@ -187,6 +208,52 @@ export function InteractionWorkspace({
 
         <section className="inspector-section">
           <h4>{t("interaction.responseSettings")}</h4>
+          {type === "single_choice" && <>
+            <label className="visibility-checkbox">
+              <input
+                type="checkbox"
+                name="multiple_selection"
+                checked={multipleSelection}
+                onChange={(event) => setMultipleSelection(event.target.checked)}
+              />
+              <span className="checkbox-mark" aria-hidden="true">✓</span>
+              <span><strong>{t("interaction.multipleSelection")}</strong><small>{t("interaction.multipleSelectionHelp")}</small></span>
+            </label>
+            <label className="visibility-checkbox">
+              <input
+                type="checkbox"
+                name="allow_change"
+                checked={allowChange}
+                onChange={(event) => setAllowChange(event.target.checked)}
+              />
+              <span className="checkbox-mark" aria-hidden="true">✓</span>
+              <span><strong>{t("interaction.allowChange")}</strong><small>{t("interaction.allowChangeHelp")}</small></span>
+            </label>
+          </>}
+          {type === "word_cloud" && <>
+            <label className="response-limit-field">
+              <span>{t("interaction.wordCloudSubmissionLimit")}</span>
+              <input
+                type="number"
+                name="submission_limit"
+                min={1}
+                max={MAX_WORD_CLOUD_SUBMISSION_LIMIT}
+                value={submissionLimit}
+                onChange={(event) => setSubmissionLimit(Number(event.target.value))}
+              />
+              <small>{t("interaction.wordCloudSubmissionLimitHelp")}</small>
+            </label>
+            <label className="visibility-checkbox">
+              <input
+                type="checkbox"
+                name="allow_duplicate"
+                checked={allowDuplicate}
+                onChange={(event) => setAllowDuplicate(event.target.checked)}
+              />
+              <span className="checkbox-mark" aria-hidden="true">✓</span>
+              <span><strong>{t("interaction.allowDuplicate")}</strong><small>{t("interaction.allowDuplicateHelp")}</small></span>
+            </label>
+          </>}
           <label className="visibility-checkbox">
             <input
               type="checkbox"
@@ -297,9 +364,48 @@ export function liveVisibilityFromForm(value: FormDataEntryValue | null): Result
   return value === "on" ? "live" : "after_reveal";
 }
 
+export function responseSettingsFromForm(
+  interactionType: Interaction["interaction_type"],
+  data: FormData,
+): InteractionResponseSettings {
+  const rawSubmissionLimit = data.get("submission_limit");
+  return {
+    allow_change: interactionType === "single_choice" ? data.get("allow_change") === "on" : true,
+    multiple_selection: interactionType === "single_choice" && data.get("multiple_selection") === "on",
+    submission_limit: interactionType === "word_cloud"
+      ? normalizeSubmissionLimit(typeof rawSubmissionLimit === "string" && rawSubmissionLimit
+        ? Number(rawSubmissionLimit)
+        : DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT)
+      : DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT,
+    allow_duplicate: interactionType !== "word_cloud" || data.get("allow_duplicate") === "on",
+  };
+}
+
+export function responseSettingsFromInteraction(item?: Interaction): InteractionResponseSettings {
+  const response = item?.settings.response;
+  const record = typeof response === "object" && response !== null
+    ? response as Record<string, unknown>
+    : {};
+  return {
+    allow_change: typeof record.allow_change === "boolean" ? record.allow_change : true,
+    multiple_selection: record.multiple_selection === true,
+    submission_limit: normalizeSubmissionLimit(record.submission_limit),
+    allow_duplicate: typeof record.allow_duplicate === "boolean" ? record.allow_duplicate : true,
+  };
+}
+
+function normalizeSubmissionLimit(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(Math.max(value, 1), MAX_WORD_CLOUD_SUBMISSION_LIMIT)
+    : DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT;
+}
+
 export function interactionDraftValid(draft: InteractionDraft) {
   const prompt = draft.prompt.trim();
   if (!prompt || prompt.length > 500) return false;
+  if (!Number.isInteger(draft.response.submission_limit)
+    || draft.response.submission_limit < 1
+    || draft.response.submission_limit > MAX_WORD_CLOUD_SUBMISSION_LIMIT) return false;
   if (draft.interaction_type !== "single_choice") return true;
   return draft.options.length >= 2
     && draft.options.length <= 6

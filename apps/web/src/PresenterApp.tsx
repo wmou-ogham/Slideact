@@ -6,6 +6,7 @@ import {
   InteractionWorkspace,
   type InteractionDraft,
   liveVisibilityFromForm,
+  responseSettingsFromForm,
 } from "./InteractionWorkspace";
 import { defaultVisibility, parseOptions, typeName } from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
@@ -414,7 +415,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     event.preventDefault();
     if (!projectId || !cueId) return;
     const data = new FormData(event.currentTarget);
-    const type = String(data.get("interaction_type"));
+    const type = String(data.get("interaction_type")) as Interaction["interaction_type"];
     const rawOptions = parseOptions(data.get("options"));
     await run(async () => {
       const created = await postJson<Interaction>(
@@ -427,7 +428,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
             schema_version: 1,
             purpose: data.get("interaction_purpose"),
             results: { audience_visibility: liveVisibilityFromForm(data.get("publish_live")) },
-            response: { allow_change: true },
+            response: responseSettingsFromForm(type, data),
           },
           options:
             type === "single_choice"
@@ -457,7 +458,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
               schema_version: 1,
               purpose: item.settings.purpose,
               results: { audience_visibility: draft.visibility },
-              response: { allow_change: true },
+              response: draft.response,
             },
             options: draft.interaction_type === "single_choice"
               ? draft.options.map((label) => ({ label, is_correct: null }))

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { interactionDraftValid, liveVisibilityFromForm } from "./InteractionWorkspace";
+import {
+  interactionDraftValid,
+  liveVisibilityFromForm,
+  responseSettingsFromForm,
+  responseSettingsFromInteraction,
+} from "./InteractionWorkspace";
 
 describe("liveVisibilityFromForm", () => {
   it("maps the checked checkbox value to live visibility", () => {
@@ -20,6 +25,12 @@ describe("interactionDraftValid", () => {
     purpose: "knowledge" as const,
     visibility: "after_reveal" as const,
     options: ["Option A", "Option B"],
+    response: {
+      allow_change: true,
+      multiple_selection: false,
+      submission_limit: 3,
+      allow_duplicate: true,
+    },
   };
 
   it("allows complete interaction drafts to auto-save", () => {
@@ -34,5 +45,35 @@ describe("interactionDraftValid", () => {
     expect(interactionDraftValid({ ...draft, options: ["Only one"] })).toBe(false);
     expect(interactionDraftValid({ ...draft, options: Array.from({ length: 7 }, (_, index) => `Option ${index}`) }))
       .toBe(false);
+  });
+});
+
+describe("interaction response settings", () => {
+  it("reads type-specific creation settings from the form", () => {
+    const choice = new FormData();
+    choice.set("multiple_selection", "on");
+    expect(responseSettingsFromForm("single_choice", choice)).toMatchObject({
+      multiple_selection: true,
+      allow_change: false,
+    });
+
+    const wordCloud = new FormData();
+    wordCloud.set("submission_limit", "7");
+    expect(responseSettingsFromForm("word_cloud", wordCloud)).toMatchObject({
+      submission_limit: 7,
+      allow_duplicate: false,
+    });
+  });
+
+  it("loads saved values and keeps backward-compatible defaults", () => {
+    expect(responseSettingsFromInteraction()).toEqual({
+      allow_change: true,
+      multiple_selection: false,
+      submission_limit: 3,
+      allow_duplicate: true,
+    });
+    expect(responseSettingsFromInteraction({
+      settings: { response: { allow_change: false, submission_limit: 8 } },
+    } as never)).toMatchObject({ allow_change: false, submission_limit: 8 });
   });
 });

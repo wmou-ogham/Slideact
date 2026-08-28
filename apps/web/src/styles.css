@@ -302,6 +302,10 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .inspector-section > h4 { margin: 0; font-size: 13px; }
 .inspector-section > label:not(.visibility-checkbox) { display: grid; gap: 6px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .inspector-section select { width: 100%; min-height: 40px; padding: 8px 30px 8px 10px; background: #f4f2ed; border: 1px solid transparent; border-radius: 10px; font-size: 11px; font-weight: 750; text-transform: none; }
+.response-limit-field { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 5px 10px; align-items: center; color: var(--muted); }
+.response-limit-field > span { color: var(--ink); font-size: 11px; font-weight: 750; letter-spacing: 0; text-transform: none; }
+.response-limit-field input { min-height: 38px; padding: 7px 9px; text-align: center; }
+.response-limit-field small { grid-column: 1 / -1; font-size: 9px; font-weight: 500; line-height: 1.4; letter-spacing: 0; text-transform: none; }
 .visibility-checkbox { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; cursor: pointer; }
 .visibility-checkbox input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .checkbox-mark { display: grid; width: 22px; height: 22px; place-items: center; color: transparent; background: #fff; border: 1px solid rgba(18,60,52,.25); border-radius: 6px; font-size: 13px; font-weight: 900; }
