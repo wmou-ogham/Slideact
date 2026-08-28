@@ -2,20 +2,34 @@ import { describe, expect, it } from "vitest";
 
 import {
   interactionDraftValid,
-  resultVisibilityFromForm,
+  resultSettingsFromForm,
   responseSettingsFromForm,
   responseSettingsFromInteraction,
 } from "./InteractionWorkspace";
 
-describe("resultVisibilityFromForm", () => {
-  it("maps background questions and published results to separate modes", () => {
-    expect(resultVisibilityFromForm("background")).toBe("background");
-    expect(resultVisibilityFromForm("after_reveal")).toBe("after_reveal");
+describe("resultSettingsFromForm", () => {
+  it("keeps background questions and published results independent", () => {
+    const background = new FormData();
+    background.set("background_question", "on");
+    background.set("publish_results", "on");
+    expect(resultSettingsFromForm(background)).toEqual({
+      background_question: true,
+      publish_results: false,
+    });
+
+    const published = new FormData();
+    published.set("publish_results", "on");
+    expect(resultSettingsFromForm(published)).toEqual({
+      background_question: false,
+      publish_results: true,
+    });
   });
 
-  it("keeps results gated when the radio value is absent", () => {
-    expect(resultVisibilityFromForm(null)).toBe("after_reveal");
-    expect(resultVisibilityFromForm("unexpected")).toBe("after_reveal");
+  it("defaults both switches to off when absent", () => {
+    expect(resultSettingsFromForm(new FormData())).toEqual({
+      background_question: false,
+      publish_results: false,
+    });
   });
 });
 
@@ -24,7 +38,8 @@ describe("interactionDraftValid", () => {
     interaction_type: "single_choice" as const,
     prompt: "Which answer is correct?",
     purpose: "knowledge" as const,
-    visibility: "after_reveal" as const,
+    backgroundQuestion: false,
+    publishResults: true,
     options: ["Option A", "Option B"],
     response: {
       allow_change: true,

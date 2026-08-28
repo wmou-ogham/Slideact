@@ -87,9 +87,23 @@ async fn get_live_view(
               $2
               OR (
                   COALESCE(
-                      interactions.settings #>> '{results,audience_visibility}',
-                      'after_reveal'
-                  ) IN ('after_reveal', 'live')
+                      interactions.settings #>> '{results,background_question}',
+                      CASE
+                          WHEN interactions.settings #>> '{results,audience_visibility}'
+                              IN ('background', 'presenter_only')
+                          THEN 'true'
+                          ELSE 'false'
+                      END
+                  ) <> 'true'
+                  AND COALESCE(
+                      interactions.settings #>> '{results,publish_results}',
+                      CASE
+                          WHEN interactions.settings #>> '{results,audience_visibility}'
+                              IN ('background', 'presenter_only', 'question_only')
+                          THEN 'false'
+                          ELSE 'true'
+                      END
+                  ) = 'true'
                   AND cue_runs.state = 'revealed'
               )
           )

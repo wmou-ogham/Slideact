@@ -71,12 +71,26 @@ impl SessionSnapshot {
                 if interaction.interaction_type != "qa" {
                     return false;
                 }
-                let visibility = interaction
-                    .settings
-                    .pointer("/results/audience_visibility")
-                    .and_then(Value::as_str)
-                    .unwrap_or("after_reveal");
-                matches!(visibility, "after_reveal" | "live") && cue_run.state == "revealed"
+                let results = interaction.settings.get("results");
+                let legacy_visibility = results
+                    .and_then(|value| value.get("audience_visibility"))
+                    .and_then(Value::as_str);
+                let background_question = results
+                    .and_then(|value| value.get("background_question"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or_else(|| {
+                        matches!(legacy_visibility, Some("background" | "presenter_only"))
+                    });
+                let publish_results = results
+                    .and_then(|value| value.get("publish_results"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or_else(|| {
+                        !matches!(
+                            legacy_visibility,
+                            Some("background" | "presenter_only" | "question_only")
+                        )
+                    });
+                !background_question && publish_results && cue_run.state == "revealed"
             })
         })
     }

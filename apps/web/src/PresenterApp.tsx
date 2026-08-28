@@ -5,10 +5,15 @@ import type { Translate } from "./i18n";
 import {
   InteractionWorkspace,
   type InteractionDraft,
-  resultVisibilityFromForm,
+  resultSettingsFromForm,
   responseSettingsFromForm,
 } from "./InteractionWorkspace";
-import { defaultVisibility, parseOptions, typeName } from "./lib/interactions";
+import {
+  defaultResultSettings,
+  parseOptions,
+  resultSettingsPayload,
+  typeName,
+} from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
@@ -253,7 +258,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                 schema_version: 1,
                 template: kind,
                 cue: cueIndex + 1,
-                results: { audience_visibility: defaultVisibility(interaction.type) },
+                results: resultSettingsPayload(defaultResultSettings(interaction.type)),
               },
               options: interaction.options?.map((label) => ({ label, is_correct: null })) ?? [],
             },
@@ -415,7 +420,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           settings: {
             schema_version: 1,
             purpose: data.get("interaction_purpose"),
-            results: { audience_visibility: resultVisibilityFromForm(data.get("result_visibility")) },
+            results: resultSettingsPayload(resultSettingsFromForm(data)),
             response: responseSettingsFromForm(type, data),
           },
           options:
@@ -445,7 +450,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
               ...item.settings,
               schema_version: 1,
               purpose: item.settings.purpose,
-              results: { audience_visibility: draft.visibility },
+              results: resultSettingsPayload({
+                background_question: draft.backgroundQuestion,
+                publish_results: draft.publishResults,
+              }),
               response: draft.response,
             },
             options: draft.interaction_type === "single_choice"

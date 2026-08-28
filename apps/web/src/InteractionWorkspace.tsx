@@ -1,7 +1,12 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { Translate } from "./i18n";
-import { defaultVisibility, interactionResultVisibility, typeName } from "./lib/interactions";
+import {
+  defaultResultSettings,
+  interactionResultSettings,
+  type InteractionResultSettings,
+  typeName,
+} from "./lib/interactions";
 import {
   type InteractionPurpose,
   interactionPurposes,
@@ -9,7 +14,6 @@ import {
 } from "./presenterTemplates";
 import type { Cue, Interaction } from "./types";
 
-export type ResultVisibility = "background" | "after_reveal";
 export const DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT = 3;
 export const MAX_WORD_CLOUD_SUBMISSION_LIMIT = 10;
 
@@ -24,7 +28,8 @@ export type InteractionDraft = {
   interaction_type: Interaction["interaction_type"];
   prompt: string;
   purpose: InteractionPurpose;
-  visibility: ResultVisibility;
+  backgroundQuestion: boolean;
+  publishResults: boolean;
   options: string[];
   response: InteractionResponseSettings;
 };
@@ -56,7 +61,11 @@ export function InteractionWorkspace({
   const [type, setType] = useState<Interaction["interaction_type"]>(item?.interaction_type ?? recommended.type);
   const [prompt, setPrompt] = useState(item?.prompt ?? recommended.prompt);
   const [options, setOptions] = useState(() => initialOptions(t, item));
-  const [visibility, setVisibility] = useState<ResultVisibility>(() => item ? visibilityFrom(item) : defaultVisibility(recommended.type));
+  const initialResults = item
+    ? interactionResultSettings(item.settings, item.interaction_type)
+    : defaultResultSettings(recommended.type);
+  const [backgroundQuestion, setBackgroundQuestion] = useState(initialResults.background_question);
+  const [publishResults, setPublishResults] = useState(initialResults.publish_results);
   const initialResponse = responseSettingsFromInteraction(item);
   const [allowChange, setAllowChange] = useState(initialResponse.allow_change);
   const [multipleSelection, setMultipleSelection] = useState(initialResponse.multiple_selection);
@@ -66,7 +75,8 @@ export function InteractionWorkspace({
     interaction_type: type,
     prompt,
     purpose,
-    visibility,
+    backgroundQuestion,
+    publishResults: backgroundQuestion ? false : publishResults,
     options: type === "single_choice" ? options : [],
     response: {
       allow_change: allowChange,
@@ -106,16 +116,27 @@ export function InteractionWorkspace({
     const previousRecommendation = purposeRecommendation(t, purpose);
     const nextRecommendation = purposeRecommendation(t, nextPurpose);
     setPurpose(nextPurpose);
+    adjustResultDefaults(nextRecommendation.type);
     setType(nextRecommendation.type);
-    setVisibility((current) => current === defaultVisibility(type) ? defaultVisibility(nextRecommendation.type) : current);
     if (!item || prompt === previousRecommendation.prompt) setPrompt(nextRecommendation.prompt);
     if (nextRecommendation.type === "single_choice" && options.length < 2) setOptions(emptyChoiceOptions(t));
   }
 
   function chooseType(nextType: Interaction["interaction_type"]) {
-    setVisibility((current) => current === defaultVisibility(type) ? defaultVisibility(nextType) : current);
+    adjustResultDefaults(nextType);
     setType(nextType);
     if (nextType === "single_choice" && options.length < 2) setOptions(emptyChoiceOptions(t));
+  }
+
+  function adjustResultDefaults(nextType: Interaction["interaction_type"]) {
+    const previousDefaults = defaultResultSettings(type);
+    const nextDefaults = defaultResultSettings(nextType);
+    setBackgroundQuestion((current) => current === previousDefaults.background_question
+      ? nextDefaults.background_question
+      : current);
+    setPublishResults((current) => current === previousDefaults.publish_results
+      ? nextDefaults.publish_results
+      : current);
   }
 
   function updateOption(index: number, value: string) {
@@ -262,26 +283,29 @@ export function InteractionWorkspace({
         <section className="inspector-section">
           <h4>{t("interaction.resultSettings")}</h4>
           <p className="inspector-section-help">{t("interaction.resultSettingsHelp")}</p>
-          <label className="result-visibility-option">
+          <label className="visibility-checkbox">
             <input
-              type="radio"
-              name="result_visibility"
-              value="background"
-              checked={visibility === "background"}
-              onChange={() => setVisibility("background")}
+              type="checkbox"
+              name="background_question"
+              checked={backgroundQuestion}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setBackgroundQuestion(enabled);
+                if (enabled) setPublishResults(false);
+              }}
             />
-            <span className="radio-mark" aria-hidden="true" />
+            <span className="checkbox-mark" aria-hidden="true">✓</span>
             <span><strong>{t("interaction.backgroundQuestion")}</strong><small>{t("interaction.backgroundQuestionHelp")}</small></span>
           </label>
-          <label className="result-visibility-option">
+          <label className={`visibility-checkbox${backgroundQuestion ? " disabled" : ""}`}>
             <input
-              type="radio"
-              name="result_visibility"
-              value="after_reveal"
-              checked={visibility === "after_reveal"}
-              onChange={() => setVisibility("after_reveal")}
+              type="checkbox"
+              name="publish_results"
+              checked={publishResults}
+              disabled={backgroundQuestion}
+              onChange={(event) => setPublishResults(event.target.checked)}
             />
-            <span className="radio-mark" aria-hidden="true" />
+            <span className="checkbox-mark" aria-hidden="true">✓</span>
             <span><strong>{t("interaction.publishLive")}</strong><small>{t("interaction.publishLiveHelp")}</small></span>
           </label>
         </section>
@@ -372,12 +396,12 @@ function purposeFrom(item: Interaction): InteractionPurpose {
     : "understanding";
 }
 
-function visibilityFrom(item: Interaction): ResultVisibility {
-  return interactionResultVisibility(item.settings);
-}
-
-export function resultVisibilityFromForm(value: FormDataEntryValue | null): ResultVisibility {
-  return value === "background" ? "background" : "after_reveal";
+export function resultSettingsFromForm(data: FormData): InteractionResultSettings {
+  const backgroundQuestion = data.get("background_question") === "on";
+  return {
+    background_question: backgroundQuestion,
+    publish_results: !backgroundQuestion && data.get("publish_results") === "on",
+  };
 }
 
 export function responseSettingsFromForm(
