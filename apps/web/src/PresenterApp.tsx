@@ -7,7 +7,7 @@ import {
   type InteractionDraft,
   liveVisibilityFromForm,
 } from "./InteractionWorkspace";
-import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./lib/interactions";
+import { defaultVisibility, parseOptions, typeName } from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
@@ -678,8 +678,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                       >
                         <CueThumbnail t={t} cue={item} />
                         <span className="cue-thumbnail-meta">
-                          <strong>{item.name}</strong>
-                          <small>{t("cue.interactionCount", { count: item.interactions.length })}</small>
+                          <strong>{t("cue.interactionCount", { count: item.interactions.length })}</strong>
+                          {item.anchor_value && <small>· {item.anchor_value}</small>}
                         </span>
                       </button>
                       <span className="cue-drag-handle" aria-hidden="true">⋮⋮</span>
@@ -693,15 +693,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         </section>
 
         <section className="panel editor-panel">
-          <div className="panel-heading">
+          <div className="panel-heading editor-toolbar">
             <div className="editor-heading-main">
               <span className="step">03</span><h2>{t("interaction.heading")}</h2>
-              {cue && <CueBindingField key={cue.id} t={t} cue={cue} busy={busy} onSave={(value) => updateCue(cue, value)} />}
-            </div>
-          </div>
-          {cue ? (
-            <>
-              <nav className="interaction-tabs" aria-label={t("interaction.heading")}>
+              {cue && <nav className="interaction-tabs" aria-label={t("interaction.heading")}>
                 {cue.interactions.map((item) => (
                   <button
                     className={!creatingInteraction && selectedInteraction?.id === item.id ? "interaction-tab active" : "interaction-tab"}
@@ -716,7 +711,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                   </button>
                 ))}
                 <button className={creatingInteraction ? "interaction-tab add active" : "interaction-tab add"} onClick={() => setCreatingInteraction(true)}>+ {t("interaction.addHeading")}</button>
-              </nav>
+              </nav>}
+            </div>
+            {cue && <CueBindingField key={cue.id} t={t} cue={cue} busy={busy} onSave={(value) => updateCue(cue, value)} />}
+          </div>
+          {cue ? (
+            <>
               {creatingInteraction || !selectedInteraction ? (
                 <InteractionWorkspace
                   key={`new-${cue.id}`}
@@ -767,9 +767,9 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
   return (
     <span className="cue-thumbnail-canvas" aria-hidden="true">
       <span className="cue-thumbnail-kicker">
-        {interaction ? typeName(t, interaction.interaction_type) : slideAnchorLabel(t, cue)}
+        {interaction ? typeName(t, interaction.interaction_type) : ""}
       </span>
-      <span className="cue-thumbnail-title">{interaction?.prompt ?? cue.name}</span>
+      <span className="cue-thumbnail-title">{interaction?.prompt ?? ""}</span>
       <span className={`cue-thumbnail-visual cue-thumbnail-${interactionType}`}>
         {interactionType === "single_choice" && <><i /><i /><i /><i /></>}
         {interactionType === "understanding" && <><i /><i /><i /></>}
