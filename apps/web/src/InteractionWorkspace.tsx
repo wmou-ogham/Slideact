@@ -132,10 +132,6 @@ export function InteractionWorkspace({
       onSubmit={(event) => item ? event.preventDefault() : onSubmit(event)}
     >
       <section className="interaction-stage" aria-label={t("interaction.canvasLabel")}>
-        {!item && <div className="interaction-creation-hint" role="status">
-          <strong>{t("interaction.createHintTitle")}</strong>
-          <span>{t("interaction.createHintCopy")}</span>
-        </div>}
         <div className="canvas-context">
           <span>{t("interaction.slideCanvas", { slide: cue.anchor_value ?? cue.position + 1 })}</span>
           <div className="canvas-context-actions">
@@ -148,30 +144,36 @@ export function InteractionWorkspace({
             >{t("common.delete")}</button>}
           </div>
         </div>
-        <div className={`interaction-canvas canvas-type-${type}`}>
-          <span className={`type-badge type-${type}`}>{typeName(t, type)}</span>
-          <label className="canvas-title-field">
-            <span>{t("interaction.promptLabel")}</span>
-            <textarea
-              name="prompt"
-              required
-              maxLength={500}
-              rows={2}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder={t("interaction.promptPlaceholder")}
+        <div className="interaction-canvas-shell">
+          <div className={`interaction-canvas canvas-type-${type}`}>
+            <span className={`type-badge type-${type}`}>{typeName(t, type)}</span>
+            <label className="canvas-title-field">
+              <span>{t("interaction.promptLabel")}</span>
+              <textarea
+                name="prompt"
+                required
+                maxLength={500}
+                rows={2}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder={t("interaction.promptPlaceholder")}
+              />
+            </label>
+            <InteractionCanvasBody
+              t={t}
+              type={type}
+              options={options}
+              updateOption={updateOption}
+              removeOption={removeOption}
+              addOption={() => setOptions((current) => [...current, ""])}
             />
-          </label>
-          <InteractionCanvasBody
-            t={t}
-            type={type}
-            options={options}
-            updateOption={updateOption}
-            removeOption={removeOption}
-            addOption={() => setOptions((current) => [...current, ""])}
-          />
-          <input type="hidden" name="options" value={options.join("\n")} />
-          <span className="canvas-brand">SLIDEACT</span>
+            <input type="hidden" name="options" value={options.join("\n")} />
+            <span className="canvas-brand">SLIDEACT</span>
+          </div>
+          {!item && <div className="interaction-creation-hint" role="status">
+            <strong>{t("interaction.createHintTitle")}</strong>
+            <span>{t("interaction.createHintCopy")}</span>
+          </div>}
         </div>
         <p className="canvas-help">{t("interaction.canvasHelp")}</p>
       </section>
@@ -208,6 +210,7 @@ export function InteractionWorkspace({
 
         <section className="inspector-section">
           <h4>{t("interaction.responseSettings")}</h4>
+          <p className="inspector-section-help">{t("interaction.responseSettingsHelp")}</p>
           {type === "single_choice" && <>
             <label className="visibility-checkbox">
               <input
@@ -254,6 +257,11 @@ export function InteractionWorkspace({
               <span><strong>{t("interaction.allowDuplicate")}</strong><small>{t("interaction.allowDuplicateHelp")}</small></span>
             </label>
           </>}
+        </section>
+
+        <section className="inspector-section">
+          <h4>{t("interaction.resultSettings")}</h4>
+          <p className="inspector-section-help">{t("interaction.resultSettingsHelp")}</p>
           <label className="visibility-checkbox">
             <input
               type="checkbox"

@@ -32,7 +32,7 @@ type DeletedCueSnapshot = {
   cue: Cue;
 };
 
-export type CueShortcutAction = "delete" | "undo" | "move-up" | "move-down" | null;
+export type CueShortcutAction = "delete" | "undo" | "select-previous" | "select-next" | null;
 
 export function reorderCueIds(
   source: ReadonlyArray<Pick<Cue, "id" | "position">>,
@@ -49,17 +49,6 @@ export function reorderCueIds(
   if (!moved) return ordered.map((item) => item.id);
   ordered.splice(Math.min(targetIndex, ordered.length), 0, moved);
   return ordered.map((item) => item.id);
-}
-
-export function moveCueIds(
-  source: ReadonlyArray<Pick<Cue, "id" | "position">>,
-  sourceId: string,
-  offset: -1 | 1,
-) {
-  const ordered = [...source].sort((left, right) => left.position - right.position);
-  const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
-  const target = ordered[sourceIndex + offset];
-  return target ? reorderCueIds(ordered, sourceId, target.id) : ordered.map((item) => item.id);
 }
 
 export function insertCueIdAtPosition(
@@ -85,8 +74,8 @@ export function cueShortcutAction(
   }
   if (event.metaKey || event.ctrlKey || event.shiftKey) return null;
   if (event.key === "Delete" || event.key === "Backspace") return "delete";
-  if (event.key === "ArrowUp") return "move-up";
-  if (event.key === "ArrowDown") return "move-down";
+  if (event.key === "ArrowUp") return "select-previous";
+  if (event.key === "ArrowDown") return "select-next";
   return null;
 }
 
@@ -112,6 +101,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [deletedCueStack, setDeletedCueStack] = useState<DeletedCueSnapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const cueButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const libraryDefaultApplied = useRef(false);
 
   const project = projects.find((item) => item.id === projectId) ?? null;
@@ -319,14 +309,14 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 
   async function updateCue(item: Cue, value: string) {
     if (!projectId) return;
-    const anchor = normalizeSlideAnchor(value, item.position + 1);
+    const anchor = cueAnchorUpdate(value, item.position + 1);
     await run(async () => {
       await apiJson<Cue>(`/api/projects/${projectId}/cues/${item.id}`, {
         method: "PUT",
         body: JSON.stringify({
           name: generatedCueName(t, item.position + 1),
-          anchor_type: "deck_slide",
-          anchor_value: anchor,
+          anchor_type: anchor.anchor_type,
+          anchor_value: anchor.anchor_value,
           trigger_mode: item.trigger_mode,
           delay_seconds: 0,
         }),
@@ -405,10 +395,6 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   async function reorderCue(sourceId: string, targetId: string) {
     const cueIds = reorderCueIds(cues, sourceId, targetId);
     await saveCueOrder(sourceId, cueIds);
-  }
-
-  async function moveCue(item: Cue, offset: -1 | 1) {
-    await saveCueOrder(item.id, moveCueIds(cues, item.id, offset));
   }
 
   async function createInteraction(event: FormEvent<HTMLFormElement>) {
@@ -505,8 +491,17 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       if (!cue) return;
       event.preventDefault();
       if (action === "delete") void deleteCue(cue);
-      if (action === "move-up") void moveCue(cue, -1);
-      if (action === "move-down") void moveCue(cue, 1);
+      if (action === "select-previous" || action === "select-next") {
+        const ordered = [...cues].sort((left, right) => left.position - right.position);
+        const cueIndex = ordered.findIndex((item) => item.id === cue.id);
+        const offset = action === "select-previous" ? -1 : 1;
+        const nextCue = ordered[cueIndex + offset];
+        if (!nextCue) return;
+        setCueId(nextCue.id);
+        setExpandedInteractionId(nextCue.interactions.at(0)?.id ?? "");
+        setCreatingInteraction(false);
+        window.requestAnimationFrame(() => cueButtonRefs.current.get(nextCue.id)?.focus());
+      }
     };
     window.addEventListener("keydown", handleCueShortcut);
     return () => window.removeEventListener("keydown", handleCueShortcut);
@@ -668,6 +663,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                     <div className="cue-row">
                       <span className="cue-position">{item.position + 1}</span>
                       <button
+                        ref={(node) => {
+                          if (node) cueButtonRefs.current.set(item.id, node);
+                          else cueButtonRefs.current.delete(item.id);
+                        }}
                         className={item.id === cueId ? "cue-card selected" : "cue-card"}
                         aria-current={item.id === cueId ? "true" : undefined}
                         title={t("cue.keyboardHelp")}
@@ -806,17 +805,27 @@ function CueBindingField({ t, cue, busy, onSave }: {
   busy: boolean;
   onSave: (value: string) => Promise<void>;
 }) {
-  const currentValue = cue.anchor_value ?? String(cue.position + 1);
+  const currentValue = cue.anchor_value ?? "";
   const [value, setValue] = useState(currentValue);
-
-  useEffect(() => setValue(currentValue), [cue.id, currentValue]);
+  const saveCallback = useRef(onSave);
 
   useEffect(() => {
-    const trimmed = value.trim();
-    if (!trimmed || busy || normalizeSlideAnchor(trimmed, cue.position + 1) === currentValue) return;
-    const timer = window.setTimeout(() => void onSave(trimmed), 650);
+    saveCallback.current = onSave;
+  }, [onSave]);
+  useEffect(() => setValue(currentValue), [cue.id, currentValue]);
+
+  const saveValue = useCallback((nextValue: string) => {
+    const nextAnchor = cueAnchorUpdate(nextValue, cue.position + 1).anchor_value;
+    if (busy || nextAnchor === (cue.anchor_value ?? null)) return;
+    void saveCallback.current(nextValue);
+  }, [busy, cue.anchor_value, cue.position]);
+
+  useEffect(() => {
+    const nextAnchor = cueAnchorUpdate(value, cue.position + 1).anchor_value;
+    if (busy || nextAnchor === (cue.anchor_value ?? null)) return;
+    const timer = window.setTimeout(() => saveValue(value), 650);
     return () => window.clearTimeout(timer);
-  }, [busy, cue.position, currentValue, onSave, value]);
+  }, [busy, cue.anchor_value, cue.position, saveValue, value]);
 
   return (
     <label className="cue-binding-inline">
@@ -826,10 +835,20 @@ function CueBindingField({ t, cue, busy, onSave }: {
         value={value}
         disabled={busy}
         onChange={(event) => setValue(event.target.value)}
+        onBlur={() => saveValue(value)}
         placeholder={t("cue.slidePlaceholder")}
       />
     </label>
   );
+}
+
+export function cueAnchorUpdate(value: string, fallbackIndex: number) {
+  const trimmed = value.trim();
+  if (!trimmed) return { anchor_type: "manual" as const, anchor_value: null };
+  return {
+    anchor_type: "deck_slide" as const,
+    anchor_value: normalizeSlideAnchor(trimmed, fallbackIndex),
+  };
 }
 
 export function normalizeSlideAnchor(value: string, fallbackIndex: number) {

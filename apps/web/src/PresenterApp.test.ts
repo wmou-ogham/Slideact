@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cueAnchorUpdate,
   cueShortcutAction,
   insertCueIdAtPosition,
-  moveCueIds,
   normalizeSlideAnchor,
   reorderCueIds,
   shouldCollapseLibraryByDefault,
@@ -49,13 +49,6 @@ describe("reorderCueIds", () => {
     expect(reorderCueIds(cues, "cue-b", "cue-b")).toEqual(["cue-a", "cue-b", "cue-c"]);
   });
 
-  it("moves the selected cue by one keyboard step and stops at either edge", () => {
-    expect(moveCueIds(cues, "cue-b", -1)).toEqual(["cue-b", "cue-a", "cue-c"]);
-    expect(moveCueIds(cues, "cue-b", 1)).toEqual(["cue-a", "cue-c", "cue-b"]);
-    expect(moveCueIds(cues, "cue-a", -1)).toEqual(["cue-a", "cue-b", "cue-c"]);
-    expect(moveCueIds(cues, "cue-c", 1)).toEqual(["cue-a", "cue-b", "cue-c"]);
-  });
-
   it("inserts a restored cue at its previous position", () => {
     expect(insertCueIdAtPosition(cues, "cue-restored", 1))
       .toEqual(["cue-a", "cue-restored", "cue-b", "cue-c"]);
@@ -74,11 +67,11 @@ describe("cueShortcutAction", () => {
     ...overrides,
   }, false);
 
-  it("maps delete, backspace, arrow movement, and platform undo", () => {
+  it("maps delete, backspace, arrow selection, and platform undo", () => {
     expect(shortcut("Delete")).toBe("delete");
     expect(shortcut("Backspace")).toBe("delete");
-    expect(shortcut("ArrowUp")).toBe("move-up");
-    expect(shortcut("ArrowDown")).toBe("move-down");
+    expect(shortcut("ArrowUp")).toBe("select-previous");
+    expect(shortcut("ArrowDown")).toBe("select-next");
     expect(shortcut("z", { metaKey: true })).toBe("undo");
     expect(shortcut("Z", { ctrlKey: true })).toBe("undo");
   });
@@ -93,6 +86,19 @@ describe("cueShortcutAction", () => {
     }, true)).toBeNull();
     expect(shortcut("ArrowDown", { metaKey: true })).toBeNull();
     expect(shortcut("z", { ctrlKey: true, shiftKey: true })).toBeNull();
+  });
+});
+
+describe("cueAnchorUpdate", () => {
+  it("clears the Google Slides binding as a manual cue", () => {
+    expect(cueAnchorUpdate("   ", 5)).toEqual({ anchor_type: "manual", anchor_value: null });
+  });
+
+  it("normalizes a populated binding as a deck slide cue", () => {
+    expect(cueAnchorUpdate("id.gabc", 5)).toEqual({
+      anchor_type: "deck_slide",
+      anchor_value: "gabc",
+    });
   });
 });
 
