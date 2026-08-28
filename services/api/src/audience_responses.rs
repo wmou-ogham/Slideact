@@ -135,13 +135,15 @@ async fn submit_response(
     .map_err(persistence_error)?;
     enforce_response_rules(
         &mut transaction,
-        &interaction.0,
-        &interaction.3,
-        request.cue_run_id,
-        interaction_id,
-        participant_id,
-        &payload,
-        idempotent,
+        ResponseRuleContext {
+            interaction_type: &interaction.0,
+            settings: &interaction.3,
+            cue_run_id: request.cue_run_id,
+            interaction_id,
+            participant_id,
+            payload: &payload,
+            idempotent,
+        },
     )
     .await?;
     let submission_index = next_submission_index(
@@ -454,16 +456,29 @@ async fn validate_payload(
     Ok(payload.clone())
 }
 
-async fn enforce_response_rules(
-    transaction: &mut Transaction<'_, Postgres>,
-    interaction_type: &str,
-    settings: &Value,
+struct ResponseRuleContext<'a> {
+    interaction_type: &'a str,
+    settings: &'a Value,
     cue_run_id: Uuid,
     interaction_id: Uuid,
     participant_id: Uuid,
-    payload: &Value,
+    payload: &'a Value,
     idempotent: bool,
+}
+
+async fn enforce_response_rules(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: ResponseRuleContext<'_>,
 ) -> Result<(), ApiError> {
+    let ResponseRuleContext {
+        interaction_type,
+        settings,
+        cue_run_id,
+        interaction_id,
+        participant_id,
+        payload,
+        idempotent,
+    } = context;
     if idempotent {
         return Ok(());
     }
