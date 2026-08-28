@@ -143,3 +143,81 @@ Turn the presenter Cue and interaction area into a Google Slides/Mentimeter-styl
 - Browser QA: at 1280×500 the Cue rail overflowed internally while all three cards remained separate; header height, creation dimming, edit-mode purpose removal, and binding control removal were confirmed without saving any template data.
 - Challenge/workaround: the first Docker build ran extension `prepare` before source COPY. The failed log was retained; moving extension source earlier fixed the build without disabling lifecycle scripts.
 - Commits: `04a2d84`, `16451e3`, and `8115774`, all created with `git commit -s -S`. Full records are in `/home/moriss/slide-helper/output.log` and `/home/moriss/slide-helper/reproduced.md`.
+
+## 2026-08-28 最終 UIUX 與回覆規則交付（繁體中文）
+
+### 環境設定與目標
+
+- 延續 `ssh -A moriss` 與 `dev/wmou/slides-interaction-editor`；Git 全部使用 `git commit -s -S`，最新 8 個提交均驗證為 Good SSH signature。
+- 前端使用 React 19／TypeScript／Vite 7／pnpm 10.15.0；後端使用 Rust 1.88；正式服務為 PostgreSQL 16.9、Redis 7.4.5 與 Docker Compose。沒有新增套件，也沒有使用 sudo。
+- 目標是把 Presenter 收斂成高密度、滿版、不可整頁滾動的簡報互動工作區，並讓選擇題與文字雲設定真正約束觀眾端送出行為。
+
+### 完成事項
+
+- 新帳號沒有專案時預設展開 01 專案欄；既有帳號第一次載入時預設收合。登入頁改為緊湊雙欄版面，Vault 還原收進可展開區塊；首頁移除可見「語言」標題但保留 select 的無障礙名稱。
+- Cue rail 支援拖曳、Delete／Backspace 刪除、Ctrl／Cmd+Z 復原與 ↑／↓ 移動；投影片縮圖不再顯示產生的「投影片 N」，只顯示互動數與存在的 Google Slide ID。
+- 「03 互動內容」、Chrome 式互動 tabs 與置右 Google Slides 綁定合併為單列。題目、選項、Slides 綁定與既有互動設定皆自動儲存；右側沒有手動儲存按鈕，刪除移到畫布右上方，inspector 可獨立捲動。
+- 放大關鍵字級、縮小面板與元件間距、增加畫布寬度；新增互動提示在畫布中央上移，避免遮住下方選項。Live control 預設隱藏，只由「開始簡報」叫出。
+- 「四選一／單選題」改為「選擇題」，支援可複選與是否允許送出後修改。觀眾多選後以單次 payload 送出，API 驗證每個 option ID；不可修改時，重送會由 UI 鎖定且 API 回覆 conflict。
+- 文字雲支援每人 1～10 則限制與是否允許相同答案重複送出；API 先正規化文字再檢查重複。`/home/moriss/slide-helper/migrations/0012_interaction_response_settings.sql` 將 submission slots 擴至 10。
+- Choice aggregate 可計算 `option_ids` 陣列，但 `total_responses` 仍代表實際作答人次，不會因複選而膨脹。
+
+### 驗證結果
+
+- web／extension TypeScript 通過；6 個 web test files、25 tests 通過；WXT extension build／ZIP 成功；Vite production build 66 modules。
+- Rust workspace fmt／clippy `-D warnings` 通過；API 26、domain 21、protocol 6，共 53 tests 通過。
+- 隔離資料庫完整 migration 通過；正式 migration 12 成功。API、worker、web、proxy、postgres、redis 全部 healthy，Extension ZIP HTTP 200。
+- 1280×720 瀏覽器實測文件尺寸等於 viewport；Cue rail 內部捲動；既有帳號 reload 預設收合；專案欄展開時 toolbar 與 editor 邊界相同，沒有裁切或水平捲動；console 0 warning／0 error。
+- 實際觀眾驗收：A+C 複選 aggregate 各 1、`total_responses=1`；不可修改設定會鎖定。文字雲拒絕 `Same Word`／`same   word` 的第二筆，4 則後停止輸入且 aggregate 為 4。
+
+### 困難與解法
+
+- 第一次隔離 migration 因執行器啟動時也要求 `REDIS_URL` 而在 DB 變更前停止；保留失敗 log，補上 compose Redis URL 後在新測試 DB 成功。
+- 完整 clippy 發現規則函式參數過多；改以 borrowed `ResponseRuleContext` 聚合上下文，不停用 lint。
+- 視覺截圖發現 1280px 且專案欄展開時 toolbar 的 min-content 寬度裁掉 03 標題；加入 `width: 100%` 與 `min-width: 0` 後以實際 rect 重驗通過。
+- QA 專案含 session history，資料庫 `RESTRICT` 阻止直接刪除；先唯讀核對 FK，再於單一 transaction 精確刪除 1 筆測試 session 與 1 筆測試專案，殘留數為 0。
+
+### 本輪提交與紀錄
+
+- `ff5fd7e` Cue 鍵盤編輯；`e36c99a` 互動自動儲存；`53d51c1` 登入與側欄預設；`719041b` Chrome 式互動工具列。
+- `1de9b9a` 回覆設定；`e2f5f34` 觀眾規則與 migration；`ecf046c` clippy context 重構；`57ef326` 工具列溢位修正。以上皆為 Good SSH signature。
+- 完整紀錄：`/home/moriss/slide-helper/output.log`、`/home/moriss/slide-helper/reproduced.md`、`/home/moriss/slide-helper/progress.md`、`/home/moriss/slide-helper/logs/full-web-build-20260828T042000Z.log`、`/home/moriss/slide-helper/logs/full-rust-check-20260828T042300Z.log`、`/home/moriss/slide-helper/logs/deploy-response-settings-20260828T042800Z.log`。
+
+## 2026-08-28 Final UIUX and Response Rules Delivery (English)
+
+### Environment and goal
+
+- Continued through `ssh -A moriss` on `dev/wmou/slides-interaction-editor`. All commits use `git commit -s -S`; the latest eight commits have Good SSH signatures.
+- The frontend remains React 19, TypeScript, Vite 7, and pnpm 10.15.0; the backend uses Rust 1.88; production runs PostgreSQL 16.9, Redis 7.4.5, and Docker Compose. No dependency was added and no sudo command was used.
+- The goal was a dense, full-viewport Presenter workspace with no document scrolling, plus Choice and Word cloud controls that genuinely constrain audience submissions.
+
+### Completed work
+
+- Accounts without projects open the Section 01 library by default; returning accounts collapse it on first load. Login is now a compact two-panel layout with Vault restore in a disclosure. The landing page keeps an accessible language select without a visible “Language” heading.
+- The Cue rail supports drag/drop, Delete/Backspace deletion, Ctrl/Cmd+Z restore, and arrow-key movement. Generated “Slide N” names are removed from cards; metadata contains only interaction count and a present Google Slide ID.
+- “03 Interaction,” Chrome-like tabs, and the right-aligned Google Slides binding share one row. Questions, options, slide binding, and existing interaction settings auto-save. The manual save button is gone, delete sits above the canvas, and the inspector scrolls independently.
+- Functional type was increased while spacing was tightened and the canvas widened. The creation hint is lifted within the canvas to avoid answer controls. Live controls remain hidden until Start presentation is selected.
+- “Single choice” is now “Choice,” with multiple selection and post-submit change controls. Audience multi-select submits one payload, every option ID is API-validated, and disabled changes are enforced by both UI locking and API conflict responses.
+- Word clouds support a per-participant limit from 1–10 and optional duplicate-answer rejection after text normalization. `/home/moriss/slide-helper/migrations/0012_interaction_response_settings.sql` expands submission slots to ten.
+- Choice aggregation supports `option_ids` arrays while keeping `total_responses` equal to actual response rows rather than inflating it by selected-option count.
+
+### Validation
+
+- Web/extension TypeScript passed; 25 tests across 6 web test files passed; WXT extension build/ZIP and the 66-module Vite production build succeeded.
+- Rust workspace fmt and clippy with `-D warnings` passed; 26 API, 21 domain, and 6 protocol tests passed (53 total).
+- All migrations passed in an isolated database and production migration 12 succeeded. API, worker, web, proxy, PostgreSQL, and Redis are healthy; the Extension ZIP returns HTTP 200.
+- At 1280×720 the document equals the viewport, the Cue rail scrolls internally, a returning account reloads with Section 01 collapsed, and the expanded toolbar matches the editor bounds with no clipping or horizontal scroll. Browser console output was empty.
+- Real audience QA submitted A+C as a multi-select (`total_responses=1`, one vote each) and locked it. The word cloud rejected normalized duplicate `Same Word` / `same   word`, stopped at four configured submissions, and aggregated four entries.
+
+### Challenges and workarounds
+
+- The first isolated migration stopped before database changes because application startup also requires `REDIS_URL`. The failed log was retained; adding the Compose Redis URL and using a fresh test database succeeded.
+- Full clippy flagged too many response-rule parameters. A borrowed `ResponseRuleContext` grouped them without disabling lint rules.
+- Visual QA found the toolbar's min-content width clipping the Stage 03 heading at 1280px with the library expanded. `width: 100%` and `min-width: 0` fixed it, verified with real element bounds.
+- QA history made direct project deletion fail safely under `RESTRICT`. After read-only FK inspection, one exact test session and one exact test project were removed in a transaction; both residual counts are zero.
+
+### Commits and records
+
+- `ff5fd7e` Cue keyboard editing; `e36c99a` interaction autosave; `53d51c1` entry/sidebar defaults; `719041b` Chrome-style interaction toolbar.
+- `1de9b9a` response settings; `e2f5f34` audience enforcement and migration; `ecf046c` clippy context refactor; `57ef326` toolbar overflow fix. All have Good SSH signatures.
+- Full records: `/home/moriss/slide-helper/output.log`, `/home/moriss/slide-helper/reproduced.md`, `/home/moriss/slide-helper/progress.md`, `/home/moriss/slide-helper/logs/full-web-build-20260828T042000Z.log`, `/home/moriss/slide-helper/logs/full-rust-check-20260828T042300Z.log`, and `/home/moriss/slide-helper/logs/deploy-response-settings-20260828T042800Z.log`.
