@@ -307,6 +307,9 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .response-limit-field { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 5px 10px; align-items: center; color: var(--muted); }
 .response-limit-field > span { color: var(--ink); font-size: 11px; font-weight: 750; letter-spacing: 0; text-transform: none; }
 .response-limit-field input { min-height: 38px; padding: 7px 9px; text-align: center; }
+.response-limit-field input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.response-limit-field input[type="number"]::-webkit-inner-spin-button,
+.response-limit-field input[type="number"]::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
 .response-limit-field small { grid-column: 1 / -1; font-size: 9px; font-weight: 500; line-height: 1.4; letter-spacing: 0; text-transform: none; }
 .visibility-checkbox { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; cursor: pointer; }
 .visibility-checkbox input { position: absolute; width: 1px; height: 1px; opacity: 0; }

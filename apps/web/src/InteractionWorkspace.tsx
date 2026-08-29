@@ -263,6 +263,7 @@ export function InteractionWorkspace({
                 min={1}
                 max={MAX_WORD_CLOUD_SUBMISSION_LIMIT}
                 value={submissionLimit}
+                onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) => setSubmissionLimit(Number(event.target.value))}
               />
               <small>{t("interaction.wordCloudSubmissionLimitHelp")}</small>
