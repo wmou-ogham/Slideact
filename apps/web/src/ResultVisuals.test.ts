@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   avoidPinnedWordCollisions,
   type PositionedWordCloudGlyph,
+  restoreMissingWordCloudWords,
   wordCloudLayoutSignature,
   wordCloudWordsOverlap,
 } from "./ResultVisuals";
@@ -87,5 +88,28 @@ describe("pinned word collision avoidance", () => {
       60,
     );
     expect(result.map((item) => item.text)).toEqual(["wide pinned answer"]);
+  });
+});
+
+describe("word cloud layout recovery", () => {
+  it("restores every aggregate entry omitted by the cloud layout", () => {
+    const latest = word("latest", 0, 0, 52);
+    const result = restoreMissingWordCloudWords(
+      [latest],
+      [word("first", 0, 0, 40), word("second", 0, 0, 40)],
+    );
+
+    expect(result.map((item) => item.text)).toEqual(["latest", "first", "second"]);
+    expect(result[0]).toEqual(latest);
+    for (let left = 0; left < result.length; left += 1) {
+      for (let right = left + 1; right < result.length; right += 1) {
+        expect(wordCloudWordsOverlap(result[left]!, result[right]!)).toBe(false);
+      }
+    }
+  });
+
+  it("does not alter a complete layout", () => {
+    const placed = [word("first", -80, 0), word("second", 80, 0)];
+    expect(restoreMissingWordCloudWords(placed, [])).toBe(placed);
   });
 });

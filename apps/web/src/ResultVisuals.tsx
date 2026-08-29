@@ -300,6 +300,40 @@ export function avoidPinnedWordCollisions<T extends PositionedWordCloudGlyph>(
   });
 }
 
+/**
+ * d3-cloud may omit words that do not fit during an asynchronous layout pass.
+ * Preserve its placed words and deterministically fit every missing aggregate
+ * entry, shrinking only the missing entry when necessary.
+ */
+export function restoreMissingWordCloudWords<T extends PositionedWordCloudGlyph>(
+  placed: T[],
+  missing: T[],
+  width = WORD_CLOUD_WIDTH,
+  height = WORD_CLOUD_HEIGHT,
+): T[] {
+  if (!missing.length) return placed;
+  const occupied: PositionedWordCloudGlyph[] = [...placed];
+  const restored: T[] = [];
+  for (const word of missing) {
+    let size = word.size;
+    let next: T | null = null;
+    while (size >= 12 && !next) {
+      const candidate = { ...word, size } as T;
+      if (wordFitsCanvas(candidate, width, height)
+        && occupied.every((current) => !wordCloudWordsOverlap(candidate, current))) {
+        next = candidate;
+      } else {
+        next = findAvailableWordPosition(candidate, occupied, width, height) as T | null;
+      }
+      size = Math.floor(size * 0.85);
+    }
+    if (!next) continue;
+    occupied.push(next);
+    restored.push(next);
+  }
+  return [...placed, ...restored];
+}
+
 function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinLabel }: {
   entries: Array<{ text: string; count: number }>;
   label: string;
@@ -410,7 +444,28 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
           random={WORD_CLOUD_RANDOM}
         >
           {(cloudWords: WordCloudGlyph[]) => {
-            const positionedWords = cloudWords.map((word): PositionedWordCloudGlyph => {
+            const laidOutWords = cloudWords.map((word): PositionedWordCloudGlyph => ({
+              ...word,
+              text: word.text ?? "",
+              rotate: word.rotate ?? 0,
+              size: word.size ?? 24,
+              x: word.x ?? 0,
+              y: word.y ?? 0,
+            }));
+            const laidOutTexts = new Set(laidOutWords.map((word) => word.text));
+            const missingWords = words
+              .filter((word) => !laidOutTexts.has(word.text))
+              .map((word): PositionedWordCloudGlyph => ({
+                ...word,
+                font: palette.font,
+                rotate: rotate(word),
+                size: fontSize(word),
+                weight: fontWeight(word),
+                x: 0,
+                y: 0,
+              }));
+            const completeWords = restoreMissingWordCloudWords(laidOutWords, missingWords);
+            const positionedWords = completeWords.map((word): PositionedWordCloudGlyph => {
               const text = word.text ?? "";
               const positioned = {
                 ...word,

@@ -24,7 +24,7 @@ use crate::{
 };
 
 const PAIRING_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
-const PAIRING_TTL_SECONDS: i64 = 10 * 60;
+const PAIRING_TTL_SECONDS: i64 = 24 * 60 * 60;
 const EXTENSION_TOKEN_TTL_SECONDS: i64 = 24 * 60 * 60;
 const OVERLAY_TOKEN_TTL_SECONDS: i64 = 60 * 60;
 
@@ -239,19 +239,28 @@ async fn create_pairing_code(
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     require_session_owner(&state.database, session_id, user_id).await?;
     let code = generate_pairing_code();
-    sqlx::query(
+    let code = sqlx::query_scalar::<_, String>(
         r#"
-        INSERT INTO extension_pairing_codes (id, session_id, code_hash, expires_at)
-        VALUES ($1, $2, $3, NOW() + ($4::BIGINT * INTERVAL '1 second'))
+        INSERT INTO extension_pairing_codes (id, session_id, code, code_hash, expires_at)
+        SELECT $1, live_sessions.id, $3, $4,
+               NOW() + ($5::BIGINT * INTERVAL '1 second')
+        FROM live_sessions
+        WHERE live_sessions.id = $2
+          AND live_sessions.status IN ('lobby', 'live', 'paused')
+        ON CONFLICT (session_id) WHERE code IS NOT NULL
+        DO UPDATE SET expires_at = NOW() + ($5::BIGINT * INTERVAL '1 second')
+        RETURNING code
         "#,
     )
     .bind(Uuid::new_v4())
     .bind(session_id)
-    .bind(hash_secret(&code.to_uppercase()))
+    .bind(&code)
+    .bind(hash_secret(&code))
     .bind(PAIRING_TTL_SECONDS)
-    .execute(&state.database)
+    .fetch_optional(&state.database)
     .await
-    .map_err(persistence_error)?;
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::conflict("session_not_active"))?;
     Ok((
         StatusCode::CREATED,
         Json(PairingCodeResponse {
@@ -274,9 +283,14 @@ async fn redeem_pairing_code(
         r#"
         UPDATE extension_pairing_codes SET redeemed_at = COALESCE(redeemed_at, NOW())
         WHERE id = (
-            SELECT id FROM extension_pairing_codes
-            WHERE code_hash = $1 AND expires_at > NOW()
-            FOR UPDATE
+            SELECT extension_pairing_codes.id
+            FROM extension_pairing_codes
+            JOIN live_sessions
+              ON live_sessions.id = extension_pairing_codes.session_id
+            WHERE code_hash = $1
+              AND expires_at > NOW()
+              AND live_sessions.status IN ('lobby', 'live', 'paused')
+            FOR UPDATE OF extension_pairing_codes
         )
         RETURNING session_id
         "#,
@@ -729,4 +743,19 @@ fn redis_error(error: redis::RedisError) -> ApiError {
 fn persistence_error(error: sqlx::Error) -> ApiError {
     warn!(%error, "extension sync persistence operation failed");
     ApiError::internal("extension_sync_failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PAIRING_ALPHABET, generate_pairing_code, validate_pairing_code};
+
+    #[test]
+    fn generated_pairing_codes_match_the_redeemable_format() {
+        for _ in 0..100 {
+            let code = generate_pairing_code();
+            assert_eq!(code.len(), 8);
+            assert!(code.bytes().all(|byte| PAIRING_ALPHABET.contains(&byte)));
+            assert!(validate_pairing_code(&code).is_ok());
+        }
+    }
 }
