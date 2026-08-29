@@ -13,6 +13,7 @@ mod questions;
 mod rate_limit;
 mod realtime;
 mod resources;
+mod result_visibility;
 mod sync;
 
 use anyhow::{Context, Result};

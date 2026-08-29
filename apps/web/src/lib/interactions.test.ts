@@ -20,6 +20,21 @@ describe("interaction result visibility", () => {
     });
   });
 
+  it("keeps interactions with missing persisted settings private until reveal", () => {
+    expect(interactionResultSettings({}, "understanding")).toEqual({
+      background_question: false,
+      publish_results: false,
+    });
+    expect(projectionInteractionShowsResults({
+      interaction_type: "qa",
+      settings: {},
+    }, "open")).toBe(false);
+    expect(projectionInteractionShowsResults({
+      interaction_type: "qa",
+      settings: {},
+    }, "revealed")).toBe(true);
+  });
+
   it("keeps background and publish results independent", () => {
     expect(interactionResultSettings({
       results: { background_question: true, publish_results: true },

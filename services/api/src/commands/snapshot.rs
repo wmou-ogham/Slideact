@@ -4,6 +4,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::api_error::ApiError;
+use crate::result_visibility::results_are_public;
 
 use super::persistence_error;
 
@@ -68,25 +69,8 @@ impl SessionSnapshot {
     pub(crate) fn current_qa_is_live(&self) -> bool {
         self.current_cue_run.as_ref().is_some_and(|cue_run| {
             cue_run.interactions.iter().any(|interaction| {
-                if interaction.interaction_type != "qa" {
-                    return false;
-                }
-                let results = interaction.settings.get("results");
-                let legacy_visibility = results
-                    .and_then(|value| value.get("audience_visibility"))
-                    .and_then(Value::as_str);
-                let background_question = results
-                    .and_then(|value| value.get("background_question"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(matches!(
-                        legacy_visibility,
-                        Some("background" | "presenter_only")
-                    ));
-                let publish_results = results
-                    .and_then(|value| value.get("publish_results"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(matches!(legacy_visibility, Some("live")));
-                !background_question && (publish_results || cue_run.state == "revealed")
+                interaction.interaction_type == "qa"
+                    && results_are_public(&interaction.settings, &cue_run.state)
             })
         })
     }

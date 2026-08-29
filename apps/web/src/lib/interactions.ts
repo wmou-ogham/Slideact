@@ -22,9 +22,11 @@ export function defaultResultSettings(type: Interaction["interaction_type"]): In
 
 export function interactionResultSettings(
   settings: Record<string, unknown>,
-  type: Interaction["interaction_type"] = "single_choice",
+  _type: Interaction["interaction_type"] = "single_choice",
 ): InteractionResultSettings {
-  const defaults = defaultResultSettings(type);
+  // Missing persisted settings predate the switches. Keep them private until
+  // reveal; new interactions always write explicit defaults from the editor.
+  const defaults = { background_question: false, publish_results: false };
   const results = settings.results;
   const resultSettings = typeof results === "object" && results !== null
     ? results as Record<string, unknown>
