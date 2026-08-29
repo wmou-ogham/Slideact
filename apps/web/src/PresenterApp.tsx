@@ -316,17 +316,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 
   async function updateCue(item: Cue, value: string) {
     if (!projectId) return;
-    const anchor = cueAnchorUpdate(value, item.position + 1);
     await run(async () => {
       await apiJson<Cue>(`/api/projects/${projectId}/cues/${item.id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          name: generatedCueName(t, item.position + 1),
-          anchor_type: anchor.anchor_type,
-          anchor_value: anchor.anchor_value,
-          trigger_mode: item.trigger_mode,
-          delay_seconds: 0,
-        }),
+        body: JSON.stringify(cueBindingUpdatePayload(item, value)),
       });
       await refreshProject();
     }, t("notice.cueUpdated"));
@@ -858,6 +851,15 @@ export function cueAnchorUpdate(value: string, fallbackIndex: number) {
   return {
     anchor_type: "deck_slide" as const,
     anchor_value: normalizeSlideAnchor(trimmed, fallbackIndex),
+  };
+}
+
+export function cueBindingUpdatePayload(cue: Cue, value: string) {
+  return {
+    name: cue.name,
+    ...cueAnchorUpdate(value, cue.position + 1),
+    trigger_mode: cue.trigger_mode,
+    delay_seconds: cue.delay_seconds,
   };
 }
 

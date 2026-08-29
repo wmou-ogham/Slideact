@@ -22,4 +22,12 @@ describe("word cloud layout revisions", () => {
     expect(wordCloudLayoutSignature([{ text: "stable", count: 1 }]))
       .toBe(wordCloudLayoutSignature([{ text: "stable", count: 1 }]));
   });
+
+  it("does not collide when submitted text contains the old delimiters", () => {
+    expect(wordCloudLayoutSignature([{ text: "a\t1\nb", count: 2 }]))
+      .not.toBe(wordCloudLayoutSignature([
+        { text: "a", count: 1 },
+        { text: "b", count: 2 },
+      ]));
+  });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cueAnchorUpdate,
+  cueBindingUpdatePayload,
   cueShortcutAction,
   insertCueIdAtPosition,
   normalizeSlideAnchor,
@@ -9,6 +10,7 @@ import {
   shouldCollapseLibraryByDefault,
 } from "./PresenterApp";
 import { parseVaultCredential } from "./PresenterAuth";
+import type { Cue } from "./types";
 
 describe("normalizeSlideAnchor", () => {
   it("uses the next one-based slide index when the field is empty", () => {
@@ -98,6 +100,40 @@ describe("cueAnchorUpdate", () => {
     expect(cueAnchorUpdate("id.gabc", 5)).toEqual({
       anchor_type: "deck_slide",
       anchor_value: "gabc",
+    });
+  });
+});
+
+describe("cueBindingUpdatePayload", () => {
+  const cue: Cue = {
+    id: "cue-1",
+    project_id: "project-1",
+    position: 4,
+    name: "Keep this cue title",
+    anchor_type: "deck_slide",
+    anchor_value: "old-slide",
+    trigger_mode: "delay",
+    delay_seconds: 12,
+    interactions: [],
+  };
+
+  it("changes only the slide binding and preserves other cue settings", () => {
+    expect(cueBindingUpdatePayload(cue, "id.new-slide")).toEqual({
+      name: "Keep this cue title",
+      anchor_type: "deck_slide",
+      anchor_value: "new-slide",
+      trigger_mode: "delay",
+      delay_seconds: 12,
+    });
+  });
+
+  it("allows clearing the binding without resetting cue metadata", () => {
+    expect(cueBindingUpdatePayload(cue, "")).toEqual({
+      name: "Keep this cue title",
+      anchor_type: "manual",
+      anchor_value: null,
+      trigger_mode: "delay",
+      delay_seconds: 12,
     });
   });
 });

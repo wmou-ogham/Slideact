@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { LiveView } from "../types";
-import { rememberCueLive } from "./liveSession";
+import {
+  beginLiveRefresh,
+  createLiveRefreshOrder,
+  rememberCueLive,
+  shouldApplyLiveRefresh,
+} from "./liveSession";
 
 type CueRunState = NonNullable<LiveView["snapshot"]["current_cue_run"]>["state"];
 
@@ -70,5 +75,32 @@ describe("rememberCueLive", () => {
     rememberCueLive(cache, view("revealed", { background_question: false, publish_results: true }, [aggregate]));
     const refreshed = rememberCueLive(cache, view("open", { background_question: false, publish_results: true }));
     expect(refreshed.aggregates).toEqual([]);
+  });
+
+  it("does not restore an aggregate after the interaction definition changes", () => {
+    const cache: Record<string, LiveView> = {};
+    rememberCueLive(cache, view("revealed", { background_question: false, publish_results: true }, [aggregate]));
+    const refreshed = view("revealed", { background_question: false, publish_results: true });
+    const interaction = refreshed.snapshot.current_cue_run?.interactions[0];
+    if (interaction) interaction.prompt = "Updated prompt";
+    expect(rememberCueLive(cache, refreshed).aggregates).toEqual([]);
+  });
+});
+
+describe("live refresh ordering", () => {
+  it("ignores an older request that completes after a newer request", () => {
+    const order = createLiveRefreshOrder();
+    const earlier = beginLiveRefresh(order);
+    const later = beginLiveRefresh(order);
+    expect(shouldApplyLiveRefresh(order, later)).toBe(true);
+    expect(shouldApplyLiveRefresh(order, earlier)).toBe(false);
+  });
+
+  it("applies requests that complete in their original order", () => {
+    const order = createLiveRefreshOrder();
+    const earlier = beginLiveRefresh(order);
+    const later = beginLiveRefresh(order);
+    expect(shouldApplyLiveRefresh(order, earlier)).toBe(true);
+    expect(shouldApplyLiveRefresh(order, later)).toBe(true);
   });
 });

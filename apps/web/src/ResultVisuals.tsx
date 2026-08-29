@@ -363,5 +363,5 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
 }
 
 export function wordCloudLayoutSignature(entries: Array<{ text: string; count: number }>) {
-  return entries.slice(0, 80).map((entry) => `${entry.text}\t${entry.count}`).join("\n");
+  return JSON.stringify(entries.slice(0, 80).map(({ text, count }) => [text, count]));
 }
