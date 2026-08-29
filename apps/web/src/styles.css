@@ -166,7 +166,7 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .list-item:hover, .list-item.selected { background: rgba(255,255,255,.72); border-color: var(--line); }
 .list-item.selected { box-shadow: inset 3px 0 var(--orange); }
 .cue-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; }
-.new-cue-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 40px; margin-bottom: 8px; color: #fff; background: #2f2d2a; border: 0; border-radius: 999px; font-size: 12px; font-weight: 800; }
+.new-cue-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 66.6667%; min-height: 40px; margin: 0 auto 8px; color: #fff; background: #2f2d2a; border: 0; border-radius: 999px; font-size: 12px; font-weight: 800; }
 .new-cue-button span { font-size: 16px; font-weight: 500; }
 .cue-list { min-height: 0; height: 100%; margin-top: 0; padding: 2px 6px 10px 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; align-content: start; flex: 1 1 auto; grid-auto-rows: max-content; }
 .cue-accordion { overflow: hidden; border: 1px solid transparent; border-radius: 15px; cursor: grab; transition: opacity .16s ease, transform .16s ease, background .16s ease; }
