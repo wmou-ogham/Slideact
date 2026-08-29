@@ -191,7 +191,7 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
     () => (word: { text: string }) => wordCloudRotate(word, palette.rotate),
     [palette.rotate],
   );
-  const wordSignature = entries.slice(0, 80).map((entry) => `${entry.text}\t${entry.count}`).join("\n");
+  const wordSignature = wordCloudLayoutSignature(entries);
   const words = useMemo(
     () => entries.slice(0, 80).map((entry) => ({ text: entry.text, value: entry.count })),
     // Only rebuild when visible text/count pairs change, not when the parent sends a new array.
@@ -271,7 +271,10 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   return (
     <div className={`word-cloud-results${onTogglePin ? " is-interactive" : ""}`} aria-label={label}>
       <svg viewBox={`0 0 ${WORD_CLOUD_WIDTH} ${WORD_CLOUD_HEIGHT}`} role="img">
+        {/* d3-cloud lays out asynchronously. A revision key prevents an older
+            layout from replacing a newer aggregate after rapid submissions. */}
         <Wordcloud
+          key={`${theme}\n${wordSignature}`}
           width={WORD_CLOUD_WIDTH}
           height={WORD_CLOUD_HEIGHT}
           words={words}
@@ -357,4 +360,8 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
       </svg>
     </div>
   );
+}
+
+export function wordCloudLayoutSignature(entries: Array<{ text: string; count: number }>) {
+  return entries.slice(0, 80).map((entry) => `${entry.text}\t${entry.count}`).join("\n");
 }
