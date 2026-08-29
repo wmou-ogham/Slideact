@@ -113,6 +113,8 @@ const WORD_CLOUD_RANDOM = () => 0.5;
 const WORD_CLOUD_WIDTH = 720;
 const WORD_CLOUD_HEIGHT = 400;
 const WORD_CLOUD_SINGLE_SIZE = WORD_CLOUD_HEIGHT / 3;
+const WORD_CLOUD_COLLISION_PADDING = 8;
+const WORD_CLOUD_SEARCH_STEP = 10;
 
 export function wordCloudSizeRange(wordCount: number): { minSize: number; maxSize: number } {
   const count = Math.max(1, wordCount);
@@ -146,6 +148,21 @@ type WordCloudGlyph = {
   y?: number;
 };
 
+export type PositionedWordCloudGlyph = WordCloudGlyph & {
+  text: string;
+  rotate: number;
+  size: number;
+  x: number;
+  y: number;
+};
+
+type WordCloudBounds = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
 function wordTone(text: string): number {
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
@@ -175,6 +192,112 @@ type PinnedLayout = { x: number; y: number; rotate: number };
 
 function estimateWordWidth(text: string, size: number) {
   return [...text].reduce((width, character) => width + (character.charCodeAt(0) > 255 ? size : size * 0.62), 0);
+}
+
+function wordCloudBounds(word: PositionedWordCloudGlyph): WordCloudBounds {
+  const halfWidth = (estimateWordWidth(word.text, word.size) + Math.max(12, word.size * 0.2)) / 2;
+  const top = -word.size * 0.88;
+  const bottom = word.size * 0.34;
+  const radians = word.rotate * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const corners = [
+    [-halfWidth, top],
+    [halfWidth, top],
+    [-halfWidth, bottom],
+    [halfWidth, bottom],
+  ].map(([x, y]) => ({
+    x: word.x + x * cosine - y * sine,
+    y: word.y + x * sine + y * cosine,
+  }));
+  return {
+    left: Math.min(...corners.map((corner) => corner.x)),
+    right: Math.max(...corners.map((corner) => corner.x)),
+    top: Math.min(...corners.map((corner) => corner.y)),
+    bottom: Math.max(...corners.map((corner) => corner.y)),
+  };
+}
+
+export function wordCloudWordsOverlap(
+  left: PositionedWordCloudGlyph,
+  right: PositionedWordCloudGlyph,
+  padding = WORD_CLOUD_COLLISION_PADDING,
+) {
+  const leftBounds = wordCloudBounds(left);
+  const rightBounds = wordCloudBounds(right);
+  return leftBounds.left < rightBounds.right + padding
+    && leftBounds.right + padding > rightBounds.left
+    && leftBounds.top < rightBounds.bottom + padding
+    && leftBounds.bottom + padding > rightBounds.top;
+}
+
+function wordFitsCanvas(word: PositionedWordCloudGlyph, width: number, height: number) {
+  const bounds = wordCloudBounds(word);
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  return bounds.left >= -halfWidth
+    && bounds.right <= halfWidth
+    && bounds.top >= -halfHeight
+    && bounds.bottom <= halfHeight;
+}
+
+function findAvailableWordPosition(
+  word: PositionedWordCloudGlyph,
+  occupied: PositionedWordCloudGlyph[],
+  width: number,
+  height: number,
+) {
+  const maximumRadius = Math.ceil(Math.hypot(width, height));
+  const startAngle = wordTone(word.text) % 360 * Math.PI / 180;
+  for (let radius = WORD_CLOUD_SEARCH_STEP; radius <= maximumRadius; radius += WORD_CLOUD_SEARCH_STEP) {
+    const samples = Math.max(8, Math.ceil(2 * Math.PI * radius / WORD_CLOUD_SEARCH_STEP));
+    for (let index = 0; index < samples; index += 1) {
+      const angle = startAngle + index * 2 * Math.PI / samples;
+      const candidate = {
+        ...word,
+        x: word.x + Math.cos(angle) * radius,
+        y: word.y + Math.sin(angle) * radius,
+      };
+      if (wordFitsCanvas(candidate, width, height)
+        && occupied.every((placed) => !wordCloudWordsOverlap(candidate, placed))) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+/** Keeps pinned words fixed and relocates only words that would cover them. */
+export function avoidPinnedWordCollisions<T extends PositionedWordCloudGlyph>(
+  words: T[],
+  pinned: ReadonlySet<string>,
+  width = WORD_CLOUD_WIDTH,
+  height = WORD_CLOUD_HEIGHT,
+): T[] {
+  const pinnedWords = words.filter((word) => pinned.has(word.text));
+  if (!pinnedWords.length) return words;
+  const displaced = new Set(words
+    .filter((word) => !pinned.has(word.text)
+      && pinnedWords.some((fixed) => wordCloudWordsOverlap(word, fixed)))
+    .map((word) => word.text));
+  if (!displaced.size) return words;
+
+  const occupied = words.filter((word) => !displaced.has(word.text));
+  const relocated = new Map<string, T>();
+  const pending = words
+    .filter((word) => displaced.has(word.text))
+    .sort((left, right) => right.size - left.size);
+  for (const word of pending) {
+    const next = findAvailableWordPosition(word, occupied, width, height) as T | null;
+    if (!next) continue;
+    relocated.set(word.text, next);
+    occupied.push(next);
+  }
+  return words.flatMap((word) => {
+    if (!displaced.has(word.text)) return [word];
+    const next = relocated.get(word.text);
+    return next ? [next] : [];
+  });
 }
 
 function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinLabel }: {
@@ -286,76 +409,88 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
           spiral="archimedean"
           random={WORD_CLOUD_RANDOM}
         >
-          {(cloudWords: WordCloudGlyph[]) => cloudWords.map((word) => {
-            const text = word.text ?? "";
-            const isPinned = pinnedSet.has(text);
-            if (isPinned) {
-              const saved = pinnedLayout.current.get(text);
-              if (saved) {
-                word = { ...word, x: saved.x, y: saved.y, rotate: saved.rotate };
-              } else {
-                pinnedLayout.current.set(text, {
-                  x: word.x ?? 0,
-                  y: word.y ?? 0,
-                  rotate: word.rotate ?? 0,
-                });
+          {(cloudWords: WordCloudGlyph[]) => {
+            const positionedWords = cloudWords.map((word): PositionedWordCloudGlyph => {
+              const text = word.text ?? "";
+              const positioned = {
+                ...word,
+                text,
+                rotate: word.rotate ?? 0,
+                size: word.size ?? 24,
+                x: word.x ?? 0,
+                y: word.y ?? 0,
+              };
+              if (!pinnedSet.has(text)) {
+                pinnedLayout.current.delete(text);
+                return positioned;
               }
-            } else {
-              pinnedLayout.current.delete(text);
-            }
-            const size = word.size ?? 24;
-            const boxWidth = estimateWordWidth(text, size) + Math.max(16, size * 0.35);
-            const boxHeight = size * 1.22;
-            const hot = size >= maxSize * 0.72;
-            return (
-              <g
-                key={text}
-                className={onTogglePin ? "word-cloud-hit" : undefined}
-                transform={`translate(${word.x ?? 0}, ${word.y ?? 0}) rotate(${word.rotate ?? 0})`}
-                onClick={onTogglePin ? (event) => {
-                  onTogglePin(text, !isPinned);
-                  if (event.detail) event.currentTarget.blur();
-                } : undefined}
-                role={onTogglePin ? "button" : undefined}
-                tabIndex={onTogglePin ? 0 : undefined}
-                aria-pressed={onTogglePin ? isPinned : undefined}
-                aria-label={onTogglePin ? (isPinned ? unpinLabel : pinLabel) : undefined}
-                onKeyDown={onTogglePin ? (event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onTogglePin(text, !isPinned);
-                  }
-                } : undefined}
-              >
-                {isPinned && (
-                  <rect
-                    className="word-cloud-pin-box"
-                    x={-boxWidth / 2}
-                    y={-size * 0.88}
-                    width={boxWidth}
-                    height={boxHeight}
-                    rx={Math.max(6, size * 0.12)}
-                  />
-                )}
+              const saved = pinnedLayout.current.get(text);
+              if (saved) return { ...positioned, ...saved };
+              pinnedLayout.current.set(text, {
+                x: positioned.x,
+                y: positioned.y,
+                rotate: positioned.rotate,
+              });
+              return positioned;
+            });
+            const visibleWords = avoidPinnedWordCollisions(positionedWords, pinnedSet);
+            return visibleWords.map((word) => {
+              const text = word.text;
+              const isPinned = pinnedSet.has(text);
+              const size = word.size;
+              const boxWidth = estimateWordWidth(text, size) + Math.max(16, size * 0.35);
+              const boxHeight = size * 1.22;
+              const hot = size >= maxSize * 0.72;
+              return (
                 <g
-                  className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) && !isPinned ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
-                  style={isPinned ? undefined : wordMotionStyle(text)}
+                  key={text}
+                  className={onTogglePin ? "word-cloud-hit" : undefined}
+                  transform={`translate(${word.x}, ${word.y}) rotate(${word.rotate})`}
+                  onClick={onTogglePin ? (event) => {
+                    onTogglePin(text, !isPinned);
+                    if (event.detail) event.currentTarget.blur();
+                  } : undefined}
+                  role={onTogglePin ? "button" : undefined}
+                  tabIndex={onTogglePin ? 0 : undefined}
+                  aria-pressed={onTogglePin ? isPinned : undefined}
+                  aria-label={onTogglePin ? (isPinned ? unpinLabel : pinLabel) : undefined}
+                  onKeyDown={onTogglePin ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onTogglePin(text, !isPinned);
+                    }
+                  } : undefined}
                 >
-                  <g className={isPinned ? undefined : "word-cloud-float"}>
-                    <text
-                      fill={palette.colors[wordTone(text) % palette.colors.length]}
-                      fontFamily={word.font}
-                      fontSize={word.size}
-                      fontWeight={word.weight}
-                      textAnchor="middle"
-                    >
-                      {text}
-                    </text>
+                  {isPinned && (
+                    <rect
+                      className="word-cloud-pin-box"
+                      x={-boxWidth / 2}
+                      y={-size * 0.88}
+                      width={boxWidth}
+                      height={boxHeight}
+                      rx={Math.max(6, size * 0.12)}
+                    />
+                  )}
+                  <g
+                    className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) && !isPinned ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
+                    style={isPinned ? undefined : wordMotionStyle(text)}
+                  >
+                    <g className={isPinned ? undefined : "word-cloud-float"}>
+                      <text
+                        fill={palette.colors[wordTone(text) % palette.colors.length]}
+                        fontFamily={word.font}
+                        fontSize={word.size}
+                        fontWeight={word.weight}
+                        textAnchor="middle"
+                      >
+                        {text}
+                      </text>
+                    </g>
                   </g>
                 </g>
-              </g>
-            );
-          })}
+              );
+            });
+          }}
         </Wordcloud>
       </svg>
     </div>
