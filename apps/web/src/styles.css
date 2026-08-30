@@ -257,7 +257,6 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .interaction-creation-hint strong { font-family: Georgia, serif; font-size: clamp(22px, 2.4vw, 36px); font-weight: 500; letter-spacing: -.035em; }
 .interaction-creation-hint span { max-width: 390px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .canvas-context { display: flex; align-items: center; justify-content: space-between; gap: 14px; max-width: 900px; margin: 0 auto 8px; color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
-.canvas-context strong { color: var(--green); font-size: 9px; }
 .canvas-context-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .canvas-delete-button { min-height: 26px; padding: 0 9px; color: #8a302b; background: #f8e4e1; border: 1px solid #e8bbb6; border-radius: 7px; font-size: 8px; font-weight: 800; }
 .interaction-canvas { position: relative; display: flex; aspect-ratio: 16 / 9; width: 100%; padding: clamp(24px, 4vw, 50px); overflow: hidden; flex-direction: column; color: #173c36; background: #fff; border: 1px solid rgba(18,60,52,.13); border-radius: 8px; box-shadow: 0 14px 38px rgba(23,60,54,.13); }

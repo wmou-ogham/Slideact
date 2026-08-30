@@ -155,7 +155,6 @@ export function InteractionWorkspace({
         <div className="canvas-context">
           <span>{t("interaction.slideCanvas", { slide: cue.anchor_value ?? cue.position + 1 })}</span>
           <div className="canvas-context-actions">
-            <strong>{typeName(t, type)}</strong>
             {onDelete && <button
               type="button"
               className="canvas-delete-button"
