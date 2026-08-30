@@ -15,7 +15,6 @@ import {
 import type { Cue, Interaction } from "./types";
 
 export const DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT = 3;
-export const MAX_WORD_CLOUD_SUBMISSION_LIMIT = 10;
 
 export type InteractionResponseSettings = {
   allow_change: boolean;
@@ -261,7 +260,6 @@ export function InteractionWorkspace({
                 type="number"
                 name="submission_limit"
                 min={1}
-                max={MAX_WORD_CLOUD_SUBMISSION_LIMIT}
                 value={submissionLimit}
                 onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) => setSubmissionLimit(Number(event.target.value))}
@@ -436,17 +434,16 @@ export function responseSettingsFromInteraction(item?: Interaction): Interaction
 }
 
 function normalizeSubmissionLimit(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value)
-    ? Math.min(Math.max(value, 1), MAX_WORD_CLOUD_SUBMISSION_LIMIT)
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+    ? value
     : DEFAULT_WORD_CLOUD_SUBMISSION_LIMIT;
 }
 
 export function interactionDraftValid(draft: InteractionDraft) {
   const prompt = draft.prompt.trim();
   if (!prompt || prompt.length > 500) return false;
-  if (!Number.isInteger(draft.response.submission_limit)
-    || draft.response.submission_limit < 1
-    || draft.response.submission_limit > MAX_WORD_CLOUD_SUBMISSION_LIMIT) return false;
+  if (!Number.isSafeInteger(draft.response.submission_limit)
+    || draft.response.submission_limit < 1) return false;
   if (draft.interaction_type !== "single_choice") return true;
   return draft.options.length >= 2
     && draft.options.length <= 6

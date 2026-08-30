@@ -587,7 +587,7 @@ async fn next_submission_index(
     interaction_id: Uuid,
     participant_id: Uuid,
     idempotent: bool,
-) -> Result<i16, ApiError> {
+) -> Result<i64, ApiError> {
     if interaction_type != "word_cloud" || idempotent {
         return Ok(0);
     }
@@ -607,7 +607,7 @@ async fn next_submission_index(
     if next >= word_cloud_submission_limit(settings) {
         return Err(ApiError::conflict("response_limit_reached"));
     }
-    i16::try_from(next).map_err(|_| ApiError::internal("submission_index_invalid"))
+    Ok(next)
 }
 
 fn response_setting_bool(settings: &Value, key: &str, default: bool) -> bool {
@@ -620,8 +620,9 @@ fn response_setting_bool(settings: &Value, key: &str, default: bool) -> bool {
 fn word_cloud_submission_limit(settings: &Value) -> i64 {
     settings
         .pointer("/response/submission_limit")
-        .and_then(Value::as_i64)
-        .filter(|limit| (1..=10).contains(limit))
+        .and_then(Value::as_u64)
+        .and_then(|limit| i64::try_from(limit).ok())
+        .filter(|limit| *limit >= 1)
         .unwrap_or(3)
 }
 
@@ -931,7 +932,7 @@ mod tests {
         );
         assert_eq!(
             word_cloud_submission_limit(&json!({"response": {"submission_limit": 20}})),
-            3
+            20
         );
     }
 }

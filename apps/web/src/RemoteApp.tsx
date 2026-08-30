@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, apiJson } from "./api";
 import type { Translate } from "./i18n";
+import { cueNavigationLabel } from "./lib/interactions";
 import {
   LIVE_POLL_INTERVAL_MS,
   aggregateFor,
@@ -244,16 +245,9 @@ export function RemoteApp({ t }: { t: Translate }) {
       <section className="remote-cues">
         <h2>{t("remote.cues")}</h2>
         <button className={showingQr ? "selected" : ""} disabled={busy} onClick={() => send({ type: "show_join_qr" })}><span>QR</span>{t("live.qrHome")}<small>{t("projection.join")}</small></button>
-        {cues.map((cue) => <button className={!showingQr && cue.id === snapshot.current_cue_run?.cue_id ? "selected" : ""} disabled={busy} key={cue.id} onClick={() => send(cue.id === snapshot.current_cue_run?.cue_id ? { type: "show_cue" } : { type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{remoteCueLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
+        {cues.map((cue) => <button className={!showingQr && cue.id === snapshot.current_cue_run?.cue_id ? "selected" : ""} disabled={busy} key={cue.id} onClick={() => send(cue.id === snapshot.current_cue_run?.cue_id ? { type: "show_cue" } : { type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{cueNavigationLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
       </section>
       {error && <p className="form-error">{error.kind === "action" ? actionMessage(t, error.code) : t("remote.loadFailed")}</p>}
     </main>
   );
-}
-
-function remoteCueLabel(t: Translate, cue: Cue) {
-  const anchor = cue.anchor_value ?? String(cue.position + 1);
-  return /^\d+$/.test(anchor)
-    ? t("cue.slide", { slide: anchor })
-    : t("cue.slideId", { id: anchor });
 }

@@ -346,11 +346,9 @@ fn validate_response_settings(settings: &Value) -> Result<(), ApiError> {
     let booleans_valid = ["allow_change", "multiple_selection", "allow_duplicate"]
         .into_iter()
         .all(|key| response.get(key).is_none_or(Value::is_boolean));
-    let limit_valid = response.get("submission_limit").is_none_or(|value| {
-        value
-            .as_u64()
-            .is_some_and(|limit| (1..=10).contains(&limit))
-    });
+    let limit_valid = response
+        .get("submission_limit")
+        .is_none_or(|value| value.as_u64().is_some_and(|limit| limit >= 1));
     if booleans_valid && limit_valid {
         Ok(())
     } else {

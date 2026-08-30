@@ -83,9 +83,7 @@ export function projectionInteractionShowsResults(
   return !results.background_question && (results.publish_results || cueState === "revealed");
 }
 
-export function slideAnchorLabel(t: Translate, cue: Cue) {
-  const name = cue.name.trim();
-  if (name) return truncateLabel(name, 28);
+export function cueNavigationLabel(t: Translate, cue: Cue) {
   const anchor = cue.anchor_value ?? String(cue.position + 1);
   if (/^\d+$/.test(anchor)) return t("cue.slide", { slide: anchor });
   return t("cue.slideId", { id: truncateLabel(anchor, 16) });

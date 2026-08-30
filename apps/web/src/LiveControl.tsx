@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
-import { slideAnchorLabel } from "./lib/interactions";
+import { cueNavigationLabel } from "./lib/interactions";
 import { qrSvgTag } from "./lib/qr";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { projectionThemeSearch } from "./projectionTheme";
@@ -151,7 +151,7 @@ export function LiveControl({
             }}
           >
             <option value="__join_qr__">{t("live.qrHome")}</option>
-            {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
+            {cues.map((item) => <option value={item.id} key={item.id}>{cueNavigationLabel(t, item)}</option>)}
           </select>
         )}
         {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
