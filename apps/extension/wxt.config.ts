@@ -1,6 +1,9 @@
 import { defineConfig } from "wxt";
 
 export default defineConfig({
+  zip: {
+    artifactTemplate: "slideact-extension.zip",
+  },
   manifest: {
     name: "__MSG_extensionName__",
     description: "__MSG_extensionDescription__",

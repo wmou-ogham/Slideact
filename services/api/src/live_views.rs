@@ -16,6 +16,7 @@ use crate::{
     authorization::{SessionRole, authenticate_session_token, bearer_token},
     commands::{SessionSnapshot, snapshot_for_session},
     questions::{QuestionView, load_questions},
+    result_visibility::results_are_public,
 };
 
 #[derive(Debug, Serialize)]
@@ -71,11 +72,13 @@ async fn get_live_view(
             | SessionRole::Controller
             | SessionRole::Extension
     );
-    let aggregates = sqlx::query_as::<_, (Uuid, Uuid, Value)>(
+    let aggregates = sqlx::query_as::<_, (Uuid, Uuid, Value, Value, String)>(
         r#"
         SELECT response_aggregates.cue_run_id,
                response_aggregates.interaction_id,
-               response_aggregates.aggregate
+               response_aggregates.aggregate,
+               interactions.settings,
+               cue_runs.state
         FROM response_aggregates
         JOIN cue_runs ON cue_runs.id = response_aggregates.cue_run_id
         JOIN interactions ON interactions.id = response_aggregates.interaction_id
@@ -83,26 +86,15 @@ async fn get_live_view(
           AND cue_runs.id = (
               SELECT current_cue_run_id FROM live_sessions WHERE id = $1
           )
-          AND (
-              $2
-              OR interactions.settings #>> '{results,audience_visibility}' = 'live'
-              OR (
-                  COALESCE(
-                      interactions.settings #>> '{results,audience_visibility}',
-                      'after_reveal'
-                  ) = 'after_reveal'
-                  AND cue_runs.state = 'revealed'
-              )
-          )
         ORDER BY response_aggregates.interaction_id
         "#,
     )
     .bind(session_id)
-    .bind(presenter_side)
     .fetch_all(&state.database)
     .await
     .map_err(persistence_error)?
     .into_iter()
+    .filter(|row| presenter_side || results_are_public(&row.3, &row.4))
     .map(|row| AggregateView {
         cue_run_id: row.0,
         interaction_id: row.1,

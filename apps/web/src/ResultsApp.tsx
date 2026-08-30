@@ -44,7 +44,10 @@ export function ResultsApp({ t }: { t: Translate }) {
       <main className="projection-root session-results-root" data-projection-theme={theme}>
         <header>
           <span>{t("history.heading")}</span>
-          <strong>{results.join_code ?? "—"}</strong>
+          <div className="results-header-actions">
+            <strong>{results.join_code ?? "—"}</strong>
+            <a href={`/api/sessions/${sessionId}/export.csv`} download>{t("live.export")}</a>
+          </div>
         </header>
         <div className="session-results-summary">
           <div><small>{t("history.status")}</small><strong>{t(`statusName.${results.status}`)}</strong></div>

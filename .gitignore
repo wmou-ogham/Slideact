@@ -25,6 +25,11 @@
 **/.turbo/
 /logs/
 /.codex-sync/
+/progress.md
+/reproduced.md
+/sudo.md
+/sudo.log
+/output.log
 
 # Local volumes and generated files
 /.data/

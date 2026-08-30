@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
-import { slideAnchorLabel } from "./lib/interactions";
+import { cueNavigationLabel } from "./lib/interactions";
 import { qrSvgTag } from "./lib/qr";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { projectionThemeSearch } from "./projectionTheme";
@@ -10,7 +10,7 @@ import { useProjectionTheme } from "./useProjectionTheme";
 import type { Cue, LiveSession, Project, SessionCommand, SessionSnapshot } from "./types";
 
 export function LiveControl({
-  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, refreshSnapshot, createSession, send,
+  t, busy, project, cues, sessions, sessionId, setSessionId, snapshot, refreshSnapshot, createSession, send, onClose,
 }: {
   t: Translate;
   busy: boolean;
@@ -23,6 +23,7 @@ export function LiveControl({
   refreshSnapshot: () => Promise<void>;
   createSession: () => void;
   send: (command: SessionCommand) => void;
+  onClose: () => void;
 }) {
   const [pairingCode, setPairingCode] = useState("");
   const [pairingOpen, setPairingOpen] = useState(false);
@@ -150,7 +151,7 @@ export function LiveControl({
             }}
           >
             <option value="__join_qr__">{t("live.qrHome")}</option>
-            {cues.map((item) => <option value={item.id} key={item.id}>{slideAnchorLabel(t, item)}</option>)}
+            {cues.map((item) => <option value={item.id} key={item.id}>{cueNavigationLabel(t, item)}</option>)}
           </select>
         )}
         {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
@@ -162,11 +163,14 @@ export function LiveControl({
         {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
         {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
         {snapshot && <button className="secondary-link" onClick={showResults}>{t("live.results")}</button>}
-        {snapshot && <a className="secondary-link" href={`/api/sessions/${snapshot.session_id}/export.csv`} download>{t("live.export")}</a>}
         {isControllable && <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>}
         {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
       </div>
-      {pairingOpen && pairingCode && <div className="pairing-code" role="status"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>}
+      <button className="live-dock-close" type="button" onClick={onClose} aria-label={t("live.hideControls")}>×</button>
+      {pairingOpen && pairingCode && <div className="pairing-code" role="status">
+        <div className="pairing-code-copy"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>
+        <a className="extension-download-link" href="/downloads/slideact-extension.zip" download>{t("sync.downloadExtension")}</a>
+      </div>}
       {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
     </section>
   );

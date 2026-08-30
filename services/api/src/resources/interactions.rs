@@ -318,6 +318,8 @@ fn validate_interaction(request: &InteractionInput) -> Result<(), ApiError> {
     {
         return Err(ApiError::bad_request("interaction_settings_invalid"));
     }
+    validate_response_settings(&request.settings)?;
+    validate_result_settings(&request.settings)?;
     let option_count_valid = match request.interaction_type.as_str() {
         "single_choice" => (2..=6).contains(&request.options.len()),
         "understanding" | "word_cloud" | "qa" => request.options.is_empty(),
@@ -332,6 +334,43 @@ fn validate_interaction(request: &InteractionInput) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("interaction_options_invalid"));
     }
     Ok(())
+}
+
+fn validate_response_settings(settings: &Value) -> Result<(), ApiError> {
+    let Some(response) = settings.get("response") else {
+        return Ok(());
+    };
+    let response = response
+        .as_object()
+        .ok_or_else(|| ApiError::bad_request("interaction_settings_invalid"))?;
+    let booleans_valid = ["allow_change", "multiple_selection", "allow_duplicate"]
+        .into_iter()
+        .all(|key| response.get(key).is_none_or(Value::is_boolean));
+    let limit_valid = response
+        .get("submission_limit")
+        .is_none_or(|value| value.as_u64().is_some_and(|limit| limit >= 1));
+    if booleans_valid && limit_valid {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request("interaction_settings_invalid"))
+    }
+}
+
+fn validate_result_settings(settings: &Value) -> Result<(), ApiError> {
+    let Some(results) = settings.get("results") else {
+        return Ok(());
+    };
+    let results = results
+        .as_object()
+        .ok_or_else(|| ApiError::bad_request("interaction_settings_invalid"))?;
+    let booleans_valid = ["background_question", "publish_results"]
+        .into_iter()
+        .all(|key| results.get(key).is_none_or(Value::is_boolean));
+    if booleans_valid {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request("interaction_settings_invalid"))
+    }
 }
 
 fn default_settings() -> Value {
@@ -349,7 +388,10 @@ fn trimmed_optional(value: Option<&str>) -> Option<String> {
 mod tests {
     use serde_json::json;
 
-    use super::{InteractionInput, validate_interaction};
+    use super::{
+        InteractionInput, validate_interaction, validate_response_settings,
+        validate_result_settings,
+    };
 
     #[test]
     fn single_choice_requires_two_to_six_options() {
@@ -371,5 +413,48 @@ mod tests {
         }))
         .unwrap();
         assert!(validate_interaction(&request).is_err());
+    }
+
+    #[test]
+    fn response_settings_validate_booleans_and_word_cloud_limits() {
+        assert!(
+            validate_response_settings(&json!({
+                "response": {
+                    "allow_change": false,
+                    "multiple_selection": true,
+                    "submission_limit": 10,
+                    "allow_duplicate": false
+                }
+            }))
+            .is_ok()
+        );
+        assert!(
+            validate_response_settings(&json!({
+                "response": {"submission_limit": 0}
+            }))
+            .is_err()
+        );
+        assert!(
+            validate_response_settings(&json!({
+                "response": {"allow_change": "yes"}
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn result_settings_validate_independent_switches() {
+        assert!(
+            validate_result_settings(&json!({
+                "results": {"background_question": true, "publish_results": false}
+            }))
+            .is_ok()
+        );
+        assert!(
+            validate_result_settings(&json!({
+                "results": {"background_question": "yes"}
+            }))
+            .is_err()
+        );
     }
 }

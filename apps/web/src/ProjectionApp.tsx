@@ -7,6 +7,7 @@ import {
   pinWordCloud,
   useLiveSession,
 } from "./lib/liveSession";
+import { projectionInteractionIsVisible, projectionInteractionShowsResults } from "./lib/interactions";
 import { qrSvgTag } from "./lib/qr";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { CueResultVisuals } from "./ResultVisuals";
@@ -31,7 +32,7 @@ export function ProjectionApp({ t }: { t: Translate }) {
   if (error) return <main className="projection-error">{t("projection.invalid")}</main>;
   if (!live) return <main className="projection-root"><span className="waiting-orbit"><i /></span></main>;
   const cueRun = live.snapshot.current_cue_run;
-  const interactions = cueRun?.interactions ?? [];
+  const interactions = cueRun?.interactions.filter(projectionInteractionIsVisible) ?? [];
   const multi = interactions.length > 1;
   const liveStatus = live.snapshot.presentation_view === "join_qr" || !cueRun
     ? null
@@ -61,31 +62,36 @@ export function ProjectionApp({ t }: { t: Translate }) {
             <small>{t("projection.waiting")}</small>
           </section>
         ) : cueRun.state === "ready" ? (
-          <section className="projection-results projection-cue-ready">
-            {multi
+          <section className={interactions.length ? "projection-results projection-cue-ready" : "projection-results projection-background-only"}>
+            {interactions.length > 0 && (multi
               ? interactions.map((interaction) => (
                 <h1 key={interaction.id}><ProjectionHeading theme={theme} text={interaction.prompt} /></h1>
               ))
-              : <h1><ProjectionHeading theme={theme} text={interactions[0]?.prompt ?? cueRun.cue_name} /></h1>}
+              : <h1><ProjectionHeading theme={theme} text={interactions[0]?.prompt ?? cueRun.cue_name} /></h1>)}
           </section>
         ) : (
           <section className={multi ? "projection-results projection-multi" : "projection-results"}>
-            {!multi && <h1><ProjectionHeading theme={theme} text={interactions[0]?.prompt ?? cueRun.cue_name} /></h1>}
-            <CueResultVisuals
-              t={t}
-              interactions={interactions.map((interaction) => ({
-                id: interaction.id,
-                prompt: interaction.prompt,
-                interaction_type: interaction.interaction_type,
-                aggregate: aggregateFor(live, interaction.id),
-              }))}
-              questions={live.questions}
-              onToggleWordPin={(interactionId, text, pinned) => {
-                void pinWordCloud(sessionId, token, interactionId, text, pinned)
-                  .then(() => refresh())
-                  .catch(() => undefined);
-              }}
-            />
+            {interactions.length > 0 && <>
+              {!multi && <h1><ProjectionHeading theme={theme} text={interactions[0]?.prompt ?? cueRun.cue_name} /></h1>}
+              <CueResultVisuals
+                t={t}
+                interactions={interactions.map((interaction) => ({
+                  id: interaction.id,
+                  prompt: interaction.prompt,
+                  interaction_type: interaction.interaction_type,
+                  results_visible: projectionInteractionShowsResults(interaction, cueRun.state),
+                  aggregate: projectionInteractionShowsResults(interaction, cueRun.state)
+                    ? aggregateFor(live, interaction.id)
+                    : null,
+                }))}
+                questions={live.questions}
+                onToggleWordPin={(interactionId, text, pinned) => {
+                  void pinWordCloud(sessionId, token, interactionId, text, pinned)
+                    .then(() => refresh())
+                    .catch(() => undefined);
+                }}
+              />
+            </>}
           </section>
         )}
         <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} />

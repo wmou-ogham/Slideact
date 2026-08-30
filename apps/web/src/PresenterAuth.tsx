@@ -10,54 +10,68 @@ export function PresenterLogin({ t, locale, busy, message, setMessage }: {
   setMessage: (value: string) => void;
 }) {
   return (
-    <main className="center-state auth-card">
-      <p className="eyebrow">{t("presenter.eyebrow")}</p>
-      <h1 className="compact-heading">{t("auth.heading")}</h1>
-      <p>{t("auth.description")}</p>
-      <a className="primary-button" href="/api/auth/google/start?return_to=/presenter">
-        {t("auth.google")}
-      </a>
-      <button
-        className="guest-button"
-        disabled={busy}
-        onClick={async () => {
-          await postJson("/api/auth/guest", { locale });
-          window.location.reload();
-        }}
-      >
-        {t("auth.guest")}
-      </button>
-      <small className="guest-note">{t("auth.guestNote")}</small>
-      <form
-        className="vault-restore"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          const key = new FormData(event.currentTarget).get("vaultKey");
-          if (typeof key !== "string") return;
-          await restoreGuestVault(key, setMessage, t).then((ok) => ok && location.reload());
-        }}
-      >
-        <p>{t("auth.restoreHeading")}</p>
-        <label className="guest-button vault-file">
-          {t("auth.openVault")}
-          <input
-            type="file"
-            accept="application/json,.json"
-            onChange={async (event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = "";
-              if (!file) return;
-              const ok = await restoreGuestVault(await file.text(), setMessage, t);
-              if (ok) location.reload();
-            }}
-          />
-        </label>
-        <div className="inline-form">
-          <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" />
-          <button disabled={busy} type="submit">{t("auth.restoreVault")}</button>
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div className="auth-intro">
+          <a className="auth-brand" href="/">
+            <span className="brand-mark">S</span>
+            <span>{t("app.name")}</span>
+          </a>
+          <div>
+            <p className="eyebrow">{t("presenter.eyebrow")}</p>
+            <h1 className="compact-heading">{t("auth.heading")}</h1>
+            <p className="auth-description">{t("auth.description")}</p>
+          </div>
         </div>
-        {message && <p className="form-error" role="alert">{message}</p>}
-      </form>
+        <div className="auth-actions-panel">
+          <a className="primary-button" href="/api/auth/google/start?return_to=/presenter">
+            {t("auth.google")}
+          </a>
+          <button
+            className="guest-button"
+            disabled={busy}
+            onClick={async () => {
+              await postJson("/api/auth/guest", { locale });
+              window.location.reload();
+            }}
+          >
+            {t("auth.guest")}
+          </button>
+          <small className="guest-note">{t("auth.guestNote")}</small>
+          <details className="vault-restore">
+            <summary>{t("auth.restoreHeading")}</summary>
+            <form
+              className="vault-restore-body"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const key = new FormData(event.currentTarget).get("vaultKey");
+                if (typeof key !== "string") return;
+                await restoreGuestVault(key, setMessage, t).then((ok) => ok && location.reload());
+              }}
+            >
+              <label className="guest-button vault-file">
+                {t("auth.openVault")}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={async (event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    const ok = await restoreGuestVault(await file.text(), setMessage, t);
+                    if (ok) location.reload();
+                  }}
+                />
+              </label>
+              <div className="inline-form">
+                <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" />
+                <button disabled={busy} type="submit">{t("auth.restoreVault")}</button>
+              </div>
+              {message && <p className="form-error" role="alert">{message}</p>}
+            </form>
+          </details>
+        </div>
+      </section>
     </main>
   );
 }

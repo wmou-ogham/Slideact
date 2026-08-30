@@ -66,12 +66,44 @@ export function rememberCueLive(cache: Record<string, LiveView>, live: LiveView)
     return live;
   }
   const remembered = cache[cueId];
-  if (!remembered) return live;
+  if (!remembered || !canReuseRememberedCue(remembered, live)) return live;
   return {
     ...live,
     aggregates: remembered.aggregates,
     questions: live.questions.length ? live.questions : remembered.questions,
   };
+}
+
+function canReuseRememberedCue(remembered: LiveView, live: LiveView) {
+  const rememberedRun = remembered.snapshot.current_cue_run;
+  const currentRun = live.snapshot.current_cue_run;
+  if (!rememberedRun || !currentRun
+    || rememberedRun.id !== currentRun.id
+    || rememberedRun.state !== "revealed"
+    || currentRun.state !== "revealed") {
+    return false;
+  }
+  return JSON.stringify(rememberedRun.interactions) === JSON.stringify(currentRun.interactions);
+}
+
+export type LiveRefreshOrder = {
+  nextRequestId: number;
+  appliedRequestId: number;
+};
+
+export function createLiveRefreshOrder(): LiveRefreshOrder {
+  return { nextRequestId: 0, appliedRequestId: 0 };
+}
+
+export function beginLiveRefresh(order: LiveRefreshOrder) {
+  order.nextRequestId += 1;
+  return order.nextRequestId;
+}
+
+export function shouldApplyLiveRefresh(order: LiveRefreshOrder, requestId: number) {
+  if (requestId < order.appliedRequestId) return false;
+  order.appliedRequestId = requestId;
+  return true;
 }
 
 export function connectLiveSocket(token: string, topic: string, refresh: () => Promise<void>) {
@@ -113,6 +145,7 @@ export function useLiveSession(options: UseLiveSessionOptions) {
   const { sessionId, token, topic, pollMs, immediate = true, enabled = true } = options;
   const [live, setLive] = useState<LiveView | null>(null);
   const cueLiveCache = useRef<Record<string, LiveView>>({});
+  const refreshOrder = useRef(createLiveRefreshOrder());
   const onLiveRef = useRef(options.onLive);
   onLiveRef.current = options.onLive;
   const onInitialErrorRef = useRef(options.onInitialError);
@@ -120,7 +153,9 @@ export function useLiveSession(options: UseLiveSessionOptions) {
 
   const refresh = useCallback(async () => {
     if (!token) throw new Error("live_token_missing");
+    const requestId = beginLiveRefresh(refreshOrder.current);
     const next = await loadLiveView(sessionId, token);
+    if (!shouldApplyLiveRefresh(refreshOrder.current, requestId)) return;
     setLive(rememberCueLive(cueLiveCache.current, next));
     onLiveRef.current?.(next);
   }, [sessionId, token]);

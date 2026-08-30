@@ -1,21 +1,27 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, apiJson, postJson } from "./api";
 import type { Translate } from "./i18n";
-import { defaultVisibility, parseOptions, slideAnchorLabel, typeName } from "./lib/interactions";
+import {
+  InteractionWorkspace,
+  type InteractionDraft,
+  resultSettingsFromForm,
+  responseSettingsFromForm,
+} from "./InteractionWorkspace";
+import {
+  defaultResultSettings,
+  parseOptions,
+  resultSettingsPayload,
+  typeName,
+} from "./lib/interactions";
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
-import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import {
-  type InteractionPurpose,
   type TemplateKind,
   generatedCueName,
-  interactionPurposes,
-  purposeRecommendation,
   templates,
 } from "./presenterTemplates";
-import { useProjectionTheme } from "./useProjectionTheme";
 import type {
   Cue,
   Interaction,
@@ -26,6 +32,62 @@ import type {
   SessionSnapshot,
 } from "./types";
 
+type DeletedCueSnapshot = {
+  projectId: string;
+  cue: Cue;
+};
+
+export type CueShortcutAction = "delete" | "undo" | "select-previous" | "select-next" | null;
+
+export function reorderCueIds(
+  source: ReadonlyArray<Pick<Cue, "id" | "position">>,
+  sourceId: string,
+  targetId: string,
+) {
+  const ordered = [...source].sort((left, right) => left.position - right.position);
+  const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
+  const targetIndex = ordered.findIndex((item) => item.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return ordered.map((item) => item.id);
+  }
+  const [moved] = ordered.splice(sourceIndex, 1);
+  if (!moved) return ordered.map((item) => item.id);
+  ordered.splice(Math.min(targetIndex, ordered.length), 0, moved);
+  return ordered.map((item) => item.id);
+}
+
+export function insertCueIdAtPosition(
+  source: ReadonlyArray<Pick<Cue, "id" | "position">>,
+  cueId: string,
+  position: number,
+) {
+  const cueIds = [...source]
+    .sort((left, right) => left.position - right.position)
+    .map((item) => item.id)
+    .filter((id) => id !== cueId);
+  cueIds.splice(Math.min(Math.max(position, 0), cueIds.length), 0, cueId);
+  return cueIds;
+}
+
+export function cueShortcutAction(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  editableTarget: boolean,
+): CueShortcutAction {
+  if (editableTarget || event.altKey) return null;
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
+    return "undo";
+  }
+  if (event.metaKey || event.ctrlKey || event.shiftKey) return null;
+  if (event.key === "Delete" || event.key === "Backspace") return "delete";
+  if (event.key === "ArrowUp") return "select-previous";
+  if (event.key === "ArrowDown") return "select-next";
+  return null;
+}
+
+export function shouldCollapseLibraryByDefault(projects: ReadonlyArray<Pick<Project, "id">>) {
+  return projects.length > 0;
+}
+
 export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [profile, setProfile] = useState<Profile | null>();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -35,23 +97,31 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [preview, setPreview] = useState<"projection" | "mobile" | "presenter" | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
-  const [expandedCueId, setExpandedCueId] = useState("");
+  const [draggedCueId, setDraggedCueId] = useState("");
+  const [dragOverCueId, setDragOverCueId] = useState("");
   const [expandedInteractionId, setExpandedInteractionId] = useState("");
-  const [interactionPurpose, setInteractionPurpose] = useState<InteractionPurpose>("understanding");
-  const [interactionType, setInteractionType] = useState<Interaction["interaction_type"]>("understanding");
+  const [creatingInteraction, setCreatingInteraction] = useState(false);
+  const [liveControlsOpen, setLiveControlsOpen] = useState(false);
+  const [deletedCueStack, setDeletedCueStack] = useState<DeletedCueSnapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const cueButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const libraryDefaultApplied = useRef(false);
 
   const project = projects.find((item) => item.id === projectId) ?? null;
   const cue = cues.find((item) => item.id === cueId) ?? null;
+  const selectedInteraction = cue?.interactions.find((item) => item.id === expandedInteractionId)
+    ?? cue?.interactions.at(0)
+    ?? null;
 
   const report = useCallback(
     (error: unknown) => {
       const code = error instanceof ApiError ? error.code : "network_error";
       setMessage(code === "project_has_history"
         ? t("project.deleteHistory")
+        : code === "cue_has_history"
+          ? t("cue.deleteHistory")
         : t("error.generic", { code }));
     },
     [t],
@@ -60,6 +130,10 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const refreshProjects = useCallback(async () => {
     const next = await apiJson<Project[]>("/api/projects");
     setProjects(next);
+    if (!libraryDefaultApplied.current) {
+      setLibraryCollapsed(shouldCollapseLibraryByDefault(next));
+      libraryDefaultApplied.current = true;
+    }
     setProjectId((current) =>
       next.some((item) => item.id === current) ? current : (next[0]?.id ?? ""),
     );
@@ -104,6 +178,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     refreshProject().catch(report);
   }, [refreshProject, report]);
 
+  useEffect(() => setDeletedCueStack([]), [projectId]);
+
   const refreshSnapshot = useCallback(async () => {
     if (!sessionId) {
       setSnapshot(null);
@@ -121,6 +197,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     const timer = window.setInterval(() => refreshSnapshot().catch(() => undefined), 3000);
     return () => window.clearInterval(timer);
   }, [refreshSnapshot, sessionId]);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(""), 3200);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -176,7 +258,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
                 schema_version: 1,
                 template: kind,
                 cue: cueIndex + 1,
-                results: { audience_visibility: defaultVisibility(interaction.type) },
+                results: resultSettingsPayload(defaultResultSettings(interaction.type)),
               },
               options: interaction.options?.map((label) => ({ label, is_correct: null })) ?? [],
             },
@@ -215,42 +297,29 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }, t("notice.projectDeleted"));
   }
 
-  async function createCue(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createCue() {
     if (!projectId) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const slide = normalizeSlideAnchor(String(data.get("slide") ?? ""), cues.length + 1);
     await run(async () => {
       const created = await postJson<Cue>(`/api/projects/${projectId}/cues`, {
         name: generatedCueName(t, cues.length + 1),
         anchor_type: "deck_slide",
-        anchor_value: slide,
-        trigger_mode: data.get("trigger_mode"),
+        anchor_value: String(cues.length + 1),
+        trigger_mode: "immediate",
         delay_seconds: 0,
       });
       await refreshProject();
       setCueId(created.id);
-      setExpandedCueId(created.id);
-      form.reset();
+      setExpandedInteractionId("");
+      setCreatingInteraction(true);
     }, t("notice.cueCreated"));
   }
 
-  async function updateCue(item: Cue, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function updateCue(item: Cue, value: string) {
     if (!projectId) return;
-    const data = new FormData(event.currentTarget);
-    const anchor = normalizeSlideAnchor(String(data.get("slide") ?? ""), item.position + 1);
     await run(async () => {
       await apiJson<Cue>(`/api/projects/${projectId}/cues/${item.id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          name: generatedCueName(t, item.position + 1),
-          anchor_type: "deck_slide",
-          anchor_value: anchor,
-          trigger_mode: data.get("trigger_mode"),
-          delay_seconds: 0,
-        }),
+        body: JSON.stringify(cueBindingUpdatePayload(item, value)),
       });
       await refreshProject();
     }, t("notice.cueUpdated"));
@@ -258,40 +327,84 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 
   async function deleteCue(item: Cue) {
     if (!projectId || !window.confirm(t("cue.deleteConfirm", { index: item.position + 1 }))) return;
+    const ordered = [...cues].sort((left, right) => left.position - right.position);
+    const deletedIndex = ordered.findIndex((candidate) => candidate.id === item.id);
+    const replacement = ordered[deletedIndex + 1] ?? ordered[deletedIndex - 1] ?? null;
+    const snapshot: DeletedCueSnapshot = { projectId, cue: item };
     await run(async () => {
       await apiJson(`/api/projects/${projectId}/cues/${item.id}`, { method: "DELETE" });
-      if (cueId === item.id) setCueId("");
-      if (expandedCueId === item.id) setExpandedCueId("");
+      setDeletedCueStack((current) => [...current, snapshot]);
       await refreshProject();
-    }, t("notice.cueDeleted"));
+      setCueId(replacement?.id ?? "");
+      setExpandedInteractionId(replacement?.interactions.at(0)?.id ?? "");
+      setCreatingInteraction(false);
+    }, t("notice.cueDeletedUndo"));
   }
 
-  async function reorderCue(targetId: string, direction: -1 | 1) {
+  async function undoDeletedCue() {
+    const snapshot = deletedCueStack.at(-1);
+    if (!projectId || !snapshot || snapshot.projectId !== projectId) return;
+    await run(async () => {
+      const restored = await postJson<Cue>(`/api/projects/${projectId}/cues`, {
+        name: snapshot.cue.name,
+        anchor_type: snapshot.cue.anchor_type,
+        anchor_value: snapshot.cue.anchor_value,
+        trigger_mode: snapshot.cue.trigger_mode,
+        delay_seconds: snapshot.cue.delay_seconds,
+      });
+      let firstInteractionId = "";
+      const interactions = [...snapshot.cue.interactions]
+        .sort((left, right) => left.position - right.position);
+      for (const interaction of interactions) {
+        const created = await postJson<Interaction>(
+          `/api/projects/${projectId}/cues/${restored.id}/interactions`,
+          interactionInput(interaction),
+        );
+        if (!firstInteractionId) firstInteractionId = created.id;
+      }
+      const latest = await apiJson<Cue[]>(`/api/projects/${projectId}/cues`);
+      const cueIds = insertCueIdAtPosition(latest, restored.id, snapshot.cue.position);
+      const next = await apiJson<Cue[]>(`/api/projects/${projectId}/cues/reorder`, {
+        method: "PUT",
+        body: JSON.stringify({ cue_ids: cueIds }),
+      });
+      setCues(next);
+      setCueId(restored.id);
+      setExpandedInteractionId(firstInteractionId);
+      setCreatingInteraction(false);
+      setDeletedCueStack((current) => current.slice(0, -1));
+    }, t("notice.cueRestored"));
+  }
+
+  async function saveCueOrder(sourceId: string, cueIds: string[]) {
     if (!projectId) return;
-    const ordered = [...cues].sort((left, right) => left.position - right.position);
-    const index = ordered.findIndex((item) => item.id === targetId);
-    const swapIndex = index + direction;
-    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
-    [ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]];
+    const currentCueIds = [...cues]
+      .sort((left, right) => left.position - right.position)
+      .map((item) => item.id);
+    if (cueIds.every((id, index) => id === currentCueIds[index])) return;
     await run(async () => {
       const next = await apiJson<Cue[]>(`/api/projects/${projectId}/cues/reorder`, {
         method: "PUT",
-        body: JSON.stringify({ cue_ids: ordered.map((item) => item.id) }),
+        body: JSON.stringify({ cue_ids: cueIds }),
       });
       setCues(next);
-      setCueId(targetId);
+      setCueId(sourceId);
     }, t("notice.cuesReordered"));
+  }
+
+  async function reorderCue(sourceId: string, targetId: string) {
+    const cueIds = reorderCueIds(cues, sourceId, targetId);
+    await saveCueOrder(sourceId, cueIds);
   }
 
   async function createInteraction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId || !cueId) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const type = String(data.get("interaction_type"));
+    const data = new FormData(event.currentTarget);
+    const type = String(data.get("interaction_type")) as Interaction["interaction_type"];
     const rawOptions = parseOptions(data.get("options"));
     await run(async () => {
-      await postJson<Interaction>(
+      const created = await postJson<Interaction>(
         `/api/projects/${projectId}/cues/${cueId}/interactions`,
         {
           interaction_type: type,
@@ -300,8 +413,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           settings: {
             schema_version: 1,
             purpose: data.get("interaction_purpose"),
-            results: { audience_visibility: data.get("audience_visibility") },
-            response: { allow_change: true },
+            results: resultSettingsPayload(resultSettingsFromForm(data)),
+            response: responseSettingsFromForm(type, data),
           },
           options:
             type === "single_choice"
@@ -310,42 +423,49 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         },
       );
       await refreshProject();
-      form.reset();
-      setInteractionPurpose("understanding");
-      setInteractionType("understanding");
+      setExpandedInteractionId(created.id);
+      setCreatingInteraction(false);
     }, t("notice.interactionCreated"));
   }
 
-  async function updateInteraction(item: Interaction, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function updateInteraction(item: Interaction, draft: InteractionDraft) {
     if (!projectId || !cueId) return;
-    const data = new FormData(event.currentTarget);
-    const type = String(data.get("interaction_type"));
-    const rawOptions = parseOptions(data.get("options"));
-    await run(async () => {
-      await apiJson<Interaction>(
+    try {
+      const updated = await apiJson<Interaction>(
         `/api/projects/${projectId}/cues/${cueId}/interactions/${item.id}`,
         {
           method: "PUT",
           body: JSON.stringify({
-            interaction_type: type,
-            prompt: data.get("prompt"),
+            interaction_type: draft.interaction_type,
+            prompt: draft.prompt,
             description: item.description,
             settings: {
               ...item.settings,
               schema_version: 1,
-              purpose: data.get("interaction_purpose"),
-              results: { audience_visibility: data.get("audience_visibility") },
-              response: { allow_change: true },
+              purpose: item.settings.purpose,
+              results: resultSettingsPayload({
+                background_question: draft.backgroundQuestion,
+                publish_results: draft.publishResults,
+              }),
+              response: draft.response,
             },
-            options: type === "single_choice"
-              ? rawOptions.map((label) => ({ label, is_correct: null }))
+            options: draft.interaction_type === "single_choice"
+              ? draft.options.map((label) => ({ label, is_correct: null }))
               : [],
           }),
         },
       );
-      await refreshProject();
-    }, t("notice.interactionUpdated"));
+      setCues((current) => current.map((currentCue) => currentCue.id === cueId
+        ? {
+            ...currentCue,
+            interactions: currentCue.interactions.map((interaction) =>
+              interaction.id === updated.id ? updated : interaction),
+          }
+        : currentCue));
+    } catch (error) {
+      report(error);
+      throw error;
+    }
   }
 
   async function deleteInteraction(item: Interaction) {
@@ -359,6 +479,36 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
       await refreshProject();
     }, t("notice.interactionDeleted"));
   }
+
+  useEffect(() => {
+    const handleCueShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || busy) return;
+      const action = cueShortcutAction(event, isEditableShortcutTarget(event.target));
+      if (!action) return;
+      if (action === "undo") {
+        if (!deletedCueStack.length) return;
+        event.preventDefault();
+        void undoDeletedCue();
+        return;
+      }
+      if (!cue) return;
+      event.preventDefault();
+      if (action === "delete") void deleteCue(cue);
+      if (action === "select-previous" || action === "select-next") {
+        const ordered = [...cues].sort((left, right) => left.position - right.position);
+        const cueIndex = ordered.findIndex((item) => item.id === cue.id);
+        const offset = action === "select-previous" ? -1 : 1;
+        const nextCue = ordered[cueIndex + offset];
+        if (!nextCue) return;
+        setCueId(nextCue.id);
+        setExpandedInteractionId(nextCue.interactions.at(0)?.id ?? "");
+        setCreatingInteraction(false);
+        window.requestAnimationFrame(() => cueButtonRefs.current.get(nextCue.id)?.focus());
+      }
+    };
+    window.addEventListener("keydown", handleCueShortcut);
+    return () => window.removeEventListener("keydown", handleCueShortcut);
+  }, [busy, cue, cues, deletedCueStack, projectId]);
 
   async function createSession() {
     if (!projectId) return;
@@ -393,30 +543,38 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
 
   return (
     <main className="presenter-layout">
-      <header className="workspace-header">
-        <div>
-          <p className="eyebrow">{t("presenter.eyebrow")}</p>
-          <h1 className="workspace-title">{t("presenter.heading")}</h1>
-        </div>
-        <div className="profile-chip">
-          <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
-          {profile.account_type === "guest" && (
-            <button disabled={busy} onClick={() => downloadGuestVault(profile.vault_id, setMessage, t)}>
-              {t("auth.takeVault")}
+      <header className="workspace-toolbar">
+        <a className="workspace-brand" href="/" aria-label={t("app.name")}><span>S</span></a>
+        <strong className="workspace-project-title" title={project?.title}>{project?.title ?? t("project.heading")}</strong>
+        <div className="workspace-toolbar-actions">
+          <div className="profile-chip">
+            <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
+            {profile.account_type === "guest" && (
+              <button disabled={busy} onClick={() => downloadGuestVault(profile.vault_id, setMessage, t)}>
+                {t("auth.takeVault")}
+              </button>
+            )}
+            <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
+              {t("auth.logout")}
             </button>
-          )}
-          <button onClick={() => apiJson("/api/auth/logout", { method: "POST" }).then(() => location.reload())}>
-            {t("auth.logout")}
+            <button className="delete-account" onClick={async () => {
+              if (!window.confirm(t("auth.deleteConfirm"))) return;
+              await apiJson("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
+              location.assign("/");
+            }}>{t("auth.delete")}</button>
+          </div>
+          <button
+            className="start-presentation-button"
+            type="button"
+            aria-expanded={liveControlsOpen}
+            onClick={() => setLiveControlsOpen(true)}
+          >
+            <span aria-hidden="true">▶</span>{t("live.startPresentation")}
           </button>
-          <button className="delete-account" onClick={async () => {
-            if (!window.confirm(t("auth.deleteConfirm"))) return;
-            await apiJson("/api/auth/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
-            location.assign("/");
-          }}>{t("auth.delete")}</button>
         </div>
       </header>
 
-      {message && <div className="notice" role="status">{message}</div>}
+      {message && <div className="workspace-toast" role="status">{message}</div>}
 
       <section className={libraryCollapsed ? "studio-grid library-collapsed" : "studio-grid"} aria-busy={busy}>
         <aside className={libraryCollapsed ? "panel library-panel collapsed" : "panel library-panel"}>
@@ -474,114 +632,121 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
           </div>
           {project ? (
             <>
+              <button className="new-cue-button" type="button" disabled={busy} onClick={() => void createCue()}>
+                <span aria-hidden="true">＋</span>{t("cue.newSlide")}
+              </button>
               <div className="cue-list">
                 {cues.map((item) => (
-                  <article className={expandedCueId === item.id ? "cue-accordion expanded" : "cue-accordion"} key={item.id}>
+                  <article
+                    className={`cue-accordion${draggedCueId === item.id ? " dragging" : ""}${dragOverCueId === item.id ? " drag-over" : ""}`}
+                    key={item.id}
+                    draggable={!busy}
+                    onDragStart={(event) => {
+                      setDraggedCueId(item.id);
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", item.id);
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDragOverCueId(item.id);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceId = event.dataTransfer.getData("text/plain") || draggedCueId;
+                      setDraggedCueId("");
+                      setDragOverCueId("");
+                      if (sourceId) void reorderCue(sourceId, item.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedCueId("");
+                      setDragOverCueId("");
+                    }}
+                  >
                     <div className="cue-row">
+                      <span className="cue-position">{item.position + 1}</span>
                       <button
+                        ref={(node) => {
+                          if (node) cueButtonRefs.current.set(item.id, node);
+                          else cueButtonRefs.current.delete(item.id);
+                        }}
                         className={item.id === cueId ? "cue-card selected" : "cue-card"}
-                        aria-expanded={expandedCueId === item.id}
+                        aria-current={item.id === cueId ? "true" : undefined}
+                        title={t("cue.keyboardHelp")}
                         onClick={() => {
                           setCueId(item.id);
-                          setExpandedCueId((current) => current === item.id ? "" : item.id);
+                          setExpandedInteractionId(item.interactions.at(0)?.id ?? "");
+                          setCreatingInteraction(false);
                         }}
                       >
-                        <span className="cue-position">{String(item.position + 1).padStart(2, "0")}</span>
-                        <span><strong>{slideAnchorLabel(t, item)}</strong><small>{item.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></span>
-                        <span className="interaction-count">{item.interactions.length}</span>
+                        <CueThumbnail t={t} cue={item} />
+                        <span className="cue-thumbnail-meta">
+                          <strong>{t("cue.interactionCount", { count: item.interactions.length })}</strong>
+                          {item.anchor_value && <small>· {item.anchor_value}</small>}
+                        </span>
                       </button>
-                      <span className="cue-order-actions">
-                        <button disabled={busy || item.position === 0} onClick={() => reorderCue(item.id, -1)} aria-label={t("cue.moveUp", { name: slideAnchorLabel(t, item) })}>↑</button>
-                        <button disabled={busy || item.position === cues.length - 1} onClick={() => reorderCue(item.id, 1)} aria-label={t("cue.moveDown", { name: slideAnchorLabel(t, item) })}>↓</button>
-                      </span>
+                      <span className="cue-drag-handle" aria-hidden="true">⋮⋮</span>
                     </div>
-                    {expandedCueId === item.id && (
-                      <form className="accordion-form" onSubmit={(event) => updateCue(item, event)}>
-                        <label><span>{t("cue.anchor")}</span><input name="slide" defaultValue={item.anchor_value ?? String(item.position + 1)} required placeholder={t("cue.slidePlaceholder")} /></label>
-                        <label><span>{t("cue.behavior")}</span><select name="trigger_mode" defaultValue={item.trigger_mode === "presenter_confirm" ? "presenter_confirm" : "immediate"}><option value="immediate">{t("cue.immediate")}</option><option value="presenter_confirm">{t("cue.confirm")}</option></select></label>
-                        <div className="editor-actions"><button disabled={busy}>{t("common.save")}</button><button className="danger-button" disabled={busy} type="button" onClick={() => deleteCue(item)}>{t("common.delete")}</button></div>
-                      </form>
-                    )}
                   </article>
                 ))}
                 {!cues.length && <p className="empty-copy">{t("cue.empty")}</p>}
               </div>
-              <form className="form-stack cue-form add-form" onSubmit={createCue}>
-                <div className="add-form-heading"><strong>{t("cue.addHeading")}</strong><small>{t("cue.anchorHelp")}</small></div>
-                <div className="form-row">
-                  <input name="slide" placeholder={t("cue.slidePlaceholder")} />
-                  <select name="trigger_mode" defaultValue="immediate">
-                    <option value="immediate">{t("cue.immediate")}</option>
-                    <option value="presenter_confirm">{t("cue.confirm")}</option>
-                  </select>
-                  <button disabled={busy}>{t("cue.create")}</button>
-                </div>
-              </form>
             </>
           ) : <p className="empty-copy roomy">{t("cue.selectProject")}</p>}
         </section>
 
         <section className="panel editor-panel">
-          <div className="panel-heading">
-            <div><span className="step">03</span><h2>{t("interaction.heading")}</h2></div>
-            {cue && <div className="preview-actions">
-              <button onClick={() => setPreview("projection")}>{t("preview.projection")}</button>
-              <button onClick={() => setPreview("mobile")}>{t("preview.mobile")}</button>
-              <button onClick={() => setPreview("presenter")}>{t("preview.presenter")}</button>
-            </div>}
+          <div className="panel-heading editor-toolbar">
+            <div className="editor-heading-main">
+              <span className="step">03</span><h2>{t("interaction.heading")}</h2>
+              {cue && <nav className="interaction-tabs" aria-label={t("interaction.heading")}>
+                {cue.interactions.map((item) => (
+                  <button
+                    className={!creatingInteraction && selectedInteraction?.id === item.id ? "interaction-tab active" : "interaction-tab"}
+                    key={item.id}
+                    onClick={() => {
+                      setExpandedInteractionId(item.id);
+                      setCreatingInteraction(false);
+                    }}
+                  >
+                    <span className={`type-badge type-${item.interaction_type}`}>{typeName(t, item.interaction_type)}</span>
+                    <span>{item.prompt}</span>
+                  </button>
+                ))}
+                <button className={creatingInteraction ? "interaction-tab add active" : "interaction-tab add"} onClick={() => setCreatingInteraction(true)}>+ {t("interaction.addHeading")}</button>
+              </nav>}
+            </div>
+            {cue && <CueBindingField key={cue.id} t={t} cue={cue} busy={busy} onSave={(value) => updateCue(cue, value)} />}
           </div>
           {cue ? (
             <>
-              <div className="interaction-list">
-                {cue.interactions.map((item) => (
-                  <article className={expandedInteractionId === item.id ? "interaction-card expanded" : "interaction-card"} key={item.id}>
-                    <button className="interaction-summary" aria-expanded={expandedInteractionId === item.id} onClick={() => setExpandedInteractionId((current) => current === item.id ? "" : item.id)}>
-                      <span className={`type-badge type-${item.interaction_type}`}>{typeName(t, item.interaction_type)}</span>
-                      <h3>{item.prompt}</h3><span className="expand-glyph">⌄</span>
-                    </button>
-                    {expandedInteractionId === item.id && <InteractionEditForm t={t} busy={busy} item={item} onSave={(event) => updateInteraction(item, event)} onDelete={() => deleteInteraction(item)} />}
-                  </article>
-                ))}
-                {!cue.interactions.length && <p className="empty-copy">{t("interaction.empty")}</p>}
-              </div>
-              <form className="form-stack interaction-form add-form" onSubmit={createInteraction}>
-                <div className="add-form-heading"><strong>{t("interaction.addHeading")}</strong><small>{t("interaction.addHelp")}</small></div>
-                <label className="field-label">
-                  <span>{t("interaction.purpose")}</span>
-                  <select name="interaction_purpose" value={interactionPurpose} onChange={(event) => {
-                    const purpose = event.target.value as InteractionPurpose;
-                    setInteractionPurpose(purpose);
-                    setInteractionType(purposeRecommendation(t, purpose).type);
-                  }}>
-                    {interactionPurposes.map((purpose) => <option value={purpose} key={purpose}>{t(`purpose.${purpose}`)}</option>)}
-                  </select>
-                </label>
-                <small className="recommendation-copy">{t("interaction.recommendation", { type: typeName(t, purposeRecommendation(t, interactionPurpose).type) })}</small>
-                <select name="interaction_type" value={interactionType} onChange={(event) => setInteractionType(event.target.value as Interaction["interaction_type"])}>
-                  <option value="understanding">{t("interaction.understanding")}</option>
-                  <option value="single_choice">{t("interaction.choice")}</option>
-                  <option value="word_cloud">{t("interaction.wordCloud")}</option>
-                  <option value="qa">{t("interaction.qa")}</option>
-                </select>
-                <textarea key={interactionPurpose} name="prompt" required maxLength={500} defaultValue={purposeRecommendation(t, interactionPurpose).prompt} placeholder={t("interaction.promptPlaceholder")} />
-                {interactionType === "single_choice" && <textarea name="options" required placeholder={t("interaction.optionsPlaceholder")} />}
-                <label className="field-label">
-                  <span>{t("interaction.visibility")}</span>
-                  <select key={interactionType} name="audience_visibility" defaultValue={defaultVisibility(interactionType)}>
-                    <option value="after_reveal">{t("interaction.visibilityAfterReveal")}</option>
-                    <option value="live">{t("interaction.visibilityLive")}</option>
-                  </select>
-                </label>
-                <button disabled={busy}>{t("interaction.create")}</button>
-              </form>
+              {creatingInteraction || !selectedInteraction ? (
+                <InteractionWorkspace
+                  key={`new-${cue.id}`}
+                  t={t}
+                  busy={busy}
+                  cue={cue}
+                  onSubmit={createInteraction}
+                  onCancel={selectedInteraction ? () => setCreatingInteraction(false) : undefined}
+                />
+              ) : (
+                <InteractionWorkspace
+                  key={selectedInteraction.id}
+                  t={t}
+                  busy={busy}
+                  cue={cue}
+                  item={selectedInteraction}
+                  onSubmit={(event) => event.preventDefault()}
+                  onAutoSave={(draft) => updateInteraction(selectedInteraction, draft)}
+                  onDelete={() => deleteInteraction(selectedInteraction)}
+                />
+              )}
             </>
           ) : <p className="empty-copy roomy">{t("interaction.selectCue")}</p>}
         </section>
       </section>
 
-      {cue && preview && <PreviewDialog t={t} cue={cue} mode={preview} close={() => setPreview(null)} />}
-
-      <LiveControl
+      {liveControlsOpen && <LiveControl
         t={t}
         busy={busy}
         project={project}
@@ -593,105 +758,109 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         refreshSnapshot={refreshSnapshot}
         createSession={createSession}
         send={send}
-      />
+        onClose={() => setLiveControlsOpen(false)}
+      />}
     </main>
   );
 }
 
-function PreviewDialog({ t, cue, mode, close }: {
+function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
+  const interaction = cue.interactions.at(0);
+  const interactionType = interaction?.interaction_type ?? "empty";
+  return (
+    <span className="cue-thumbnail-canvas" aria-hidden="true">
+      <span className="cue-thumbnail-kicker">
+        {interaction ? typeName(t, interaction.interaction_type) : ""}
+      </span>
+      <span className="cue-thumbnail-title">{interaction?.prompt ?? ""}</span>
+      <span className={`cue-thumbnail-visual cue-thumbnail-${interactionType}`}>
+        {interactionType === "single_choice" && <><i /><i /><i /><i /></>}
+        {interactionType === "understanding" && <><i /><i /><i /></>}
+        {interactionType === "word_cloud" && <><i>IDEA</i><i>LIVE</i><i>WORD</i></>}
+        {interactionType === "qa" && <><i /><i /></>}
+        {interactionType === "empty" && <i>+</i>}
+      </span>
+    </span>
+  );
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  return target instanceof Element
+    && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function interactionInput(item: Interaction) {
+  return {
+    interaction_type: item.interaction_type,
+    prompt: item.prompt,
+    description: item.description,
+    settings: item.settings,
+    options: item.options
+      .slice()
+      .sort((left, right) => left.position - right.position)
+      .map((option) => ({ label: option.label, is_correct: option.is_correct })),
+  };
+}
+
+function CueBindingField({ t, cue, busy, onSave }: {
   t: Translate;
   cue: Cue;
-  mode: "projection" | "mobile" | "presenter";
-  close: () => void;
-}) {
-  const interaction = cue.interactions[0];
-  const [theme, setTheme] = useProjectionTheme();
-  return (
-    <div className="preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <section className={`preview-dialog preview-${mode}`} role="dialog" aria-modal="true" aria-label={t(`preview.${mode}`)}>
-        <header>
-          <span>{t(`preview.${mode}`)}</span>
-          {mode === "projection" && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} />}
-          <button onClick={close} aria-label={t("preview.close")}>×</button>
-        </header>
-        {mode === "projection" && (
-          <div className="projection-preview" data-projection-theme={theme}>
-            <small>{theme === "terminal" ? "live" : "LIVE"} · ABC234</small>
-            <h2>{interaction?.prompt ?? cue.name}</h2>
-            <div className="preview-bars"><i /><i /><i /></div>
-          </div>
-        )}
-        {mode === "mobile" && (
-          <div className="mobile-preview">
-            <small>ABC234 · {t("audience.people", { count: 42 })}</small>
-            <h2>{interaction?.prompt ?? cue.name}</h2>
-            {interaction?.interaction_type === "single_choice" ? interaction.options.map((option, index) => <button key={option.id}><span>{String.fromCharCode(65 + index)}</span>{option.label}</button>) : interaction?.interaction_type === "qa" || interaction?.interaction_type === "word_cloud" ? <><textarea disabled placeholder={interaction.interaction_type === "qa" ? t("qa.placeholder") : t("audience.textPlaceholder")} /><button>{interaction.interaction_type === "qa" ? t("qa.ask") : t("audience.send")}</button></> : <><button>{t("audience.yes")}</button><button>{t("audience.no")}</button></>}
-          </div>
-        )}
-        {mode === "presenter" && (
-          <div className="presenter-preview">
-            <small>{t("remote.heading")}</small><h2>{cue.name}</h2>
-            <button>{t("live.open")}</button>
-            <ol>{cue.interactions.map((item) => <li key={item.id}>{typeName(t, item.interaction_type)} · {item.prompt}</li>)}</ol>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function InteractionEditForm({ t, busy, item, onSave, onDelete }: {
-  t: Translate;
   busy: boolean;
-  item: Interaction;
-  onSave: (event: FormEvent<HTMLFormElement>) => void;
-  onDelete: () => void;
+  onSave: (value: string) => Promise<void>;
 }) {
-  const [type, setType] = useState(item.interaction_type);
-  const [purpose, setPurpose] = useState(() => interactionPurposeFrom(item));
-  const [prompt, setPrompt] = useState(item.prompt);
-  const [options, setOptions] = useState(() => item.options.map((option) => option.label).join("\n"));
-  const [visibility, setVisibility] = useState(() => visibilityFrom(item));
+  const currentValue = cue.anchor_value ?? "";
+  const [value, setValue] = useState(currentValue);
+  const saveCallback = useRef(onSave);
 
-  // Reset only when the presenter switches to another interaction. Depending
-  // on the whole item object would wipe in-progress edits every time a
-  // background refresh replaces the snapshot with a fresh object identity.
   useEffect(() => {
-    setType(item.interaction_type);
-    setPurpose(interactionPurposeFrom(item));
-    setPrompt(item.prompt);
-    setOptions(item.options.map((option) => option.label).join("\n"));
-    setVisibility(visibilityFrom(item));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id]);
+    saveCallback.current = onSave;
+  }, [onSave]);
+  useEffect(() => setValue(currentValue), [cue.id, currentValue]);
+
+  const saveValue = useCallback((nextValue: string) => {
+    const nextAnchor = cueAnchorUpdate(nextValue, cue.position + 1).anchor_value;
+    if (busy || nextAnchor === (cue.anchor_value ?? null)) return;
+    void saveCallback.current(nextValue);
+  }, [busy, cue.anchor_value, cue.position]);
+
+  useEffect(() => {
+    const nextAnchor = cueAnchorUpdate(value, cue.position + 1).anchor_value;
+    if (busy || nextAnchor === (cue.anchor_value ?? null)) return;
+    const timer = window.setTimeout(() => saveValue(value), 650);
+    return () => window.clearTimeout(timer);
+  }, [busy, cue.anchor_value, cue.position, saveValue, value]);
 
   return (
-    <form className="accordion-form interaction-edit-form" onSubmit={onSave}>
-      <label><span>{t("interaction.purpose")}</span><select name="interaction_purpose" value={purpose} onChange={(event) => setPurpose(event.target.value as InteractionPurpose)}>{interactionPurposes.map((value) => <option value={value} key={value}>{t(`purpose.${value}`)}</option>)}</select></label>
-      <label><span>{t("interaction.heading")}</span><select name="interaction_type" value={type} onChange={(event) => setType(event.target.value as Interaction["interaction_type"])}><option value="understanding">{t("interaction.understanding")}</option><option value="single_choice">{t("interaction.choice")}</option><option value="word_cloud">{t("interaction.wordCloud")}</option><option value="qa">{t("interaction.qa")}</option></select></label>
-      <label className="editor-wide"><span>{t("interaction.promptLabel")}</span><textarea name="prompt" required maxLength={500} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
-      {type === "single_choice" && <label className="editor-wide"><span>{t("interaction.optionsLabel")}</span><textarea name="options" required value={options} onChange={(event) => setOptions(event.target.value)} placeholder={t("interaction.optionsPlaceholder")} /></label>}
-      <label><span>{t("interaction.visibility")}</span><select name="audience_visibility" value={visibility} onChange={(event) => setVisibility(event.target.value as ResultVisibility)}><option value="after_reveal">{t("interaction.visibilityAfterReveal")}</option><option value="live">{t("interaction.visibilityLive")}</option></select></label>
-      <div className="editor-actions"><button disabled={busy}>{t("common.save")}</button><button className="danger-button" disabled={busy} type="button" onClick={onDelete}>{t("common.delete")}</button></div>
-    </form>
+    <label className="cue-binding-inline">
+      <span>{t("cue.googleSlidesBinding")}</span>
+      <input
+        name="slide"
+        value={value}
+        disabled={busy}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => saveValue(value)}
+        placeholder={t("cue.slidePlaceholder")}
+      />
+    </label>
   );
 }
 
-type ResultVisibility = "after_reveal" | "live";
-
-function interactionPurposeFrom(item: Interaction): InteractionPurpose {
-  const purpose = item.settings.purpose;
-  return typeof purpose === "string" && interactionPurposes.includes(purpose as InteractionPurpose)
-    ? purpose as InteractionPurpose
-    : "understanding";
+export function cueAnchorUpdate(value: string, fallbackIndex: number) {
+  const trimmed = value.trim();
+  if (!trimmed) return { anchor_type: "manual" as const, anchor_value: null };
+  return {
+    anchor_type: "deck_slide" as const,
+    anchor_value: normalizeSlideAnchor(trimmed, fallbackIndex),
+  };
 }
 
-function visibilityFrom(item: Interaction): ResultVisibility {
-  const results = item.settings.results;
-  const visibility = typeof results === "object" && results !== null
-    ? (results as Record<string, unknown>).audience_visibility
-    : null;
-  return visibility === "live" ? "live" : "after_reveal";
+export function cueBindingUpdatePayload(cue: Cue, value: string) {
+  return {
+    name: cue.name,
+    ...cueAnchorUpdate(value, cue.position + 1),
+    trigger_mode: cue.trigger_mode,
+    delay_seconds: cue.delay_seconds,
+  };
 }
 
 export function normalizeSlideAnchor(value: string, fallbackIndex: number) {

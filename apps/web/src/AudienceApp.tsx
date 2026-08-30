@@ -114,7 +114,7 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       await refresh();
       return true;
     } catch (cause) {
-      setError(audienceError(t, cause));
+      setError(audienceError(t, cause, interaction));
       if (!(cause instanceof ApiError) || cause.status >= 500) {
         setPendingAnswer({ interaction, payload, label, idempotencyKey });
       }
@@ -215,11 +215,13 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
   );
 }
 
-const WORD_CLOUD_MAX_SUBMISSIONS = 3;
-
-function audienceError(t: Translate, cause: unknown) {
+function audienceError(t: Translate, cause: unknown, interaction?: SnapshotInteraction) {
   if (cause instanceof ApiError && cause.status === 429) return t("audience.rateLimited");
-  if (cause instanceof ApiError && cause.code === "response_limit_reached") return t("audience.wordCloudLimit", { max: WORD_CLOUD_MAX_SUBMISSIONS });
+  if (cause instanceof ApiError && cause.code === "response_limit_reached") {
+    return t("audience.wordCloudLimit", { max: audienceResponseSettings(interaction).submissionLimit });
+  }
+  if (cause instanceof ApiError && cause.code === "response_change_not_allowed") return t("audience.changeLocked");
+  if (cause instanceof ApiError && cause.code === "response_duplicate_not_allowed") return t("audience.duplicateNotAllowed");
   return t("error.generic", { code: cause instanceof ApiError ? cause.code : "network_error" });
 }
 
@@ -246,8 +248,17 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
 }) {
   const [text, setText] = useState("");
   const [questionBody, setQuestionBody] = useState("");
-  const wordCloudRemaining = Math.max(0, WORD_CLOUD_MAX_SUBMISSIONS - sentCount);
+  const [choiceSelection, setChoiceSelection] = useState(() => choiceIdsFromAnswer(answer));
+  const responseSettings = audienceResponseSettings(interaction);
+  const wordCloudRemaining = Math.max(0, responseSettings.submissionLimit - sentCount);
   const wordCloudFull = interaction.interaction_type === "word_cloud" && wordCloudRemaining === 0;
+  const choiceLocked = interaction.interaction_type === "single_choice"
+    && Boolean(answer)
+    && !responseSettings.allowChange;
+
+  useEffect(() => {
+    setChoiceSelection(choiceIdsFromAnswer(answer));
+  }, [answer, interaction.id]);
 
   return (
     <article className="audience-question">
@@ -262,12 +273,32 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
         </div>
       )}
       {interaction.interaction_type === "single_choice" && (
-        <div className="choice-buttons">
-          {interaction.options.map((option, index) => (
-            <button className={answer === option.id ? "selected" : ""} disabled={busy} key={option.id} onClick={() => submit({ option_id: option.id }, option.id)}>
-              <span>{String.fromCharCode(65 + index)}</span>{option.label}
-            </button>
-          ))}
+        <div className="choice-response">
+          <div className="choice-buttons">
+            {interaction.options.map((option, index) => (
+              <button
+                className={choiceSelection.includes(option.id) ? "selected" : ""}
+                disabled={busy || choiceLocked}
+                key={option.id}
+                onClick={() => {
+                  if (!responseSettings.multipleSelection) {
+                    void submit({ option_id: option.id }, option.id);
+                    return;
+                  }
+                  setChoiceSelection((current) => current.includes(option.id)
+                    ? current.filter((id) => id !== option.id)
+                    : [...current, option.id]);
+                }}
+              >
+                <span>{String.fromCharCode(65 + index)}</span>{option.label}
+              </button>
+            ))}
+          </div>
+          {responseSettings.multipleSelection && <button
+            className="choice-submit-button"
+            disabled={busy || choiceLocked || choiceSelection.length === 0}
+            onClick={() => submit({ option_ids: choiceSelection }, choiceSelection.join(","))}
+          >{t("audience.submitChoice")}</button>}
         </div>
       )}
       {interaction.interaction_type === "word_cloud" && (
@@ -314,11 +345,11 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
         ? sentCount > 0 && (
           <p className="answer-saved">
             {wordCloudFull
-              ? t("audience.wordCloudLimit", { max: WORD_CLOUD_MAX_SUBMISSIONS })
+              ? t("audience.wordCloudLimit", { max: responseSettings.submissionLimit })
               : t("audience.wordCloudSaved", { remaining: wordCloudRemaining })}
           </p>
         )
-        : answer && <p className="answer-saved">{t("audience.saved")}</p>}
+        : answer && <p className="answer-saved">{responseSettings.allowChange ? t("audience.saved") : t("audience.changeLocked")}</p>}
     </article>
   );
 }
@@ -349,13 +380,37 @@ function mergeAudienceAnswers(
   return next;
 }
 
-function labelFromPayload(payload: Record<string, unknown>) {
+export function labelFromPayload(payload: Record<string, unknown>) {
   if (typeof payload.level === "string") return payload.level;
   if (typeof payload.option_id === "string") return payload.option_id;
+  if (Array.isArray(payload.option_ids)
+    && payload.option_ids.length > 0
+    && payload.option_ids.every((value) => typeof value === "string")) {
+    return payload.option_ids.join(",");
+  }
   if (typeof payload.text === "string") return payload.text;
   if (payload.understood === true) return "green";
   if (payload.understood === false) return "red";
   return undefined;
+}
+
+export function audienceResponseSettings(interaction?: Pick<SnapshotInteraction, "settings">) {
+  const response = interaction?.settings.response;
+  const record = typeof response === "object" && response !== null
+    ? response as Record<string, unknown>
+    : {};
+  const rawLimit = record.submission_limit;
+  return {
+    allowChange: typeof record.allow_change === "boolean" ? record.allow_change : true,
+    multipleSelection: record.multiple_selection === true,
+    submissionLimit: typeof rawLimit === "number" && Number.isInteger(rawLimit) && rawLimit >= 1 && rawLimit <= 10
+      ? rawLimit
+      : 3,
+  };
+}
+
+function choiceIdsFromAnswer(answer?: string) {
+  return answer?.split(",").filter(Boolean) ?? [];
 }
 
 function answersStorageKey(sessionId: string, participantId: string) {

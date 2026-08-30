@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sqlx::{Postgres, Transaction};
+use std::collections::HashSet;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -17,6 +18,7 @@ use crate::{
     authorization::{SessionRole, authenticate_session_token, require_session_owner},
     commands::emit_event_to_topics,
     rate_limit::check as check_rate_limit,
+    result_visibility::results_are_public,
 };
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +113,7 @@ async fn submit_response(
         &mut transaction,
         interaction_id,
         &interaction.0,
+        &interaction.3,
         &request.payload,
     )
     .await?;
@@ -131,9 +134,23 @@ async fn submit_response(
     .fetch_one(&mut *transaction)
     .await
     .map_err(persistence_error)?;
+    enforce_response_rules(
+        &mut transaction,
+        ResponseRuleContext {
+            interaction_type: &interaction.0,
+            settings: &interaction.3,
+            cue_run_id: request.cue_run_id,
+            interaction_id,
+            participant_id,
+            payload: &payload,
+            idempotent,
+        },
+    )
+    .await?;
     let submission_index = next_submission_index(
         &mut transaction,
         &interaction.0,
+        &interaction.3,
         request.cue_run_id,
         interaction_id,
         participant_id,
@@ -201,7 +218,7 @@ async fn submit_response(
             "cue_run_id": request.cue_run_id,
             "interaction_id": interaction_id,
         });
-        let audience_event = if audience_can_see_aggregate(&interaction.3, &interaction.1) {
+        let audience_event = if results_are_public(&interaction.3, &interaction.1) {
             full_event.clone()
         } else {
             invalidation_event
@@ -330,7 +347,7 @@ async fn pin_word_cloud_entry(
         "cue_run_id": cue_run_id,
         "interaction_id": interaction_id,
     });
-    let audience_event = if audience_can_see_aggregate(&settings, &cue_state) {
+    let audience_event = if results_are_public(&settings, &cue_state) {
         full_event.clone()
     } else {
         invalidation_event
@@ -355,6 +372,7 @@ async fn validate_payload(
     transaction: &mut Transaction<'_, Postgres>,
     interaction_id: Uuid,
     interaction_type: &str,
+    settings: &Value,
     payload: &Value,
 ) -> Result<Value, ApiError> {
     let object = single_field_object(payload)?;
@@ -370,21 +388,52 @@ async fn validate_payload(
             }
         }
         "single_choice" => {
-            let option_id = object
-                .get("option_id")
-                .and_then(Value::as_str)
-                .and_then(|value| Uuid::parse_str(value).ok())
-                .ok_or_else(|| ApiError::bad_request("response_payload_invalid"))?;
-            let exists = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (SELECT 1 FROM interaction_options WHERE id = $1 AND interaction_id = $2)",
-            )
-            .bind(option_id)
-            .bind(interaction_id)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(persistence_error)?;
-            if !exists {
-                return Err(ApiError::bad_request("response_option_invalid"));
+            if response_setting_bool(settings, "multiple_selection", false) {
+                let values = object
+                    .get("option_ids")
+                    .and_then(Value::as_array)
+                    .filter(|values| (1..=6).contains(&values.len()))
+                    .ok_or_else(|| ApiError::bad_request("response_payload_invalid"))?;
+                let mut unique = HashSet::with_capacity(values.len());
+                let option_ids = values
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .and_then(|value| Uuid::parse_str(value).ok())
+                            .filter(|option_id| unique.insert(*option_id))
+                            .ok_or_else(|| ApiError::bad_request("response_payload_invalid"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let valid_count = sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM interaction_options WHERE interaction_id = $1 AND id = ANY($2)",
+                )
+                .bind(interaction_id)
+                .bind(&option_ids)
+                .fetch_one(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+                if usize::try_from(valid_count).ok() != Some(option_ids.len()) {
+                    return Err(ApiError::bad_request("response_option_invalid"));
+                }
+                return Ok(json!({"option_ids": option_ids}));
+            } else {
+                let option_id = object
+                    .get("option_id")
+                    .and_then(Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or_else(|| ApiError::bad_request("response_payload_invalid"))?;
+                let exists = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (SELECT 1 FROM interaction_options WHERE id = $1 AND interaction_id = $2)",
+                )
+                .bind(option_id)
+                .bind(interaction_id)
+                .fetch_one(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+                if !exists {
+                    return Err(ApiError::bad_request("response_option_invalid"));
+                }
             }
         }
         "word_cloud" => {
@@ -406,6 +455,90 @@ async fn validate_payload(
         _ => return Err(ApiError::bad_request("interaction_type_not_supported")),
     }
     Ok(payload.clone())
+}
+
+struct ResponseRuleContext<'a> {
+    interaction_type: &'a str,
+    settings: &'a Value,
+    cue_run_id: Uuid,
+    interaction_id: Uuid,
+    participant_id: Uuid,
+    payload: &'a Value,
+    idempotent: bool,
+}
+
+async fn enforce_response_rules(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: ResponseRuleContext<'_>,
+) -> Result<(), ApiError> {
+    let ResponseRuleContext {
+        interaction_type,
+        settings,
+        cue_run_id,
+        interaction_id,
+        participant_id,
+        payload,
+        idempotent,
+    } = context;
+    if idempotent {
+        return Ok(());
+    }
+    if interaction_type != "word_cloud" && !response_setting_bool(settings, "allow_change", true) {
+        let exists =
+            response_exists(transaction, cue_run_id, interaction_id, participant_id).await?;
+        if exists {
+            return Err(ApiError::conflict("response_change_not_allowed"));
+        }
+    }
+    if interaction_type == "word_cloud" && !response_setting_bool(settings, "allow_duplicate", true)
+    {
+        let text = payload
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::bad_request("response_payload_invalid"))?;
+        let duplicate = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM responses
+                WHERE cue_run_id = $1 AND interaction_id = $2 AND participant_id = $3
+                  AND payload ->> 'text' = $4
+            )
+            "#,
+        )
+        .bind(cue_run_id)
+        .bind(interaction_id)
+        .bind(participant_id)
+        .bind(text)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(persistence_error)?;
+        if duplicate {
+            return Err(ApiError::conflict("response_duplicate_not_allowed"));
+        }
+    }
+    Ok(())
+}
+
+async fn response_exists(
+    transaction: &mut Transaction<'_, Postgres>,
+    cue_run_id: Uuid,
+    interaction_id: Uuid,
+    participant_id: Uuid,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM responses
+            WHERE cue_run_id = $1 AND interaction_id = $2 AND participant_id = $3
+        )
+        "#,
+    )
+    .bind(cue_run_id)
+    .bind(interaction_id)
+    .bind(participant_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(persistence_error)
 }
 
 fn normalize_free_text(value: &str) -> String {
@@ -446,16 +579,15 @@ fn looks_like_spam(value: &str, maximum_urls: usize, maximum_run: usize) -> bool
     false
 }
 
-const WORD_CLOUD_MAX_SUBMISSIONS: i64 = 3;
-
 async fn next_submission_index(
     transaction: &mut Transaction<'_, Postgres>,
     interaction_type: &str,
+    settings: &Value,
     cue_run_id: Uuid,
     interaction_id: Uuid,
     participant_id: Uuid,
     idempotent: bool,
-) -> Result<i16, ApiError> {
+) -> Result<i64, ApiError> {
     if interaction_type != "word_cloud" || idempotent {
         return Ok(0);
     }
@@ -472,10 +604,26 @@ async fn next_submission_index(
     .fetch_one(&mut **transaction)
     .await
     .map_err(persistence_error)?;
-    if next >= WORD_CLOUD_MAX_SUBMISSIONS {
+    if next >= word_cloud_submission_limit(settings) {
         return Err(ApiError::conflict("response_limit_reached"));
     }
-    i16::try_from(next).map_err(|_| ApiError::internal("submission_index_invalid"))
+    Ok(next)
+}
+
+fn response_setting_bool(settings: &Value, key: &str, default: bool) -> bool {
+    settings
+        .pointer(&format!("/response/{key}"))
+        .and_then(Value::as_bool)
+        .unwrap_or(default)
+}
+
+fn word_cloud_submission_limit(settings: &Value) -> i64 {
+    settings
+        .pointer("/response/submission_limit")
+        .and_then(Value::as_u64)
+        .and_then(|limit| i64::try_from(limit).ok())
+        .filter(|limit| *limit >= 1)
+        .unwrap_or(3)
 }
 
 fn single_field_object(payload: &Value) -> Result<&Map<String, Value>, ApiError> {
@@ -536,14 +684,35 @@ async fn compute_aggregate(
             }))
         }
         "single_choice" => {
+            let total_responses = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM responses WHERE cue_run_id = $1 AND interaction_id = $2",
+            )
+            .bind(cue_run_id)
+            .bind(interaction_id)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
             let rows = sqlx::query_as::<_, (Uuid, String, i64)>(
                 r#"
                 SELECT interaction_options.id, interaction_options.label, COUNT(responses.id)
                 FROM interaction_options
                 LEFT JOIN responses
-                  ON responses.interaction_id = interaction_options.interaction_id
+                 ON responses.interaction_id = interaction_options.interaction_id
                  AND responses.cue_run_id = $2
-                 AND responses.payload ->> 'option_id' = interaction_options.id::TEXT
+                 AND (
+                       responses.payload ->> 'option_id' = interaction_options.id::TEXT
+                       OR EXISTS (
+                           SELECT 1
+                           FROM jsonb_array_elements_text(
+                               CASE
+                                   WHEN jsonb_typeof(responses.payload -> 'option_ids') = 'array'
+                                   THEN responses.payload -> 'option_ids'
+                                   ELSE '[]'::jsonb
+                               END
+                           ) AS selected(option_id)
+                           WHERE selected.option_id = interaction_options.id::TEXT
+                       )
+                 )
                 WHERE interaction_options.interaction_id = $1
                 GROUP BY interaction_options.id, interaction_options.position
                 ORDER BY interaction_options.position, interaction_options.id
@@ -554,7 +723,6 @@ async fn compute_aggregate(
             .fetch_all(&mut **transaction)
             .await
             .map_err(persistence_error)?;
-            let total_responses = rows.iter().map(|row| row.2).sum::<i64>();
             let options = rows
                 .into_iter()
                 .map(|row| json!({"option_id": row.0, "label": row.1, "count": row.2}))
@@ -659,18 +827,6 @@ async fn authorize_word_cloud_operator(
     Ok(())
 }
 
-fn audience_can_see_aggregate(settings: &Value, cue_state: &str) -> bool {
-    match settings
-        .pointer("/results/audience_visibility")
-        .and_then(Value::as_str)
-        .unwrap_or("after_reveal")
-    {
-        "live" => true,
-        "after_reveal" => cue_state == "revealed",
-        _ => false,
-    }
-}
-
 async fn load_aggregate(
     transaction: &mut Transaction<'_, Postgres>,
     cue_run_id: Uuid,
@@ -726,8 +882,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        audience_can_see_aggregate, looks_like_spam, normalize_free_text, pinned_texts,
-        single_field_object,
+        looks_like_spam, normalize_free_text, pinned_texts, response_setting_bool,
+        single_field_object, word_cloud_submission_limit,
     };
 
     #[test]
@@ -735,20 +891,6 @@ mod tests {
         assert!(single_field_object(&json!({"understood": true})).is_ok());
         assert!(single_field_object(&json!({"understood": true, "admin": true})).is_err());
         assert!(single_field_object(&json!([true])).is_err());
-    }
-
-    #[test]
-    fn audience_aggregate_visibility_defaults_to_reveal() {
-        assert!(audience_can_see_aggregate(
-            &json!({"results": {"audience_visibility": "live"}}),
-            "open"
-        ));
-        assert!(!audience_can_see_aggregate(&json!({}), "open"));
-        assert!(audience_can_see_aggregate(&json!({}), "revealed"));
-        assert!(!audience_can_see_aggregate(
-            &json!({"results": {"audience_visibility": "presenter_only"}}),
-            "revealed"
-        ));
     }
 
     #[test]
@@ -773,5 +915,24 @@ mod tests {
             vec!["clarity".to_string(), "focus".to_string()]
         );
         assert!(pinned_texts(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn response_rules_keep_legacy_defaults_and_read_explicit_values() {
+        assert!(response_setting_bool(&json!({}), "allow_change", true));
+        assert!(!response_setting_bool(
+            &json!({"response": {"allow_change": false}}),
+            "allow_change",
+            true
+        ));
+        assert_eq!(word_cloud_submission_limit(&json!({})), 3);
+        assert_eq!(
+            word_cloud_submission_limit(&json!({"response": {"submission_limit": 8}})),
+            8
+        );
+        assert_eq!(
+            word_cloud_submission_limit(&json!({"response": {"submission_limit": 20}})),
+            20
+        );
     }
 }

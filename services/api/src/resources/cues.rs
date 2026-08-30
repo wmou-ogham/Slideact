@@ -231,16 +231,43 @@ pub(super) async fn delete_cue(
 ) -> Result<StatusCode, ApiError> {
     let user_id = authenticated_user_id(&state.database, &headers).await?;
     require_project_write(&state.database, project_id, user_id).await?;
+
+    // Keep activity history intact. Lock the cue while checking so a concurrent
+    // cue_run insert cannot race the delete and turn into a generic FK error.
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    let exists = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM cues WHERE id = $1 AND project_id = $2 FOR UPDATE",
+    )
+    .bind(cue_id)
+    .bind(project_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    if exists.is_none() {
+        return Err(ApiError::not_found("cue_not_found"));
+    }
+
+    let has_history =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM cue_runs WHERE cue_id = $1)")
+            .bind(cue_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(persistence_error)?;
+    if has_history {
+        return Err(ApiError::conflict("cue_has_history"));
+    }
+
     let affected = sqlx::query("DELETE FROM cues WHERE id = $1 AND project_id = $2")
         .bind(cue_id)
         .bind(project_id)
-        .execute(&state.database)
+        .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?
         .rows_affected();
     if affected == 0 {
         return Err(ApiError::not_found("cue_not_found"));
     }
+    transaction.commit().await.map_err(persistence_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
