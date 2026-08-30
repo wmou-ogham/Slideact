@@ -127,44 +127,52 @@ export function LiveControl({
   }
 
   return (
-    <section className="live-dock">
-      <div className="live-summary">
-        <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
-        <div><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
-        {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
-        {statusActions.map(([type, key]) => <button className="live-end-button" disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
+    <section className="live-dock" aria-label={t("live.heading")}>
+      <div className="live-dock-primary">
+        <div className="live-summary">
+          <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
+          <div className="live-status-copy"><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
+          {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
+        </div>
+        <div className="live-session-actions">
+          {statusActions.map(([type, key]) => <button className="live-end-button" disabled={busy} key={type} onClick={() => send({ type })}>{t(key)}</button>)}
+          {!activeSession && <button className="primary-button ended-session-create" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
+        </div>
       </div>
-      {!activeSession && <button className="primary-button ended-session-create" disabled={!project || busy} onClick={createSession}>{t("live.new")}</button>}
-      <div className="live-actions">
-        {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-          {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
-        </select>}
-        {isLive && (
-          <select
-            aria-label={t("live.selectCue")}
-            value={snapshot.presentation_view === "join_qr" ? "__join_qr__" : (snapshot.current_cue_run?.cue_id ?? "__join_qr__")}
-            disabled={busy}
-            onChange={(event) => {
-              if (event.target.value === "__join_qr__") send({ type: "show_join_qr" });
-              else if (event.target.value === snapshot.current_cue_run?.cue_id) send({ type: "show_cue" });
-              else if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value });
-            }}
-          >
-            <option value="__join_qr__">{t("live.qrHome")}</option>
-            {cues.map((item) => <option value={item.id} key={item.id}>{cueNavigationLabel(t, item)}</option>)}
-          </select>
-        )}
-        {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
-        {isLive && (cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
-        {isControllable && cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
-        {snapshot?.status === "ended" && <button disabled={busy || !project} onClick={() => send({ type: "reopen_session" })}>{t("live.reopen")}</button>}
-        {isControllable && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />}
-        {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
-        {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
-        {snapshot && <button className="secondary-link" onClick={showResults}>{t("live.results")}</button>}
-        {isControllable && <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>}
-        {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
+      <div className="live-dock-controls">
+        <div className="live-navigation">
+          {!isControllable && visibleSessions.length > 0 && <select aria-label={t("live.activityHistory")} value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+            {visibleSessions.map((item) => <option key={item.id} value={item.id}>{sessionLabel(t, item)}</option>)}
+          </select>}
+          {isLive && (
+            <select
+              aria-label={t("live.selectCue")}
+              value={snapshot.presentation_view === "join_qr" ? "__join_qr__" : (snapshot.current_cue_run?.cue_id ?? "__join_qr__")}
+              disabled={busy}
+              onChange={(event) => {
+                if (event.target.value === "__join_qr__") send({ type: "show_join_qr" });
+                else if (event.target.value === snapshot.current_cue_run?.cue_id) send({ type: "show_cue" });
+                else if (event.target.value) send({ type: "prepare_cue", cue_id: event.target.value });
+              }}
+            >
+              <option value="__join_qr__">{t("live.qrHome")}</option>
+              {cues.map((item) => <option value={item.id} key={item.id}>{cueNavigationLabel(t, item)}</option>)}
+            </select>
+          )}
+          {isControllable && cueState === "ready" && <button onClick={() => send({ type: "open_cue" })}>{t("live.open")}</button>}
+          {isLive && (cueState === "open" || cueState === "closed") && <button onClick={() => send({ type: "reveal_cue" })}>{t("live.reveal")}</button>}
+          {isControllable && cueState === "revealed" && <button onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
+          {snapshot?.status === "ended" && <button disabled={busy || !project} onClick={() => send({ type: "reopen_session" })}>{t("live.reopen")}</button>}
+        </div>
+        <div className="live-tools">
+          {isControllable && <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />}
+          {isControllable && <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>}
+          {isControllable && <button className="secondary-link" onClick={launchProjection}>{t("live.projection")}</button>}
+          {isControllable && <button className="secondary-link" onClick={launchOverlay}>{t("live.overlay")}</button>}
+          {snapshot && <button className="secondary-link" onClick={showResults}>{t("live.results")}</button>}
+          {isControllable && <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>}
+          {isControllable && snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
+        </div>
       </div>
       <button className="live-dock-close" type="button" onClick={onClose} aria-label={t("live.hideControls")}>×</button>
       {pairingOpen && pairingCode && <div className="pairing-code" role="status">
