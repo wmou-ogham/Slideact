@@ -13,12 +13,12 @@ export const WORD_CLOUD_THEME = {
     rotate: true,
   },
   lively: {
-    colors: ["#ff4d8d", "#5b7cff", "#7c3aed", "#14c8b0", "#9b5de5", "#ff7a45", "#3d8bfd"],
+    colors: ["#335cff", "#ff4fa3", "#7c3aed", "#00a7c4", "#ff7a45", "#6338c7", "#007fb5"],
     font: "Inter, ui-sans-serif, system-ui, sans-serif",
     rotate: true,
   },
   terminal: {
-    colors: ["#39ff14", "#9aff7a", "#00e676", "#b9f6ca", "#69f0ae", "#00c853"],
+    colors: ["#55dfff", "#22b8d6", "#b3efff", "#77b8c8", "#1e8baa", "#c5f6ff"],
     font: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
     rotate: false,
   },

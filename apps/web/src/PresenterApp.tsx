@@ -17,11 +17,13 @@ import {
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import {
   type TemplateKind,
   generatedCueName,
   templates,
 } from "./presenterTemplates";
+import type { ProjectionTheme } from "./projectionTheme";
 import type {
   Cue,
   Interaction,
@@ -88,7 +90,12 @@ export function shouldCollapseLibraryByDefault(projects: ReadonlyArray<Pick<Proj
   return projects.length > 0;
 }
 
-export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
+export function PresenterApp({ t, locale, theme, setTheme }: {
+  t: Translate;
+  locale: string;
+  theme?: ProjectionTheme;
+  setTheme?: (theme: ProjectionTheme) => void;
+}) {
   const [profile, setProfile] = useState<Profile | null>();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -538,7 +545,17 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   }
 
   if (profile === null) {
-    return <PresenterLogin t={t} locale={locale} busy={busy} message={message} setMessage={setMessage} />;
+    return (
+      <PresenterLogin
+        t={t}
+        locale={locale}
+        busy={busy}
+        message={message}
+        setMessage={setMessage}
+        theme={theme}
+        setTheme={setTheme}
+      />
+    );
   }
 
   return (
@@ -547,6 +564,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         <a className="workspace-brand" href="/" aria-label={t("app.name")}><span>S</span></a>
         <strong className="workspace-project-title" title={project?.title}>{project?.title ?? t("project.heading")}</strong>
         <div className="workspace-toolbar-actions">
+          {theme && setTheme && (
+            <label className="workspace-theme-picker">
+              <span>{t("theme.label")}</span>
+              <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />
+            </label>
+          )}
           <div className="profile-chip">
             <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
             {profile.account_type === "guest" && (

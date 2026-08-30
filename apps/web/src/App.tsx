@@ -12,8 +12,16 @@ import { DiagnosticsApp } from "./DiagnosticsApp";
 import { AudienceApp } from "./AudienceApp";
 import { OverlayApp } from "./OverlayApp";
 import { ProjectionApp } from "./ProjectionApp";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { RemoteApp } from "./RemoteApp";
 import { ResultsApp } from "./ResultsApp";
+import type { ProjectionTheme } from "./projectionTheme";
+import { useProjectionTheme } from "./useProjectionTheme";
+
+type Translate = (
+  key: MessageKey,
+  params?: Readonly<Record<string, string | number>>,
+) => string;
 
 export function App() {
   const [locale, setLocale] = useState<SupportedLocale>(() =>
@@ -31,20 +39,70 @@ export function App() {
   }, [locale]);
 
   const path = window.location.pathname;
-  const isPresenter = path.startsWith("/presenter");
   if (path.startsWith("/overlay/")) return <OverlayApp t={t} />;
   if (path.startsWith("/projection/")) return <ProjectionApp t={t} />;
   if (path.startsWith("/results/")) return <ResultsApp t={t} />;
-  if (path.startsWith("/remote/")) return <div className="app-frame"><RemoteApp t={t} /></div>;
+
+  return <ThemedApp path={path} locale={locale} setLocale={setLocale} t={t} />;
+}
+
+function ThemedApp({ path, locale, setLocale, t }: {
+  path: string;
+  locale: SupportedLocale;
+  setLocale: (locale: SupportedLocale) => void;
+  t: Translate;
+}) {
+  const [theme, setTheme] = useProjectionTheme();
+  const isPresenter = path.startsWith("/presenter");
+  const isRemote = path.startsWith("/remote/");
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    const originalThemeColor = themeColor?.content;
+    const colors: Record<ProjectionTheme, string> = {
+      classic: "#f8f5ed",
+      lively: "#f7f0d2",
+      terminal: "#071116",
+    };
+
+    root.dataset.interfaceTheme = theme;
+    root.style.colorScheme = theme === "terminal" ? "dark" : "light";
+    if (themeColor) themeColor.content = colors[theme];
+
+    return () => {
+      delete root.dataset.interfaceTheme;
+      root.style.removeProperty("color-scheme");
+      if (themeColor && originalThemeColor) themeColor.content = originalThemeColor;
+    };
+  }, [theme]);
+
   return (
-    <div className={isPresenter ? "app-frame presenter-app-frame" : "app-frame"}>
+    <div
+      className={isPresenter
+        ? "app-frame presenter-app-frame"
+        : isRemote
+          ? "app-frame remote-app-frame"
+          : "app-frame"}
+      data-interface-theme={theme}
+    >
       <a className="skip-link" href="#main-content">{t("a11y.skip")}</a>
-      {!isPresenter && <Topbar locale={locale} setLocale={setLocale} t={t} />}
+      {!isPresenter && !isRemote && (
+        <Topbar
+          locale={locale}
+          setLocale={setLocale}
+          setTheme={setTheme}
+          t={t}
+          theme={theme}
+        />
+      )}
       <div id="main-content" tabIndex={-1}>
-        {path.startsWith("/diagnostics") ? (
+        {isRemote ? (
+          <RemoteApp t={t} />
+        ) : path.startsWith("/diagnostics") ? (
           <DiagnosticsApp t={t} />
         ) : path.startsWith("/presenter") ? (
-          <PresenterApp t={t} locale={locale} />
+          <PresenterApp t={t} locale={locale} theme={theme} setTheme={setTheme} />
         ) : path.startsWith("/join") ? (
           <AudienceApp t={t} locale={locale} />
         ) : (
@@ -55,10 +113,12 @@ export function App() {
   );
 }
 
-function Topbar({ locale, setLocale, t }: {
+function Topbar({ locale, setLocale, setTheme, t, theme }: {
   locale: SupportedLocale;
   setLocale: (locale: SupportedLocale) => void;
-  t: (key: MessageKey) => string;
+  setTheme: (theme: ProjectionTheme) => void;
+  t: Translate;
+  theme: ProjectionTheme;
 }) {
   return (
     <nav className="topbar" aria-label={t("nav.label")}>
@@ -66,6 +126,10 @@ function Topbar({ locale, setLocale, t }: {
       <div className="topbar-actions">
         <a href="/presenter">{t("nav.presenter")}</a>
         <a href="/diagnostics">{t("nav.diagnostics")}</a>
+        <label className="interface-theme-picker">
+          <span>{t("theme.label")}</span>
+          <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />
+        </label>
         <label className="language-picker">
           <select
             aria-label={t("language.label")}
@@ -97,8 +161,8 @@ function Landing({ t }: { t: (key: MessageKey) => string }) {
           <div className="hero-actions">
             <a className="primary-button" href="/presenter">{t("landing.presenterCta")}</a>
             <form className="join-form" onSubmit={join}>
-              <input inputMode="text" autoCapitalize="characters" pattern="[A-Za-z0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
-              <button>{t("landing.join")}</button>
+              <input name="join-code" inputMode="text" autoComplete="off" autoCapitalize="characters" spellCheck={false} pattern="[A-Za-z0-9]*" value={code} onChange={(event) => setCode(event.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6))} maxLength={6} placeholder="123456" aria-label={t("landing.codePlaceholder")} />
+              <button type="submit">{t("landing.join")}</button>
             </form>
           </div>
         </div>

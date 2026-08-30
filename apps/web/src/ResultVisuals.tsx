@@ -184,7 +184,7 @@ function wordMotionStyle(text: string): CSSProperties {
     "--drift-y": `${5 + ((tone >>> 4) % 6)}px`,
     "--enter-delay": `${(tone % 9) * 0.045}s`,
     "--float-delay": `${0.55 + ((tone >>> 8) % 18) / 10}s`,
-    "--float-duration": `${6 + (tone % 5)}s`,
+    "--float-duration": `${4.1 + (tone % 5) * 0.15}s`,
   } as CSSProperties;
 }
 

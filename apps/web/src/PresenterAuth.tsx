@@ -1,13 +1,17 @@
 import { ApiError, postJson } from "./api";
 import type { Translate } from "./i18n";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
+import type { ProjectionTheme } from "./projectionTheme";
 import type { GuestVaultFile } from "./types";
 
-export function PresenterLogin({ t, locale, busy, message, setMessage }: {
+export function PresenterLogin({ t, locale, busy, message, setMessage, theme, setTheme }: {
   t: Translate;
   locale: string;
   busy: boolean;
   message: string;
   setMessage: (value: string) => void;
+  theme?: ProjectionTheme;
+  setTheme?: (theme: ProjectionTheme) => void;
 }) {
   return (
     <main className="auth-shell">
@@ -24,6 +28,12 @@ export function PresenterLogin({ t, locale, busy, message, setMessage }: {
           </div>
         </div>
         <div className="auth-actions-panel">
+          {theme && setTheme && (
+            <label className="auth-theme-picker">
+              <span>{t("theme.label")}</span>
+              <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />
+            </label>
+          )}
           <a className="primary-button" href="/api/auth/google/start?return_to=/presenter">
             {t("auth.google")}
           </a>
@@ -64,7 +74,7 @@ export function PresenterLogin({ t, locale, busy, message, setMessage }: {
                 />
               </label>
               <div className="inline-form">
-                <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" />
+                <input name="vaultKey" maxLength={200} placeholder={t("auth.vaultKeyPlaceholder")} autoComplete="off" spellCheck={false} />
                 <button disabled={busy} type="submit">{t("auth.restoreVault")}</button>
               </div>
               {message && <p className="form-error" role="alert">{message}</p>}
