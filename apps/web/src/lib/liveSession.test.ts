@@ -23,6 +23,7 @@ function view(
       status: "live",
       locale: "en",
       sync_mode: "manual",
+      interface_theme: "lively",
       state_version: 1,
       presentation_view: "cue",
       current_cue_run: {

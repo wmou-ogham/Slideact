@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  avoidPinnedWordCollisions,
   type PositionedWordCloudGlyph,
   restoreMissingWordCloudWords,
+  wordCloudDensityScale,
   wordCloudLayoutSignature,
   wordCloudWordsOverlap,
 } from "./ResultVisuals";
@@ -40,54 +40,14 @@ describe("word cloud layout revisions", () => {
         { text: "b", count: 2 },
       ]));
   });
-});
 
-describe("pinned word collision avoidance", () => {
-  it("keeps a pinned word fixed and relocates a colliding new word", () => {
-    const fixed = word("pinned", 0, 0, 52);
-    const incoming = word("incoming", 0, 0, 32);
-    const result = avoidPinnedWordCollisions([fixed, incoming], new Set(["pinned"]));
-    const pinned = result.find((item) => item.text === "pinned");
-    const moved = result.find((item) => item.text === "incoming");
+  it("does not include pin state in the layout revision", () => {
+    const entries = [{ text: "highlight me", count: 3 }];
+    const beforePin = wordCloudLayoutSignature(entries);
+    const pinned = new Set(["highlight me"]);
 
-    expect(pinned).toMatchObject({ x: 0, y: 0, rotate: 0 });
-    expect(moved).toBeDefined();
-    expect(wordCloudWordsOverlap(pinned!, moved!)).toBe(false);
-  });
-
-  it("leaves an already collision-free layout unchanged", () => {
-    const words = [word("pinned", -120, 0), word("clear", 120, 0)];
-    expect(avoidPinnedWordCollisions(words, new Set(["pinned"]))).toEqual(words);
-  });
-
-  it("separates multiple new words that collide with the same pinned word", () => {
-    const fixed = word("pinned", 0, 0, 52);
-    const result = avoidPinnedWordCollisions(
-      [fixed, word("first", 0, 0, 32), word("second", 0, 0, 32)],
-      new Set(["pinned"]),
-    );
-    const pinned = result.find((item) => item.text === "pinned");
-    const first = result.find((item) => item.text === "first");
-    const second = result.find((item) => item.text === "second");
-
-    expect(pinned).toMatchObject({ x: 0, y: 0, rotate: 0 });
-    expect(first).toBeDefined();
-    expect(second).toBeDefined();
-    expect(wordCloudWordsOverlap(pinned!, first!)).toBe(false);
-    expect(wordCloudWordsOverlap(pinned!, second!)).toBe(false);
-    expect(wordCloudWordsOverlap(first!, second!)).toBe(false);
-  });
-
-  it("omits an incoming word when no non-overlapping position fits", () => {
-    const fixed = word("wide pinned answer", 0, 0, 48);
-    const incoming = word("another wide answer", 0, 0, 48);
-    const result = avoidPinnedWordCollisions(
-      [fixed, incoming],
-      new Set(["wide pinned answer"]),
-      120,
-      60,
-    );
-    expect(result.map((item) => item.text)).toEqual(["wide pinned answer"]);
+    expect(pinned.has("highlight me")).toBe(true);
+    expect(wordCloudLayoutSignature(entries)).toBe(beforePin);
   });
 });
 
@@ -111,5 +71,43 @@ describe("word cloud layout recovery", () => {
   it("does not alter a complete layout", () => {
     const placed = [word("first", -80, 0), word("second", 80, 0)];
     expect(restoreMissingWordCloudWords(placed, [])).toBe(placed);
+  });
+
+  it("keeps every word visible when a small canvas is saturated", () => {
+    const result = restoreMissingWordCloudWords(
+      [word("wide pinned answer", 0, 0, 48)],
+      [word("another wide answer", 0, 0, 48), word("latest answer", 0, 0, 48)],
+      120,
+      60,
+    );
+
+    expect(result.map((item) => item.text)).toEqual([
+      "wide pinned answer",
+      "another wide answer",
+      "latest answer",
+    ]);
+  });
+});
+
+describe("word cloud density", () => {
+  it("keeps the original type scale while the cloud is below 70% occupancy", () => {
+    const sparse = [
+      { text: "互動", value: 2 },
+      { text: "洞察", value: 1 },
+      { text: "清晰", value: 1 },
+    ];
+
+    expect(wordCloudDensityScale(sparse, 1, 2)).toBe(1);
+  });
+
+  it("only shrinks the shared type scale after the cloud passes 70% occupancy", () => {
+    const dense = Array.from({ length: 70 }, (_, index) => ({
+      text: `audience-insight-${index}`,
+      value: 1 + index % 5,
+    }));
+
+    const scale = wordCloudDensityScale(dense, 1, 5);
+    expect(scale).toBeLessThan(1);
+    expect(scale).toBeGreaterThan(0);
   });
 });

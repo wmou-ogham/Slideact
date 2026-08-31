@@ -5,6 +5,7 @@ import type { Translate } from "./i18n";
 import { typeName } from "./lib/interactions";
 import { LIVE_POLL_INTERVAL_MS, useLiveSession } from "./lib/liveSession";
 import { AggregateBars, QuestionList } from "./ResultVisuals";
+import type { ProjectionTheme } from "./projectionTheme";
 import type { LiveView, Question, SessionSnapshot, SnapshotInteraction } from "./types";
 
 type JoinResponse = {
@@ -24,7 +25,11 @@ type PendingAnswer = {
   idempotencyKey: string;
 };
 
-export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
+export function AudienceApp({ t, locale, onThemeChange }: {
+  t: Translate;
+  locale: string;
+  onThemeChange: (theme: ProjectionTheme) => void;
+}) {
   const pathCode = decodeURIComponent(location.pathname.split("/")[2] ?? "");
   const [code, setCode] = useState(pathCode);
   const [joined, setJoined] = useState<JoinResponse | null>(null);
@@ -57,6 +62,11 @@ export function AudienceApp({ t, locale }: { t: Translate; locale: string }) {
       setAnswers((current) => mergeAudienceAnswers(joined.session_id, joined.participant_id, current, next.my_responses));
     },
   });
+
+  useEffect(() => {
+    const interfaceTheme = live?.snapshot.interface_theme ?? joined?.snapshot.interface_theme;
+    if (interfaceTheme) onThemeChange(interfaceTheme);
+  }, [joined?.snapshot.interface_theme, live?.snapshot.interface_theme, onThemeChange]);
 
   async function join(event?: FormEvent) {
     event?.preventDefault();

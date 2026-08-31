@@ -115,15 +115,15 @@ const WORD_CLOUD_HEIGHT = 400;
 const WORD_CLOUD_SINGLE_SIZE = WORD_CLOUD_HEIGHT / 3;
 const WORD_CLOUD_COLLISION_PADDING = 8;
 const WORD_CLOUD_SEARCH_STEP = 10;
+const WORD_CLOUD_MIN_SIZE = 12;
+const WORD_CLOUD_TARGET_OCCUPANCY = 0.7;
 
 export function wordCloudSizeRange(wordCount: number): { minSize: number; maxSize: number } {
-  const count = Math.max(1, wordCount);
-  const maxSize = WORD_CLOUD_SINGLE_SIZE / count ** 0.28;
-  const minSize = count === 1 ? maxSize : Math.max(18, maxSize * 0.32);
-  return { minSize, maxSize };
+  if (wordCount <= 1) return { minSize: WORD_CLOUD_SINGLE_SIZE, maxSize: WORD_CLOUD_SINGLE_SIZE };
+  return { minSize: 32, maxSize: 92 };
 }
 
-export function wordCloudFontSize(
+function wordCloudBaseFontSize(
   word: { text: string; value: number },
   minimum: number,
   maximum: number,
@@ -136,6 +136,42 @@ export function wordCloudFontSize(
   const estimated = Math.max(1, word.text.length) * 0.62 * size;
   if (estimated <= maxWidth) return size;
   return maxWidth / (Math.max(1, word.text.length) * 0.62);
+}
+
+function estimateWordCloudArea(word: { text: string }, size: number) {
+  const padding = Math.max(10, size * 0.18);
+  return (estimateWordWidth(word.text, size) + padding * 2) * (size * 1.18 + padding);
+}
+
+/**
+ * Keep the original type scale while the estimated glyph area is below 70%
+ * of the canvas. Once the cloud is denser than that, shrink every word by the
+ * same ratio so frequency differences and the centre-weighted shape survive.
+ */
+export function wordCloudDensityScale(
+  words: Array<{ text: string; value: number }>,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!words.length) return 1;
+  const baseSizes = words.map((word) => wordCloudBaseFontSize(word, minimum, maximum, words.length));
+  const estimatedArea = words.reduce(
+    (total, word, index) => total + estimateWordCloudArea(word, baseSizes[index] ?? WORD_CLOUD_MIN_SIZE),
+    0,
+  );
+  const targetArea = WORD_CLOUD_WIDTH * WORD_CLOUD_HEIGHT * WORD_CLOUD_TARGET_OCCUPANCY;
+  if (estimatedArea <= targetArea) return 1;
+  return Math.max(0.24, Math.sqrt(targetArea / estimatedArea));
+}
+
+export function wordCloudFontSize(
+  word: { text: string; value: number },
+  minimum: number,
+  maximum: number,
+  wordCount: number,
+  densityScale = 1,
+): number {
+  return wordCloudBaseFontSize(word, minimum, maximum, wordCount) * densityScale;
 }
 
 type WordCloudGlyph = {
@@ -187,8 +223,6 @@ function wordMotionStyle(text: string): CSSProperties {
     "--float-duration": `${4.1 + (tone % 5) * 0.15}s`,
   } as CSSProperties;
 }
-
-type PinnedLayout = { x: number; y: number; rotate: number };
 
 function estimateWordWidth(text: string, size: number) {
   return [...text].reduce((width, character) => width + (character.charCodeAt(0) > 255 ? size : size * 0.62), 0);
@@ -267,37 +301,60 @@ function findAvailableWordPosition(
   return null;
 }
 
-/** Keeps pinned words fixed and relocates only words that would cover them. */
-export function avoidPinnedWordCollisions<T extends PositionedWordCloudGlyph>(
-  words: T[],
-  pinned: ReadonlySet<string>,
-  width = WORD_CLOUD_WIDTH,
-  height = WORD_CLOUD_HEIGHT,
-): T[] {
-  const pinnedWords = words.filter((word) => pinned.has(word.text));
-  if (!pinnedWords.length) return words;
-  const displaced = new Set(words
-    .filter((word) => !pinned.has(word.text)
-      && pinnedWords.some((fixed) => wordCloudWordsOverlap(word, fixed)))
-    .map((word) => word.text));
-  if (!displaced.size) return words;
+function wordCloudOverlapArea(left: PositionedWordCloudGlyph, right: PositionedWordCloudGlyph) {
+  const leftBounds = wordCloudBounds(left);
+  const rightBounds = wordCloudBounds(right);
+  const width = Math.max(0, Math.min(leftBounds.right, rightBounds.right) - Math.max(leftBounds.left, rightBounds.left));
+  const height = Math.max(0, Math.min(leftBounds.bottom, rightBounds.bottom) - Math.max(leftBounds.top, rightBounds.top));
+  return width * height;
+}
 
-  const occupied = words.filter((word) => !displaced.has(word.text));
-  const relocated = new Map<string, T>();
-  const pending = words
-    .filter((word) => displaced.has(word.text))
-    .sort((left, right) => right.size - left.size);
-  for (const word of pending) {
-    const next = findAvailableWordPosition(word, occupied, width, height) as T | null;
-    if (!next) continue;
-    relocated.set(word.text, next);
-    occupied.push(next);
+function fitWordInsideCanvas<T extends PositionedWordCloudGlyph>(word: T, width: number, height: number): T {
+  let fitted = { ...word, x: 0, y: 0 } as T;
+  while (!wordFitsCanvas(fitted, width, height) && fitted.size > 4) {
+    fitted = { ...fitted, size: fitted.size * 0.85 };
   }
-  return words.flatMap((word) => {
-    if (!displaced.has(word.text)) return [word];
-    const next = relocated.get(word.text);
-    return next ? [next] : [];
-  });
+  return fitted;
+}
+
+/**
+ * A saturated cloud should degrade to slight overlap, never a missing answer.
+ * The deterministic grid starts at a text-derived offset so fallback words do
+ * not all pile into the centre.
+ */
+function findLeastCrowdedWordPosition<T extends PositionedWordCloudGlyph>(
+  word: T,
+  occupied: PositionedWordCloudGlyph[],
+  width: number,
+  height: number,
+): T {
+  const fitted = fitWordInsideCanvas({ ...word, size: Math.min(word.size, WORD_CLOUD_MIN_SIZE) }, width, height);
+  const bounds = wordCloudBounds(fitted);
+  const minimumX = -width / 2 - bounds.left;
+  const maximumX = width / 2 - bounds.right;
+  const minimumY = -height / 2 - bounds.top;
+  const maximumY = height / 2 - bounds.bottom;
+  const step = Math.max(10, Math.floor(fitted.size * 0.8));
+  const candidates: Array<{ x: number; y: number }> = [];
+  for (let y = minimumY; y <= maximumY; y += step) {
+    for (let x = minimumX; x <= maximumX; x += step) candidates.push({ x, y });
+  }
+  if (!candidates.length) return fitted;
+
+  const offset = wordTone(word.text) % candidates.length;
+  let best = { ...fitted, ...candidates[offset] } as T;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const point = candidates[(offset + index) % candidates.length];
+    const candidate = { ...fitted, ...point } as T;
+    const score = occupied.reduce((total, current) => total + wordCloudOverlapArea(candidate, current), 0);
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+      if (score === 0) break;
+    }
+  }
+  return best;
 }
 
 /**
@@ -317,7 +374,7 @@ export function restoreMissingWordCloudWords<T extends PositionedWordCloudGlyph>
   for (const word of missing) {
     let size = word.size;
     let next: T | null = null;
-    while (size >= 12 && !next) {
+    while (size >= WORD_CLOUD_MIN_SIZE && !next) {
       const candidate = { ...word, size } as T;
       if (wordFitsCanvas(candidate, width, height)
         && occupied.every((current) => !wordCloudWordsOverlap(candidate, current))) {
@@ -327,7 +384,7 @@ export function restoreMissingWordCloudWords<T extends PositionedWordCloudGlyph>
       }
       size = Math.floor(size * 0.85);
     }
-    if (!next) continue;
+    if (!next) next = findLeastCrowdedWordPosition(word, occupied, width, height);
     occupied.push(next);
     restored.push(next);
   }
@@ -358,7 +415,6 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   const seen = useRef(new Set<string>());
   const previousCounts = useRef(new Map<string, number>());
   const enterTimers = useRef<number[]>([]);
-  const pinnedLayout = useRef(new Map<string, PinnedLayout>());
   const pinnedSet = useMemo(() => new Set(pinned), [pinned]);
   const [enteringState, setEnteringState] = useState<ReadonlySet<string>>(new Set());
   const [popping, setPopping] = useState<ReadonlySet<string>>(new Set());
@@ -368,10 +424,14 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   }
   const minimum = words.length ? Math.min(...words.map((word) => word.value)) : 0;
   const maximum = words.length ? Math.max(...words.map((word) => word.value)) : 1;
+  const densityScale = useMemo(
+    () => wordCloudDensityScale(words, minimum, maximum),
+    [maximum, minimum, words],
+  );
   const { maxSize } = wordCloudSizeRange(words.length);
   const fontSize = useMemo(
-    () => (word: { text: string; value: number }) => wordCloudFontSize(word, minimum, maximum, words.length),
-    [minimum, maximum, words.length],
+    () => (word: { text: string; value: number }) => wordCloudFontSize(word, minimum, maximum, words.length, densityScale),
+    [densityScale, minimum, maximum, words.length],
   );
   const fontWeight = useMemo(
     () => (word: { value: number }) => (word.value >= maximum * 0.55 ? 800 : 650),
@@ -386,7 +446,6 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
     if (!words.length) {
       seen.current.clear();
       previousCounts.current.clear();
-      pinnedLayout.current.clear();
       setEnteringState(new Set());
       setPopping(new Set());
       return;
@@ -428,6 +487,7 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   return (
     <div className={`word-cloud-results${onTogglePin ? " is-interactive" : ""}`} aria-label={label}>
       <svg viewBox={`0 0 ${WORD_CLOUD_WIDTH} ${WORD_CLOUD_HEIGHT}`} role="img">
+        <title>{label}</title>
         {/* d3-cloud lays out asynchronously. A revision key prevents an older
             layout from replacing a newer aggregate after rapid submissions. */}
         <Wordcloud
@@ -435,7 +495,7 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
           width={WORD_CLOUD_WIDTH}
           height={WORD_CLOUD_HEIGHT}
           words={words}
-          padding={8}
+          padding={4}
           font={palette.font}
           fontSize={fontSize}
           fontWeight={fontWeight}
@@ -464,32 +524,15 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
                 x: 0,
                 y: 0,
               }));
-            const completeWords = restoreMissingWordCloudWords(laidOutWords, missingWords);
-            const positionedWords = completeWords.map((word): PositionedWordCloudGlyph => {
-              const text = word.text ?? "";
-              const positioned = {
-                ...word,
-                text,
-                rotate: word.rotate ?? 0,
-                size: word.size ?? 24,
-                x: word.x ?? 0,
-                y: word.y ?? 0,
-              };
-              if (!pinnedSet.has(text)) {
-                pinnedLayout.current.delete(text);
-                return positioned;
-              }
-              const saved = pinnedLayout.current.get(text);
-              if (saved) return { ...positioned, ...saved };
-              pinnedLayout.current.set(text, {
-                x: positioned.x,
-                y: positioned.y,
-                rotate: positioned.rotate,
-              });
-              return positioned;
-            });
-            const visibleWords = avoidPinnedWordCollisions(positionedWords, pinnedSet);
-            return visibleWords.map((word) => {
+            const positionedWords = restoreMissingWordCloudWords(laidOutWords, missingWords).map((word): PositionedWordCloudGlyph => ({
+              ...word,
+              text: word.text ?? "",
+              rotate: word.rotate ?? 0,
+              size: word.size ?? 24,
+              x: word.x ?? 0,
+              y: word.y ?? 0,
+            }));
+            return positionedWords.map((word) => {
               const text = word.text;
               const isPinned = pinnedSet.has(text);
               const size = word.size;
@@ -516,21 +559,21 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
                     }
                   } : undefined}
                 >
-                  {isPinned && (
-                    <rect
-                      className="word-cloud-pin-box"
-                      x={-boxWidth / 2}
-                      y={-size * 0.88}
-                      width={boxWidth}
-                      height={boxHeight}
-                      rx={Math.max(6, size * 0.12)}
-                    />
-                  )}
                   <g
-                    className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) && !isPinned ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
-                    style={isPinned ? undefined : wordMotionStyle(text)}
+                    className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
+                    style={wordMotionStyle(text)}
                   >
-                    <g className={isPinned ? undefined : "word-cloud-float"}>
+                    <g className="word-cloud-float">
+                      {isPinned && (
+                        <rect
+                          className="word-cloud-pin-box"
+                          x={-boxWidth / 2}
+                          y={-size * 0.88}
+                          width={boxWidth}
+                          height={boxHeight}
+                          rx={Math.max(6, size * 0.12)}
+                        />
+                      )}
                       <text
                         fill={palette.colors[wordTone(text) % palette.colors.length]}
                         fontFamily={word.font}

@@ -23,7 +23,7 @@ import {
   generatedCueName,
   templates,
 } from "./presenterTemplates";
-import type { ProjectionTheme } from "./projectionTheme";
+import { DEFAULT_PROJECTION_THEME, type ProjectionTheme } from "./projectionTheme";
 import type {
   Cue,
   Interaction,
@@ -115,12 +115,14 @@ export function PresenterApp({ t, locale, theme, setTheme }: {
   const [message, setMessage] = useState("");
   const cueButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const libraryDefaultApplied = useRef(false);
+  const pendingTheme = useRef<ProjectionTheme | null>(null);
 
   const project = projects.find((item) => item.id === projectId) ?? null;
   const cue = cues.find((item) => item.id === cueId) ?? null;
   const selectedInteraction = cue?.interactions.find((item) => item.id === expandedInteractionId)
     ?? cue?.interactions.at(0)
     ?? null;
+  const presenterTheme = theme ?? DEFAULT_PROJECTION_THEME;
 
   const report = useCallback(
     (error: unknown) => {
@@ -194,6 +196,29 @@ export function PresenterApp({ t, locale, theme, setTheme }: {
     }
     setSnapshot(await apiJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`));
   }, [sessionId]);
+
+  const applyPresenterTheme = useCallback((next: ProjectionTheme) => {
+    setTheme?.(next);
+    if (!snapshot || snapshot.status === "draft" || snapshot.status === "ended") return;
+    pendingTheme.current = next;
+    void apiJson<SessionSnapshot>(`/api/sessions/${snapshot.session_id}/interface-theme`, {
+      method: "PUT",
+      body: JSON.stringify({ theme: next }),
+    }).then((nextSnapshot) => {
+      pendingTheme.current = null;
+      setSnapshot(nextSnapshot);
+    }).catch((error: unknown) => {
+      pendingTheme.current = null;
+      report(error);
+      void refreshSnapshot().catch(() => undefined);
+    });
+  }, [refreshSnapshot, report, setTheme, snapshot]);
+
+  useEffect(() => {
+    const sessionTheme = snapshot?.interface_theme;
+    if (!sessionTheme || !setTheme || pendingTheme.current || sessionTheme === theme) return;
+    setTheme(sessionTheme);
+  }, [setTheme, snapshot?.interface_theme, snapshot?.session_id, theme]);
 
   useEffect(() => {
     refreshSnapshot().catch(report);
@@ -522,6 +547,7 @@ export function PresenterApp({ t, locale, theme, setTheme }: {
     await run(async () => {
       const created = await postJson<LiveSession>(`/api/projects/${projectId}/sessions`, {
         locale,
+        interface_theme: presenterTheme,
       });
       setSessionId(created.id);
       const opened = await sendCommand(created.id, created.state_version, {
@@ -567,7 +593,7 @@ export function PresenterApp({ t, locale, theme, setTheme }: {
           {theme && setTheme && (
             <label className="workspace-theme-picker">
               <span>{t("theme.label")}</span>
-              <ProjectionThemePicker t={t} theme={theme} setTheme={setTheme} variant="select" />
+              <ProjectionThemePicker t={t} theme={theme} setTheme={applyPresenterTheme} variant="select" />
             </label>
           )}
           <div className="profile-chip">
@@ -781,6 +807,8 @@ export function PresenterApp({ t, locale, theme, setTheme }: {
         refreshSnapshot={refreshSnapshot}
         createSession={createSession}
         send={send}
+        theme={presenterTheme}
+        setTheme={applyPresenterTheme}
         onClose={() => setLiveControlsOpen(false)}
       />}
     </main>

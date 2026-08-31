@@ -125,6 +125,12 @@ struct SyncModeRequest {
     mode: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InterfaceThemeRequest {
+    theme: String,
+}
+
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -149,6 +155,10 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/api/sessions/{session_id}/sync-mode",
             put(update_sync_mode),
+        )
+        .route(
+            "/api/sessions/{session_id}/interface-theme",
+            put(update_interface_theme),
         )
 }
 
@@ -553,6 +563,46 @@ async fn update_sync_mode(
         u64::try_from(state_version).map_err(|_| ApiError::internal("state_version_invalid"))?,
         json!({"event_type": "sync.mode_changed", "sync_mode": request.mode}),
         &format!("sync-mode-{state_version}"),
+    )
+    .await?;
+    transaction.commit().await.map_err(persistence_error)?;
+    Ok(Json(
+        snapshot_for_session(&state.database, session_id).await?,
+    ))
+}
+
+async fn update_interface_theme(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<InterfaceThemeRequest>,
+) -> Result<Json<SessionSnapshot>, ApiError> {
+    if !matches!(request.theme.as_str(), "classic" | "lively" | "terminal") {
+        return Err(ApiError::bad_request("interface_theme_invalid"));
+    }
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    require_session_owner(&state.database, session_id, user_id).await?;
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    let state_version = sqlx::query_scalar::<_, i64>(
+        r#"
+        UPDATE live_sessions SET interface_theme = $2, state_version = state_version + 1
+        WHERE id = $1 RETURNING state_version
+        "#,
+    )
+    .bind(session_id)
+    .bind(&request.theme)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    emit_event_to_all(
+        &mut transaction,
+        session_id,
+        u64::try_from(state_version).map_err(|_| ApiError::internal("state_version_invalid"))?,
+        json!({
+            "event_type": "session.interface_theme_changed",
+            "interface_theme": request.theme,
+        }),
+        &format!("interface-theme-{state_version}"),
     )
     .await?;
     transaction.commit().await.map_err(persistence_error)?;

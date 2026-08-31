@@ -378,6 +378,7 @@ const createdSession = await requestJson(`/api/projects/${projectId}/sessions`, 
 assert.equal(createdSession.response.status, 201);
 assert.equal(createdSession.body.status, "draft");
 assert.equal(createdSession.body.sync_mode, "manual");
+assert.equal(createdSession.body.interface_theme, "lively");
 
 const protectedProjectDelete = await requestJson(`/api/projects/${projectId}`, {
   method: "DELETE",
@@ -403,6 +404,7 @@ assert.equal(openedLobby.body.idempotent, false);
 assert.equal(openedLobby.body.snapshot.status, "lobby");
 assert.match(openedLobby.body.snapshot.join_code, /^\d{6}$/);
 assert.equal(openedLobby.body.snapshot.state_version, 1);
+assert.equal(openedLobby.body.snapshot.interface_theme, "lively");
 
 const replayedLobby = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:open-lobby-001",
@@ -666,6 +668,20 @@ const confirmedResync = await requestJson(
 assert.equal(confirmedResync.response.status, 200);
 assert.equal(confirmedResync.body.sync_mode, "auto_connected");
 
+const updatedInterfaceTheme = await requestJson(
+  `/api/sessions/${commandSessionId}/interface-theme`,
+  { method: "PUT", cookie: ownerCookie, body: { theme: "terminal" } },
+);
+assert.equal(updatedInterfaceTheme.response.status, 200);
+assert.equal(updatedInterfaceTheme.body.interface_theme, "terminal");
+
+const invalidInterfaceTheme = await requestJson(
+  `/api/sessions/${commandSessionId}/interface-theme`,
+  { method: "PUT", cookie: ownerCookie, body: { theme: "unknown" } },
+);
+assert.equal(invalidInterfaceTheme.response.status, 400);
+assert.deepEqual(invalidInterfaceTheme.body, { code: "interface_theme_invalid" });
+
 const reportedClientError = await fetch(`${baseUrl}/api/diagnostics/client-errors`, {
   method: "POST",
   headers: { cookie: ownerCookie, "content-type": "application/json" },
@@ -715,6 +731,7 @@ assert.equal(joinedAudience.body.session_id, commandSessionId);
 assert.match(joinedAudience.body.participant_key, /^[A-Za-z0-9_-]{43}$/);
 assert.match(joinedAudience.body.token, /^[A-Za-z0-9_-]{43}$/);
 assert.equal(joinedAudience.body.topic, `session:${commandSessionId}:audience`);
+assert.equal(joinedAudience.body.snapshot.interface_theme, "terminal");
 assert.equal(joinedAudience.body.snapshot.current_cue_run.state, "open");
 assert.equal(
   joinedAudience.body.snapshot.current_cue_run.interactions[0].options[0].is_correct,
@@ -1110,21 +1127,21 @@ assert.equal(
 
 const revealedDirectly = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:direct-reveal-001",
-  expected_version: 9,
+  expected_version: 10,
   command: { type: "reveal_cue" },
 }, controllerIssue.body.token);
 assert.equal(revealedDirectly.response.status, 200);
 assert.equal(revealedDirectly.body.snapshot.current_cue_run.state, "revealed");
 const reopenedAfterReveal = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:reopen-after-reveal-001",
-  expected_version: 10,
+  expected_version: 11,
   command: { type: "reopen_cue" },
 }, controllerIssue.body.token);
 assert.equal(reopenedAfterReveal.response.status, 200);
 assert.equal(reopenedAfterReveal.body.snapshot.current_cue_run.state, "open");
 const revealedForAudience = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:reveal-after-reopen-001",
-  expected_version: 11,
+  expected_version: 12,
   command: { type: "reveal_cue" },
 });
 assert.equal(revealedForAudience.response.status, 200);
@@ -1157,7 +1174,7 @@ assert.equal(
 assert.equal(persistedSessionResults.body.cue_runs[0].questions.length, 1);
 const showedJoinQr = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:show-join-qr-001",
-  expected_version: 12,
+  expected_version: 13,
   command: { type: "show_join_qr" },
 }, controllerIssue.body.token);
 assert.equal(showedJoinQr.response.status, 200);
@@ -1167,10 +1184,10 @@ assert.equal(
   revealedForAudience.body.snapshot.current_cue_run.id,
 );
 assert.equal(showedJoinQr.body.snapshot.current_cue_run.state, "revealed");
-assert.equal(showedJoinQr.body.snapshot.state_version, 13);
+assert.equal(showedJoinQr.body.snapshot.state_version, 14);
 const restoredCueView = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:show-cue-after-qr-001",
-  expected_version: 13,
+  expected_version: 14,
   command: { type: "show_cue" },
 }, controllerIssue.body.token);
 assert.equal(restoredCueView.response.status, 200);
@@ -1199,7 +1216,7 @@ const otherSlideCue = await requestJson(`/api/projects/${projectId}/cues`, {
 assert.equal(otherSlideCue.response.status, 201);
 const preparedOtherSlide = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:prepare-other-slide-001",
-  expected_version: 14,
+  expected_version: 15,
   command: { type: "prepare_cue", cue_id: otherSlideCue.body.id },
 });
 assert.equal(preparedOtherSlide.response.status, 200);
@@ -1210,7 +1227,7 @@ assert.notEqual(
 );
 const restoredOriginalSlide = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:restore-original-slide-001",
-  expected_version: 15,
+  expected_version: 16,
   command: { type: "prepare_cue", cue_id: cueId },
 });
 assert.equal(restoredOriginalSlide.response.status, 200);
@@ -1233,7 +1250,7 @@ assert.equal(
 );
 const endedCommandSession = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:end-session-preserve-results-001",
-  expected_version: 16,
+  expected_version: 17,
   command: { type: "end" },
 });
 assert.equal(endedCommandSession.response.status, 200);

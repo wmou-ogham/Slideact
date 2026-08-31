@@ -1,3 +1,5 @@
+import type { ProjectionTheme } from "./projectionTheme";
+
 export type Profile = {
   id: string;
   display_name: string;
@@ -58,6 +60,7 @@ export type LiveSession = {
   status: "draft" | "lobby" | "live" | "paused" | "ended";
   locale: string;
   sync_mode: string;
+  interface_theme: ProjectionTheme;
   state_version: number;
   created_at: string;
   started_at: string | null;
@@ -108,6 +111,7 @@ export type SessionSnapshot = {
   status: LiveSession["status"];
   locale: string;
   sync_mode: string;
+  interface_theme: ProjectionTheme;
   state_version: number;
   presentation_view: "join_qr" | "cue";
   current_cue_run: null | {

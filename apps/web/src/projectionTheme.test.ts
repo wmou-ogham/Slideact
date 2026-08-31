@@ -24,6 +24,10 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe("projectionTheme", () => {
+  it("defaults new visitors to the playful theme", () => {
+    expect(DEFAULT_PROJECTION_THEME).toBe("lively");
+  });
+
   it("accepts only the three present themes", () => {
     expect(parseProjectionTheme("classic")).toBe("classic");
     expect(parseProjectionTheme("lively")).toBe("lively");

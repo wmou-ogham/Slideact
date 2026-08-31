@@ -15,7 +15,7 @@ import { ProjectionApp } from "./ProjectionApp";
 import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import { RemoteApp } from "./RemoteApp";
 import { ResultsApp } from "./ResultsApp";
-import type { ProjectionTheme } from "./projectionTheme";
+import { DEFAULT_PROJECTION_THEME, type ProjectionTheme } from "./projectionTheme";
 import { useProjectionTheme } from "./useProjectionTheme";
 
 type Translate = (
@@ -24,8 +24,12 @@ type Translate = (
 ) => string;
 
 export function App() {
+  const path = window.location.pathname;
+  const isAudience = path.startsWith("/join");
   const [locale, setLocale] = useState<SupportedLocale>(() =>
-    resolveLocale(localStorage.getItem("slide-helper-locale") ?? navigator.language),
+    resolveLocale(isAudience
+      ? preferredBrowserLocale()
+      : (localStorage.getItem("slide-helper-locale") ?? preferredBrowserLocale())),
   );
   const t = useMemo(
     () => (key: MessageKey, params?: Readonly<Record<string, string | number>>) =>
@@ -35,10 +39,9 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.lang = locale;
-    localStorage.setItem("slide-helper-locale", locale);
-  }, [locale]);
+    if (!isAudience) localStorage.setItem("slide-helper-locale", locale);
+  }, [isAudience, locale]);
 
-  const path = window.location.pathname;
   if (path.startsWith("/overlay/")) return <OverlayApp t={t} />;
   if (path.startsWith("/projection/")) return <ProjectionApp t={t} />;
   if (path.startsWith("/results/")) return <ResultsApp t={t} />;
@@ -53,8 +56,11 @@ function ThemedApp({ path, locale, setLocale, t }: {
   t: Translate;
 }) {
   const [theme, setTheme] = useProjectionTheme();
+  const [audienceTheme, setAudienceTheme] = useState<ProjectionTheme>(DEFAULT_PROJECTION_THEME);
   const isPresenter = path.startsWith("/presenter");
   const isRemote = path.startsWith("/remote/");
+  const isAudience = path.startsWith("/join");
+  const interfaceTheme = isAudience ? audienceTheme : theme;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -66,16 +72,16 @@ function ThemedApp({ path, locale, setLocale, t }: {
       terminal: "#071116",
     };
 
-    root.dataset.interfaceTheme = theme;
-    root.style.colorScheme = theme === "terminal" ? "dark" : "light";
-    if (themeColor) themeColor.content = colors[theme];
+    root.dataset.interfaceTheme = interfaceTheme;
+    root.style.colorScheme = interfaceTheme === "terminal" ? "dark" : "light";
+    if (themeColor) themeColor.content = colors[interfaceTheme];
 
     return () => {
       delete root.dataset.interfaceTheme;
       root.style.removeProperty("color-scheme");
       if (themeColor && originalThemeColor) themeColor.content = originalThemeColor;
     };
-  }, [theme]);
+  }, [interfaceTheme]);
 
   return (
     <div
@@ -83,11 +89,13 @@ function ThemedApp({ path, locale, setLocale, t }: {
         ? "app-frame presenter-app-frame"
         : isRemote
           ? "app-frame remote-app-frame"
-          : "app-frame"}
-      data-interface-theme={theme}
+          : isAudience
+            ? "app-frame audience-app-frame"
+            : "app-frame"}
+      data-interface-theme={interfaceTheme}
     >
       <a className="skip-link" href="#main-content">{t("a11y.skip")}</a>
-      {!isPresenter && !isRemote && (
+      {!isPresenter && !isRemote && !isAudience && (
         <Topbar
           locale={locale}
           setLocale={setLocale}
@@ -97,6 +105,11 @@ function ThemedApp({ path, locale, setLocale, t }: {
         />
       )}
       <div id="main-content" tabIndex={-1}>
+        {isAudience && (
+          <a className="audience-brand" href="/" aria-label={t("app.name")}>
+            <span className="brand-mark" aria-hidden="true">S</span>
+          </a>
+        )}
         {isRemote ? (
           <RemoteApp t={t} />
         ) : path.startsWith("/diagnostics") ? (
@@ -104,13 +117,17 @@ function ThemedApp({ path, locale, setLocale, t }: {
         ) : path.startsWith("/presenter") ? (
           <PresenterApp t={t} locale={locale} theme={theme} setTheme={setTheme} />
         ) : path.startsWith("/join") ? (
-          <AudienceApp t={t} locale={locale} />
+          <AudienceApp t={t} locale={locale} onThemeChange={setAudienceTheme} />
         ) : (
           <Landing t={t} />
         )}
       </div>
     </div>
   );
+}
+
+function preferredBrowserLocale() {
+  return navigator.languages?.[0] ?? navigator.language;
 }
 
 function Topbar({ locale, setLocale, setTheme, t, theme }: {
