@@ -28,15 +28,16 @@
   --ease-in-out: cubic-bezier(.77, 0, .175, 1);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { min-width: 320px; min-height: 100%; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select, textarea { color: inherit; font: inherit; }
-button, a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+button, a, [role="button"] { touch-action: manipulation; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 :where(button, .primary-button, .hero-actions > a) { transition: transform 140ms var(--ease-out); }
 :where(button, .primary-button, .hero-actions > a):active:not(:disabled) { transform: scale(.97); }
+:focus:not(:focus-visible) { outline: 0; }
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .skip-link { position: fixed; z-index: 100; top: 10px; left: 10px; padding: 10px 14px; color: #fff; background: var(--ink); border-radius: 8px; transform: translateY(-160%); }
 .skip-link:focus { transform: translateY(0); }
