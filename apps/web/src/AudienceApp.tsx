@@ -321,6 +321,11 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }}
             maxLength={200}
             placeholder={t("audience.textPlaceholder")}
             disabled={busy || wordCloudFull}

@@ -126,6 +126,14 @@ export function LiveControl({
     setRemoteLink(`${window.location.origin}/remote/${snapshot.session_id}#token=${encodeURIComponent(issued.token)}`);
   }
 
+  async function toggleRemoteAccess() {
+    if (remoteLink) {
+      setRemoteLink("");
+      return;
+    }
+    await createRemoteAccess();
+  }
+
   async function useManualSync() {
     if (!snapshot) return;
     await apiJson(`/api/sessions/${snapshot.session_id}/sync-mode`, {
@@ -136,7 +144,15 @@ export function LiveControl({
   }
 
   return (
-    <section className="live-dock" aria-label={t("live.heading")}>
+    <div className="live-control-layer">
+      {(pairingOpen && pairingCode || remoteLink) && <div className="live-control-popouts">
+        {pairingOpen && pairingCode && <div className="pairing-code" role="status">
+          <div className="pairing-code-copy"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>
+          <a className="extension-download-link" href="/downloads/slideact-extension.zip" download>{t("sync.downloadExtension")}</a>
+        </div>}
+        {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
+      </div>}
+      <section className="live-dock" aria-label={t("live.heading")}>
       <div className="live-dock-primary">
         <div className="live-summary">
           <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
@@ -191,8 +207,8 @@ export function LiveControl({
         {isControllable && <div className="live-tool-group live-tool-connect" role="group" aria-label={t("live.groupConnect")}>
           <span className="live-tool-group-label">{t("live.groupConnect")}</span>
           <div className="live-tools">
-            <button className="secondary-link" onClick={createRemoteAccess}>{t("live.remote")}</button>
-            <button className="secondary-link" aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>
+            <button className={remoteLink ? "secondary-link is-open" : "secondary-link"} aria-expanded={Boolean(remoteLink)} onClick={() => void toggleRemoteAccess()}>{t("live.remote")}</button>
+            <button className={pairingOpen ? "secondary-link is-open" : "secondary-link"} aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>
             {snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
           </div>
         </div>}
@@ -201,12 +217,8 @@ export function LiveControl({
           <div className="live-tools"><button className="secondary-link" onClick={showResults}>{t("live.results")}</button></div>
         </div>}
       </div>}
-      {pairingOpen && pairingCode && <div className="pairing-code" role="status">
-        <div className="pairing-code-copy"><small>{t("sync.pairingCode")}</small><strong>{pairingCode}</strong><span>{t("sync.pairingCopy")}</span></div>
-        <a className="extension-download-link" href="/downloads/slideact-extension.zip" download>{t("sync.downloadExtension")}</a>
-      </div>}
-      {remoteLink && <RemoteAccessPanel t={t} url={remoteLink} close={() => setRemoteLink("")} />}
-    </section>
+      </section>
+    </div>
   );
 }
 

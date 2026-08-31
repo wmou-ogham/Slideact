@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   type PositionedWordCloudGlyph,
+  reflowWordCloudAroundPinned,
   restoreMissingWordCloudWords,
   wordCloudDensityScale,
   wordCloudLayoutSignature,
@@ -86,6 +87,22 @@ describe("word cloud layout recovery", () => {
       "another wide answer",
       "latest answer",
     ]);
+  });
+});
+
+describe("pinned word cloud layout", () => {
+  it("keeps pinned words fixed and reflows other words around them", () => {
+    const pinned = word("pinned answer", -170, -40, 42);
+    const result = reflowWordCloudAroundPinned(
+      [word("pinned answer", 170, 40, 70), word("nearby answer", 170, 40, 42)],
+      [pinned],
+    );
+    const fixed = result.find((item) => item.text === pinned.text);
+    const nearby = result.find((item) => item.text === "nearby answer");
+
+    expect(fixed).toEqual(pinned);
+    expect(nearby).toBeDefined();
+    expect(wordCloudWordsOverlap(fixed!, nearby!)).toBe(false);
   });
 });
 
