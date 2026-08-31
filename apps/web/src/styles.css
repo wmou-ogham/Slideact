@@ -470,27 +470,29 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .word-cloud-pin-box { pointer-events: none; fill: rgba(242, 206, 110, .14); stroke: #f2ce6e; stroke-width: 2.5; }
 .word-cloud-position {
   transform-box: view-box;
-  transition: translate 250ms cubic-bezier(0.77, 0, 0.175, 1);
+  transition: transform 220ms cubic-bezier(0.77, 0, 0.175, 1);
 }
 .word-cloud-position.is-pinned { transition: none; }
 .word-cloud-enter, .word-cloud-float { transform-box: fill-box; transform-origin: center; }
 .word-cloud-enter.is-entering {
-  animation: word-cloud-enter .62s var(--ease-out) var(--enter-delay, 0s) both;
+  animation: word-cloud-enter .28s var(--ease-out) var(--enter-delay, 0s) both;
 }
-.word-cloud-enter.is-popping { animation: word-cloud-pop .5s ease; }
-.word-cloud-enter.is-hot { filter: drop-shadow(0 0 10px rgba(242, 206, 110, .55)); }
-.word-cloud-float {
+.word-cloud-enter.is-popping { animation: word-cloud-pop .22s var(--ease-in-out); }
+.word-cloud-float { animation: none; }
+.word-cloud-float.is-floating {
+  will-change: transform;
   animation: word-cloud-float var(--float-duration, 4.6s) ease-in-out var(--float-delay, .62s) infinite;
 }
 .word-cloud-float.is-pinned { animation: none; }
+.word-cloud-float.is-hot { filter: drop-shadow(0 0 10px rgba(242, 206, 110, .55)); }
 @keyframes word-cloud-enter {
   from { opacity: 0; transform: scale(.94); }
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes word-cloud-float {
   0%, 100% { transform: translate(0, 0); }
-  35% { transform: translate(var(--drift-x, 5px), calc(var(--drift-y, 6px) * -1)); }
-  70% { transform: translate(calc(var(--drift-x, 5px) * -.7), var(--drift-y, 6px)); }
+  35% { transform: translate(var(--drift-x, 5px), var(--drift-y-up, -6px)); }
+  70% { transform: translate(var(--drift-x-back, -3.5px), var(--drift-y, 6px)); }
 }
 @keyframes word-cloud-pop {
   0% { transform: scale(1); }

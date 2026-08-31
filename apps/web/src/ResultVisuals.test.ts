@@ -5,6 +5,7 @@ import {
   reflowWordCloudAroundPinned,
   restoreMissingWordCloudWords,
   wordCloudDensityScale,
+  wordCloudFloatingTexts,
   wordCloudLayoutSignature,
   wordCloudWordsOverlap,
 } from "./ResultVisuals";
@@ -126,5 +127,21 @@ describe("word cloud density", () => {
     const scale = wordCloudDensityScale(dense, 1, 5);
     expect(scale).toBeLessThan(1);
     expect(scale).toBeGreaterThan(0);
+  });
+});
+
+describe("word cloud decorative motion", () => {
+  it("limits perpetual floating to the six highest-value words", () => {
+    const words = Array.from({ length: 12 }, (_, index) => ({
+      text: `word-${index}`,
+      value: index,
+    }));
+
+    const floating = wordCloudFloatingTexts(words);
+
+    expect(floating.size).toBe(6);
+    expect(floating.has("word-11")).toBe(true);
+    expect(floating.has("word-6")).toBe(true);
+    expect(floating.has("word-5")).toBe(false);
   });
 });
