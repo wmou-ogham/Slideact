@@ -2,7 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { installFocusModalityTracking } from "./focusModality";
 import "./styles.css";
+
+installFocusModalityTracking();
 
 function reportClientError(message: string) {
   void fetch("/api/diagnostics/client-errors", {

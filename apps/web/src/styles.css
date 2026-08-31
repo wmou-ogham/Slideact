@@ -37,8 +37,8 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 :where(button, .primary-button, .hero-actions > a) { transition: transform 140ms var(--ease-out); }
 :where(button, .primary-button, .hero-actions > a):active:not(:disabled) { transform: scale(.97); }
-:focus:not(:focus-visible) { outline: 0; }
-:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+:focus { outline: 0; }
+html[data-focus-modality="keyboard"] :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 .skip-link { position: fixed; z-index: 100; top: 10px; left: 10px; padding: 10px 14px; color: #fff; background: var(--ink); border-radius: 8px; transform: translateY(-160%); }
 .skip-link:focus { transform: translateY(0); }
 
@@ -172,7 +172,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .context-label { max-width: 140px; overflow: hidden; color: var(--muted); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 
 input, textarea { width: 100%; padding: 11px 13px; background: rgba(255,255,255,.68); border: 1px solid var(--line); border-radius: 11px; outline: 0; }
-input:focus, textarea:focus, select:focus { border-color: rgba(39,107,94,.55); box-shadow: 0 0 0 3px rgba(39,107,94,.09); }
+input:focus, textarea:focus, select:focus { border-color: rgba(39,107,94,.55); box-shadow: none; }
+html[data-focus-modality="keyboard"] :is(input, textarea, select):focus-visible { box-shadow: 0 0 0 3px rgba(39,107,94,.09); }
 textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .inline-form { display: flex; gap: 6px; }
 .template-picker { display: grid; gap: 6px; margin: 15px 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
@@ -297,7 +298,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .canvas-title-field { display: block; }
 .canvas-title-field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .canvas-title-field textarea { min-height: 74px; padding: 4px 6px; overflow: hidden; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 6px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(22px, 2.7vw, 40px); font-weight: 500; letter-spacing: -.035em; line-height: 1.08; resize: none; }
-.canvas-title-field textarea:focus { background: #fff; border-color: rgba(39,107,94,.45); box-shadow: 0 0 0 3px rgba(39,107,94,.09); }
+.canvas-title-field textarea:focus { background: #fff; border-color: rgba(39,107,94,.45); box-shadow: none; }
+html[data-focus-modality="keyboard"] .canvas-title-field textarea:focus-visible { box-shadow: 0 0 0 3px rgba(39,107,94,.09); }
 .canvas-title-field textarea:focus-visible { outline: 0; outline-offset: 0; }
 .canvas-brand { position: absolute; right: 18px; bottom: 13px; color: rgba(18,60,52,.38); font-size: 7px; font-weight: 900; letter-spacing: .16em; }
 .canvas-help { max-width: 900px; margin: 8px auto 0; color: var(--muted); font-size: 9px; line-height: 1.45; text-align: center; }
@@ -311,7 +313,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .canvas-option { display: grid; grid-template-columns: 24px minmax(0, 1fr) 20px; gap: 5px; align-items: center; padding: 6px; background: #f1f6f3; border: 1px solid rgba(39,107,94,.14); border-radius: 9px; }
 .canvas-option > span { display: grid; width: 24px; height: 24px; place-items: center; color: #fff; background: var(--green); border-radius: 7px; font-size: 8px; font-weight: 850; }
 .canvas-option input { min-width: 0; padding: 5px 3px; background: transparent; border: 0; border-radius: 3px; font-size: clamp(8px, .85vw, 11px); font-weight: 700; }
-.canvas-option input:focus { box-shadow: 0 0 0 2px rgba(39,107,94,.1); }
+.canvas-option input:focus { box-shadow: none; }
+html[data-focus-modality="keyboard"] .canvas-option input:focus-visible { box-shadow: 0 0 0 2px rgba(39,107,94,.1); }
 .canvas-option button { width: 20px; height: 20px; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 50%; font-size: 14px; }
 .canvas-options .add-option { min-height: 34px; color: var(--green); background: transparent; border: 1px dashed rgba(39,107,94,.35); border-radius: 9px; font-size: 9px; font-weight: 800; }
 .canvas-word-cloud { position: relative; min-height: 0; margin-top: auto; flex: 1; }
@@ -347,7 +350,7 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
 .visibility-checkbox input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .checkbox-mark { display: grid; width: 22px; height: 22px; place-items: center; color: transparent; background: #fff; border: 1px solid rgba(18,60,52,.25); border-radius: 6px; font-size: 13px; font-weight: 900; }
 .visibility-checkbox input:checked + .checkbox-mark { color: #fff; background: var(--green); border-color: var(--green); }
-.visibility-checkbox input:focus-visible + .checkbox-mark { outline: 3px solid #e0903e; outline-offset: 2px; }
+html[data-focus-modality="keyboard"] .visibility-checkbox input:focus-visible + .checkbox-mark { outline: 3px solid #e0903e; outline-offset: 2px; }
 .visibility-checkbox strong, .visibility-checkbox small { display: block; }
 .visibility-checkbox strong { font-size: 11px; }
 .visibility-checkbox small { margin-top: 3px; color: var(--muted); font-size: 9px; font-weight: 500; line-height: 1.4; }
@@ -797,8 +800,8 @@ textarea { min-height: 80px; resize: vertical; line-height: 1.45; }
   color: var(--proj-card-ink);
   background: var(--proj-gold);
 }
-.projection-body .projection-theme-picker button:focus-visible,
-.projection-body .word-cloud-hit:focus-visible {
+html[data-focus-modality="keyboard"] .projection-body .projection-theme-picker button:focus-visible,
+html[data-focus-modality="keyboard"] .projection-body .word-cloud-hit:focus-visible {
   outline: 3px solid var(--proj-gold);
   outline-offset: 3px;
 }
