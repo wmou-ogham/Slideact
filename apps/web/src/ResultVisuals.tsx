@@ -21,6 +21,38 @@ export function visibleProjectionQuestions(questions: Question[]) {
   return questions.filter((question) => question.status !== "hidden");
 }
 
+export function questionsForInteraction(questions: Question[], interactionId: string) {
+  return questions.filter((question) => question.interaction_id === interactionId);
+}
+
+export function audienceQuestionQueue(questions: Question[]) {
+  const active = questions.filter((question) => !matchesQuestionStatus(question, "answered", "hidden"));
+  const current = active.find((question) => question.status === "pinned") ?? active[0] ?? null;
+  return {
+    current,
+    waiting: current ? active.filter((question) => question.id !== current.id) : [],
+  };
+}
+
+export function moderationQuestionOrder(questions: Question[]) {
+  const rank: Record<Question["status"], number> = {
+    pinned: 0,
+    visible: 1,
+    highlighted: 1,
+    hidden: 2,
+    pending: 2,
+    answered: 3,
+  };
+  return questions
+    .map((question, index) => ({ question, index }))
+    .sort((left, right) => rank[left.question.status] - rank[right.question.status] || left.index - right.index)
+    .map(({ question }) => question);
+}
+
+function matchesQuestionStatus(question: Question, ...statuses: Question["status"][]) {
+  return statuses.includes(question.status);
+}
+
 export function QuestionList({ t, questions, busy, onVote }: {
   t: Translate;
   questions: Question[];
@@ -42,25 +74,71 @@ export function QuestionList({ t, questions, busy, onVote }: {
               {question.status === "answered" && <small className="question-status">{t("qa.answered")}</small>}
             </div>
             {question.display_name && <small className="question-author">— {question.display_name}</small>}
-            {onVote ? (
-              <button
-                className={question.voted_by_me ? "question-vote selected" : "question-vote"}
-                disabled={busy}
-                type="button"
-                onClick={() => onVote(question.id)}
-                aria-label={t("qa.votes", { count: question.votes })}
-              >
-                <b>＋1</b>{question.votes}
-              </button>
-            ) : (
-              <span className="question-vote question-vote-static" aria-label={t("qa.votes", { count: question.votes })}>
-                <b>＋1</b>{question.votes}
-              </span>
-            )}
+            <QuestionVote t={t} question={question} busy={busy} onVote={onVote} />
           </article>
         );
       })}
     </div>
+  );
+}
+
+export function AudienceQuestionBoard({ t, questions, busy, onVote }: {
+  t: Translate;
+  questions: Question[];
+  busy: boolean;
+  onVote?: (questionId: string) => Promise<void>;
+}) {
+  const { current, waiting } = audienceQuestionQueue(questions);
+  if (!current) return <p className="qa-empty">{t("audienceQa.empty")}</p>;
+  const visibleWaiting = waiting.slice(0, 3);
+  const currentLayout = questionCardLayout(current.body);
+  return (
+    <div className="audience-qa-board">
+      <article className={`audience-qa-current audience-qa-current-${currentLayout}${current.display_name ? " signed" : ""}`} key={current.id}>
+        <small className="audience-qa-section-label">{t("audienceQa.current")}</small>
+        <p>{current.body}</p>
+        {current.display_name && <small className="audience-qa-author">— {current.display_name}</small>}
+        <QuestionVote t={t} question={current} busy={busy} onVote={onVote} />
+      </article>
+      {waiting.length > 0 && <section className="audience-qa-waiting">
+        <header>
+          <strong>{t("audienceQa.waiting", { count: waiting.length })}</strong>
+          {waiting.length > visibleWaiting.length && <small>{t("audienceQa.more", { count: waiting.length - visibleWaiting.length })}</small>}
+        </header>
+        <div>
+          {visibleWaiting.map((question) => (
+            <article className={question.display_name ? "signed" : ""} key={question.id}>
+              <p>{question.body}</p>
+              {question.display_name && <small className="audience-qa-author">— {question.display_name}</small>}
+              <QuestionVote t={t} question={question} busy={busy} onVote={onVote} />
+            </article>
+          ))}
+        </div>
+      </section>}
+    </div>
+  );
+}
+
+function QuestionVote({ t, question, busy, onVote }: {
+  t: Translate;
+  question: Question;
+  busy: boolean;
+  onVote?: (questionId: string) => Promise<void>;
+}) {
+  return onVote ? (
+    <button
+      className={question.voted_by_me ? "question-vote selected" : "question-vote"}
+      disabled={busy}
+      type="button"
+      onClick={() => onVote(question.id)}
+      aria-label={t("qa.votes", { count: question.votes })}
+    >
+      <b>＋1</b>{question.votes}
+    </button>
+  ) : (
+    <span className="question-vote question-vote-static" aria-label={t("qa.votes", { count: question.votes })}>
+      <b>＋1</b>{question.votes}
+    </span>
   );
 }
 
@@ -109,16 +187,21 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
 }) {
   const multi = interactions.length > 1;
   const theme = useProjectionThemeValue();
-  const displayedQuestions = visibleProjectionQuestions(questions);
   return (
     <div className="projection-visuals">
-      {interactions.map((interaction) => (
-        <article className="projection-interaction" key={interaction.id}>
+      {interactions.map((interaction) => {
+        const interactionQuestions = questionsForInteraction(questions, interaction.id);
+        const displayedQuestions = visibleProjectionQuestions(interactionQuestions);
+        return <article className={`projection-interaction projection-interaction-${interaction.interaction_type}`} key={interaction.id}>
           {multi && <h2><ProjectionHeading theme={theme} text={interaction.prompt} /></h2>}
           {interaction.interaction_type === "qa" ? (
             interaction.results_visible !== false && displayedQuestions.length
               ? <div className="projection-questions"><QuestionList t={t} questions={displayedQuestions} busy /></div>
               : <span className="projection-empty">{t(interaction.results_visible !== false ? "qa.empty" : "projection.noResults")}</span>
+          ) : interaction.interaction_type === "audience_qa" ? (
+            interaction.results_visible !== false
+              ? <div className="projection-audience-qa"><AudienceQuestionBoard t={t} questions={interactionQuestions} busy /></div>
+              : <span className="projection-empty">{t("projection.noResults")}</span>
           ) : interaction.aggregate ? (
             <AggregateBars
               t={t}
@@ -130,8 +213,8 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
           ) : (
             <span className="projection-empty">{t("projection.noResults")}</span>
           )}
-        </article>
-      ))}
+        </article>;
+      })}
     </div>
   );
 }

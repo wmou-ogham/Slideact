@@ -34,7 +34,7 @@ export type Interaction = {
   id: string;
   cue_id: string;
   position: number;
-  interaction_type: "understanding" | "single_choice" | "word_cloud" | "qa";
+  interaction_type: "understanding" | "single_choice" | "word_cloud" | "qa" | "audience_qa";
   prompt: string;
   description: string | null;
   settings: Record<string, unknown>;
@@ -94,6 +94,7 @@ export type SessionResults = {
     }>;
     questions: Array<{
       id: string;
+      interaction_id: string;
       body: string;
       display_name: string | null;
       status: string;
@@ -146,6 +147,7 @@ export type Aggregate = {
 export type Question = {
   id: string;
   cue_run_id: string;
+  interaction_id: string;
   body: string;
   display_name: string | null;
   status: "pending" | "visible" | "answered" | "hidden" | "pinned" | "highlighted";

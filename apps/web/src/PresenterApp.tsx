@@ -829,6 +829,7 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
         {interactionType === "understanding" && <><i /><i /><i /></>}
         {interactionType === "word_cloud" && <><i>IDEA</i><i>LIVE</i><i>WORD</i></>}
         {interactionType === "qa" && <><i /><i /><i /></>}
+        {interactionType === "audience_qa" && <><i /><i /><i /></>}
         {interactionType === "empty" && <i>+</i>}
       </span>
     </span>

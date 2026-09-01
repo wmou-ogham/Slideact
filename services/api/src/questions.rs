@@ -24,6 +24,7 @@ use crate::{
 pub(crate) struct QuestionView {
     id: Uuid,
     cue_run_id: Uuid,
+    interaction_id: Uuid,
     body: String,
     display_name: Option<String>,
     status: String,
@@ -36,6 +37,7 @@ pub(crate) struct QuestionView {
 #[serde(deny_unknown_fields)]
 struct CreateQuestionRequest {
     cue_run_id: Uuid,
+    interaction_id: Option<Uuid>,
     body: String,
 }
 
@@ -90,8 +92,13 @@ async fn create_question(
     )
     .await?;
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
-    let state_version =
-        open_qa_state_version(&mut transaction, actor.session_id, request.cue_run_id).await?;
+    let (state_version, interaction_id) = open_question_interaction(
+        &mut transaction,
+        actor.session_id,
+        request.cue_run_id,
+        request.interaction_id,
+    )
+    .await?;
     let id = Uuid::new_v4();
     let display_name = sqlx::query_scalar::<_, Option<String>>(
         "SELECT display_name FROM participants WHERE id = $1 AND session_id = $2",
@@ -103,13 +110,14 @@ async fn create_question(
     .map_err(persistence_error)?;
     let created_at = sqlx::query_scalar::<_, String>(
         r#"
-        INSERT INTO questions (id, cue_run_id, participant_id, body, status)
-        VALUES ($1, $2, $3, $4, 'visible')
+        INSERT INTO questions (id, cue_run_id, interaction_id, participant_id, body, status)
+        VALUES ($1, $2, $3, $4, $5, 'visible')
         RETURNING created_at::TEXT
         "#,
     )
     .bind(id)
     .bind(request.cue_run_id)
+    .bind(interaction_id)
     .bind(participant_id)
     .bind(&body)
     .fetch_one(&mut *transaction)
@@ -119,7 +127,7 @@ async fn create_question(
         &mut transaction,
         actor.session_id,
         state_version,
-        json!({"event_type": "question.created", "question_id": id}),
+        json!({"event_type": "question.created", "question_id": id, "interaction_id": interaction_id}),
         &format!("question-created-{id}"),
     )
     .await?;
@@ -129,6 +137,7 @@ async fn create_question(
         Json(QuestionView {
             id,
             cue_run_id: request.cue_run_id,
+            interaction_id,
             body,
             display_name,
             status: "visible".to_owned(),
@@ -167,7 +176,7 @@ async fn toggle_question_vote(
         JOIN cue_runs ON cue_runs.id = questions.cue_run_id
         JOIN live_sessions ON live_sessions.id = cue_runs.session_id
         WHERE questions.id = $1 AND live_sessions.id = $2
-          AND questions.status IN ('visible', 'pinned', 'answered')
+          AND questions.status IN ('visible', 'pinned', 'highlighted', 'answered')
         FOR UPDATE OF questions
         "#,
     )
@@ -248,21 +257,24 @@ async fn update_question(
         sqlx::query(
             r#"
             UPDATE questions SET status = 'visible', updated_at = NOW()
-            WHERE status = 'pinned' AND cue_run_id IN (
+            WHERE status = 'pinned'
+              AND interaction_id = (SELECT interaction_id FROM questions WHERE id = $2)
+              AND cue_run_id IN (
                 SELECT id FROM cue_runs WHERE session_id = $1
             )
             "#,
         )
         .bind(session_id)
+        .bind(question_id)
         .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?;
     }
-    let row = sqlx::query_as::<_, (Uuid, String, String, String)>(
+    let row = sqlx::query_as::<_, (Uuid, Uuid, String, String, String)>(
         r#"
         UPDATE questions SET status = $3, updated_at = NOW()
         WHERE id = $2 AND cue_run_id IN (SELECT id FROM cue_runs WHERE session_id = $1)
-        RETURNING cue_run_id, body, status, created_at::TEXT
+        RETURNING cue_run_id, interaction_id, body, status, created_at::TEXT
         "#,
     )
     .bind(session_id)
@@ -308,12 +320,13 @@ async fn update_question(
     Ok(Json(QuestionView {
         id: question_id,
         cue_run_id: row.0,
-        body: row.1,
+        interaction_id: row.1,
+        body: row.2,
         display_name,
-        status: row.2,
+        status: row.3,
         votes,
         voted_by_me: false,
-        created_at: row.3,
+        created_at: row.4,
     }))
 }
 
@@ -328,6 +341,7 @@ pub(crate) async fn load_questions(
         (
             Uuid,
             Uuid,
+            Uuid,
             String,
             Option<String>,
             String,
@@ -337,7 +351,8 @@ pub(crate) async fn load_questions(
         ),
     >(
         r#"
-        SELECT questions.id, questions.cue_run_id, questions.body, participants.display_name,
+        SELECT questions.id, questions.cue_run_id, questions.interaction_id,
+               questions.body, participants.display_name,
                questions.status,
                COUNT(question_votes.participant_id),
                COALESCE(BOOL_OR(question_votes.participant_id = $2), FALSE),
@@ -350,9 +365,14 @@ pub(crate) async fn load_questions(
           AND cue_runs.id = (SELECT current_cue_run_id FROM live_sessions WHERE id = $1)
           AND ($3 OR questions.status IN ('visible', 'pinned', 'highlighted', 'answered'))
         GROUP BY questions.id, participants.display_name
-        -- Highlight is presentation-only: it must not move a question in the
-        -- audience's vote/time ordering.
-        ORDER BY (questions.status = 'pinned') DESC,
+        ORDER BY CASE questions.status
+                   WHEN 'pinned' THEN 0
+                   WHEN 'visible' THEN 1
+                   WHEN 'highlighted' THEN 1
+                   WHEN 'hidden' THEN 2
+                   WHEN 'answered' THEN 3
+                   ELSE 4
+                 END,
                  COUNT(question_votes.participant_id) DESC,
                  questions.created_at ASC
         "#,
@@ -368,43 +388,51 @@ pub(crate) async fn load_questions(
             .map(|row| QuestionView {
                 id: row.0,
                 cue_run_id: row.1,
-                body: row.2,
-                display_name: row.3,
-                status: row.4,
-                votes: row.5,
-                voted_by_me: row.6,
-                created_at: row.7,
+                interaction_id: row.2,
+                body: row.3,
+                display_name: row.4,
+                status: row.5,
+                votes: row.6,
+                voted_by_me: row.7,
+                created_at: row.8,
             })
             .collect()
     })
 }
 
-async fn open_qa_state_version(
+async fn open_question_interaction(
     transaction: &mut Transaction<'_, Postgres>,
     session_id: Uuid,
     cue_run_id: Uuid,
-) -> Result<u64, ApiError> {
-    let version = sqlx::query_scalar::<_, i64>(
+    interaction_id: Option<Uuid>,
+) -> Result<(u64, Uuid), ApiError> {
+    let row = sqlx::query_as::<_, (i64, Uuid)>(
         r#"
-        SELECT live_sessions.state_version
+        SELECT live_sessions.state_version, interactions.id
         FROM cue_runs
         JOIN live_sessions ON live_sessions.id = cue_runs.session_id
+        JOIN interactions ON interactions.cue_id = cue_runs.cue_id
         WHERE cue_runs.id = $1 AND live_sessions.id = $2 AND cue_runs.state = 'open'
-          AND EXISTS (
-              SELECT 1 FROM interactions
-              WHERE interactions.cue_id = cue_runs.cue_id
-                AND interactions.interaction_type = 'qa'
-          )
+          AND interactions.interaction_type IN ('qa', 'audience_qa')
+          AND ($3::UUID IS NULL OR interactions.id = $3)
+        ORDER BY CASE interactions.interaction_type WHEN 'qa' THEN 0 ELSE 1 END,
+                 interactions.position,
+                 interactions.id
+        LIMIT 1
         FOR UPDATE OF cue_runs
         "#,
     )
     .bind(cue_run_id)
     .bind(session_id)
+    .bind(interaction_id)
     .fetch_optional(&mut **transaction)
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ApiError::conflict("qa_not_open"))?;
-    u64::try_from(version).map_err(|_| ApiError::internal("state_version_invalid"))
+    Ok((
+        u64::try_from(row.0).map_err(|_| ApiError::internal("state_version_invalid"))?,
+        row.1,
+    ))
 }
 
 fn validate_body(body: &str) -> Result<String, ApiError> {

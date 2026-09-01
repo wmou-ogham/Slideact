@@ -16,7 +16,7 @@ use crate::{
 };
 
 type ResponseRow = (String, String, String, Uuid, String, String);
-type QuestionRow = (String, Uuid, String, String, i64, String);
+type QuestionRow = (String, String, Uuid, String, String, i64, String);
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -66,6 +66,7 @@ struct InteractionResult {
 #[derive(Debug, Serialize)]
 struct QuestionResult {
     id: Uuid,
+    interaction_id: Uuid,
     body: String,
     display_name: Option<String>,
     status: String,
@@ -150,10 +151,22 @@ async fn session_results(
     .fetch_all(&state.database)
     .await
     .map_err(persistence_error)?;
-    let question_rows =
-        sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, i64, String)>(
-            r#"
-        SELECT questions.cue_run_id, questions.id, questions.body, participants.display_name,
+    let question_rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            Uuid,
+            String,
+            Option<String>,
+            String,
+            i64,
+            String,
+        ),
+    >(
+        r#"
+        SELECT questions.cue_run_id, questions.id, questions.interaction_id,
+               questions.body, participants.display_name,
                questions.status,
                COUNT(question_votes.participant_id), questions.created_at::TEXT
         FROM questions
@@ -164,11 +177,11 @@ async fn session_results(
         GROUP BY questions.id, participants.display_name
         ORDER BY questions.created_at, questions.id
         "#,
-        )
-        .bind(session_id)
-        .fetch_all(&state.database)
-        .await
-        .map_err(persistence_error)?;
+    )
+    .bind(session_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(persistence_error)?;
     let mut interactions: HashMap<Uuid, Vec<InteractionResult>> = HashMap::new();
     for row in interaction_rows {
         interactions
@@ -185,11 +198,12 @@ async fn session_results(
     for row in question_rows {
         questions.entry(row.0).or_default().push(QuestionResult {
             id: row.1,
-            body: row.2,
-            display_name: row.3,
-            status: row.4,
-            votes: row.5,
-            created_at: row.6,
+            interaction_id: row.2,
+            body: row.3,
+            display_name: row.4,
+            status: row.5,
+            votes: row.6,
+            created_at: row.7,
         });
     }
     let cue_runs = run_rows
@@ -248,14 +262,16 @@ async fn export_session_csv(
 
     let questions = sqlx::query_as::<_, QuestionRow>(
         r#"
-        SELECT cues.name, questions.participant_id, questions.body, questions.status,
+        SELECT cues.name, interactions.interaction_type, questions.participant_id,
+               questions.body, questions.status,
                COUNT(question_votes.participant_id), questions.created_at::TEXT
         FROM questions
         JOIN cue_runs ON cue_runs.id = questions.cue_run_id
         JOIN cues ON cues.id = cue_runs.cue_id
+        JOIN interactions ON interactions.id = questions.interaction_id
         LEFT JOIN question_votes ON question_votes.question_id = questions.id
         WHERE cue_runs.session_id = $1
-        GROUP BY questions.id, cues.name
+        GROUP BY questions.id, cues.name, interactions.interaction_type
         ORDER BY questions.created_at, questions.id
         "#,
     )
@@ -303,13 +319,13 @@ fn build_csv(session_id: Uuid, responses: Vec<ResponseRow>, questions: Vec<Quest
                 "question".to_owned(),
                 session_id.to_string(),
                 row.0,
-                "qa".to_owned(),
+                row.1,
                 String::new(),
-                row.1.to_string(),
-                row.2,
-                row.5,
+                row.2.to_string(),
                 row.3,
-                row.4.to_string(),
+                row.6,
+                row.4,
+                row.5.to_string(),
             ],
         );
     }

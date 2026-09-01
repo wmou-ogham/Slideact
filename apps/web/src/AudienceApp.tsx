@@ -4,7 +4,12 @@ import { ApiError, apiJson, postJson, uuid } from "./api";
 import type { Translate } from "./i18n";
 import { typeName } from "./lib/interactions";
 import { LIVE_POLL_INTERVAL_MS, useLiveSession } from "./lib/liveSession";
-import { AggregateBars, QuestionList } from "./ResultVisuals";
+import {
+  AggregateBars,
+  AudienceQuestionBoard,
+  QuestionList,
+  questionsForInteraction,
+} from "./ResultVisuals";
 import type { ProjectionTheme } from "./projectionTheme";
 import type { LiveView, Question, SessionSnapshot, SnapshotInteraction } from "./types";
 
@@ -141,7 +146,7 @@ export function AudienceApp({ t, locale, onThemeChange }: {
     }
   }
 
-  async function submitQuestion(body: string) {
+  async function submitQuestion(interactionId: string, body: string) {
     if (!joined || !live?.snapshot.current_cue_run) return;
     setBusy(true);
     setError("");
@@ -149,7 +154,11 @@ export function AudienceApp({ t, locale, onThemeChange }: {
       await apiJson("/api/audience/questions", {
         method: "POST",
         headers: { authorization: `Bearer ${joined.token}` },
-        body: JSON.stringify({ cue_run_id: live.snapshot.current_cue_run.id, body }),
+        body: JSON.stringify({
+          cue_run_id: live.snapshot.current_cue_run.id,
+          interaction_id: interactionId,
+          body,
+        }),
       });
       await refresh();
     } catch (cause) {
@@ -276,7 +285,7 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
   busy: boolean;
   submit: (payload: Record<string, unknown>, label: string) => Promise<boolean>;
   questions: Question[];
-  submitQuestion: (body: string) => Promise<void>;
+  submitQuestion: (interactionId: string, body: string) => Promise<void>;
   voteQuestion: (questionId: string) => Promise<void>;
 }) {
   const [text, setText] = useState("");
@@ -286,6 +295,8 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
   const wordCloudRemaining = Math.max(0, responseSettings.submissionLimit - sentCount);
   const wordCloudFull = interaction.interaction_type === "word_cloud" && wordCloudRemaining === 0;
   const stickyNoteInputId = `sticky-note-${interaction.id}`;
+  const audienceQuestionInputId = `audience-question-${interaction.id}`;
+  const interactionQuestions = questionsForInteraction(questions, interaction.id);
   const choiceLocked = interaction.interaction_type === "single_choice"
     && Boolean(answer)
     && !responseSettings.allowChange;
@@ -364,7 +375,7 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
             event.preventDefault();
             const value = questionBody.trim();
             if (!value) return;
-            await submitQuestion(value);
+            await submitQuestion(interaction.id, value);
             setQuestionBody("");
           }}>
             <div className="sticky-note-composer-heading">
@@ -385,7 +396,41 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
             <p>{t("qa.composerHint")}</p>
             <button disabled={busy || !questionBody.trim()}>{t("qa.ask")}</button>
           </form>
-          <QuestionList t={t} questions={questions} busy={busy} onVote={voteQuestion} />
+          <QuestionList t={t} questions={interactionQuestions} busy={busy} onVote={voteQuestion} />
+        </div>
+      )}
+      {interaction.interaction_type === "audience_qa" && (
+        <div className="audience-qa-participant">
+          <form className="audience-question-composer" onSubmit={async (event) => {
+            event.preventDefault();
+            const value = questionBody.trim();
+            if (!value) return;
+            await submitQuestion(interaction.id, value);
+            setQuestionBody("");
+          }}>
+            <div>
+              <label htmlFor={audienceQuestionInputId}>{t("audienceQa.composerTitle")}</label>
+              <small>{questionBody.length}/500</small>
+            </div>
+            <textarea
+              id={audienceQuestionInputId}
+              name={`audience_question_${interaction.id}`}
+              autoComplete="off"
+              value={questionBody}
+              onChange={(event) => setQuestionBody(event.target.value)}
+              maxLength={500}
+              placeholder={t("audienceQa.placeholder")}
+              disabled={busy}
+              rows={3}
+            />
+            <button disabled={busy || !questionBody.trim()}>{t("audienceQa.ask")}</button>
+          </form>
+          <AudienceQuestionBoard
+            t={t}
+            questions={interactionQuestions}
+            busy={busy}
+            onVote={voteQuestion}
+          />
         </div>
       )}
       {interaction.interaction_type === "word_cloud"
@@ -402,12 +447,22 @@ function AudienceInteraction({ t, interaction, answer, sentCount = 0, busy, subm
 }
 
 function ResultsView({ t, live, cueName, state }: { t: Translate; live: LiveView | null; cueName: string; state: string }) {
+  const interactions = live?.snapshot.current_cue_run?.interactions ?? [];
   return (
     <div className="audience-results">
       <p className="eyebrow">{state === "revealed" ? t("audience.results") : t("audience.closed")}</p>
       <h1>{cueName}</h1>
       {live?.aggregates.map((item) => <AggregateBars t={t} key={item.interaction_id} aggregate={item.aggregate} />)}
-      {live?.questions.length ? <QuestionList t={t} questions={live.questions} busy /> : null}
+      {interactions.map((interaction) => {
+        const questions = questionsForInteraction(live?.questions ?? [], interaction.id);
+        if (interaction.interaction_type === "qa" && questions.length) {
+          return <QuestionList t={t} questions={questions} busy key={interaction.id} />;
+        }
+        if (interaction.interaction_type === "audience_qa") {
+          return <AudienceQuestionBoard t={t} questions={questions} busy key={interaction.id} />;
+        }
+        return null;
+      })}
     </div>
   );
 }

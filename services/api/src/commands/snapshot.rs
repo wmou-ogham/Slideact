@@ -75,7 +75,7 @@ impl SessionSnapshot {
     pub(crate) fn current_qa_is_live(&self) -> bool {
         self.current_cue_run.as_ref().is_some_and(|cue_run| {
             cue_run.interactions.iter().any(|interaction| {
-                interaction.interaction_type == "qa"
+                matches!(interaction.interaction_type.as_str(), "qa" | "audience_qa")
                     && results_are_public(&interaction.settings, &cue_run.state)
             })
         })

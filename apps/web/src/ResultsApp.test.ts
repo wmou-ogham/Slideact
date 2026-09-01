@@ -60,15 +60,15 @@ describe("uniqueCueRuns", () => {
       id: "run-a",
       cue_id: "cue-1",
       run_number: 1,
-      questions: [{ id: "q1", body: "First", display_name: null, status: "visible", votes: 2, created_at: "2026-08-14T08:03:00.000Z" }],
+      questions: [{ id: "q1", interaction_id: "i1", body: "First", display_name: null, status: "visible", votes: 2, created_at: "2026-08-14T08:03:00.000Z" }],
     });
     const second = run({
       id: "run-b",
       cue_id: "cue-1",
       run_number: 2,
       questions: [
-        { id: "q1", body: "First", display_name: null, status: "visible", votes: 2, created_at: "2026-08-14T08:03:00.000Z" },
-        { id: "q2", body: "Second", display_name: "Ada", status: "visible", votes: 1, created_at: "2026-08-14T08:04:00.000Z" },
+        { id: "q1", interaction_id: "i1", body: "First", display_name: null, status: "visible", votes: 2, created_at: "2026-08-14T08:03:00.000Z" },
+        { id: "q2", interaction_id: "i1", body: "Second", display_name: "Ada", status: "visible", votes: 1, created_at: "2026-08-14T08:04:00.000Z" },
       ],
     });
 

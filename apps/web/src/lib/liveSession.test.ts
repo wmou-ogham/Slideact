@@ -93,6 +93,7 @@ describe("rememberCueLive", () => {
     populated.questions = [{
       id: "question-1",
       cue_run_id: "run-1",
+      interaction_id: "interaction-1",
       body: "Please explain this",
       display_name: null,
       status: "visible",

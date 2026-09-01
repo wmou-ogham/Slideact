@@ -322,7 +322,7 @@ fn validate_interaction(request: &InteractionInput) -> Result<(), ApiError> {
     validate_result_settings(&request.settings)?;
     let option_count_valid = match request.interaction_type.as_str() {
         "single_choice" => (2..=6).contains(&request.options.len()),
-        "understanding" | "word_cloud" | "qa" => request.options.is_empty(),
+        "understanding" | "word_cloud" | "qa" | "audience_qa" => request.options.is_empty(),
         _ => return Err(ApiError::bad_request("interaction_type_invalid")),
     };
     if !option_count_valid

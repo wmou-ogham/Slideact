@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  audienceQuestionQueue,
+  moderationQuestionOrder,
   type PositionedWordCloudGlyph,
   questionCardLayout,
+  questionsForInteraction,
   reflowWordCloudAroundPinned,
   restoreMissingWordCloudWords,
   visibleProjectionQuestions,
@@ -17,6 +20,7 @@ function question(body: string, status: Question["status"] = "visible"): Questio
   return {
     id: `${status}-${body}`,
     cue_run_id: "run-1",
+    interaction_id: "interaction-1",
     body,
     display_name: null,
     status,
@@ -39,6 +43,35 @@ describe("question projection layout", () => {
     const answered = question("Answered", "answered");
     const hidden = question("Hidden", "hidden");
     expect(visibleProjectionQuestions([visible, hidden, answered])).toEqual([visible, answered]);
+  });
+
+  it("uses the pinned audience question as current and excludes archived questions", () => {
+    const waiting = question("Waiting");
+    const current = question("Current", "pinned");
+    const answered = question("Answered", "answered");
+    const hidden = question("Hidden", "hidden");
+
+    expect(audienceQuestionQueue([waiting, answered, current, hidden])).toEqual({
+      current,
+      waiting: [waiting],
+    });
+  });
+
+  it("keeps answered questions at the bottom of the moderation list", () => {
+    const answered = question("Answered", "answered");
+    const hidden = question("Hidden", "hidden");
+    const visible = question("Visible");
+    const pinned = question("Pinned", "pinned");
+
+    expect(moderationQuestionOrder([answered, hidden, visible, pinned]))
+      .toEqual([pinned, visible, hidden, answered]);
+  });
+
+  it("keeps sticky notes and audience questions scoped to their own interaction", () => {
+    const sticky = question("Sticky");
+    const audience = { ...question("Audience"), interaction_id: "interaction-2" };
+
+    expect(questionsForInteraction([sticky, audience], "interaction-2")).toEqual([audience]);
   });
 });
 

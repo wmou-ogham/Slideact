@@ -10,7 +10,11 @@ import {
   sendCommand,
   useLiveSession,
 } from "./lib/liveSession";
-import { AggregateBars } from "./ResultVisuals";
+import {
+  AggregateBars,
+  moderationQuestionOrder,
+  questionsForInteraction,
+} from "./ResultVisuals";
 import type { Cue, LiveView, Question, SessionCommand } from "./types";
 
 function RemoteAggregate({ t, aggregate, onToggleWordPin }: {
@@ -58,6 +62,50 @@ function RemoteAggregate({ t, aggregate, onToggleWordPin }: {
   }
   if (!aggregate.options?.length) return <p className="remote-empty">{t("history.noResponses")}</p>;
   return <AggregateBars t={t} aggregate={aggregate} />;
+}
+
+function RemoteQuestionList({ t, questions, kind, busy, updateQuestion }: {
+  t: Translate;
+  questions: Question[];
+  kind: "qa" | "audience_qa";
+  busy: boolean;
+  updateQuestion: (questionId: string, status: Question["status"]) => Promise<void>;
+}) {
+  return (
+    <div className={`question-list remote-question-list remote-question-list-${kind}`}>
+      {moderationQuestionOrder(questions).map((question) => {
+        const archived = question.status === "answered" || question.status === "hidden";
+        return (
+          <article className={`question-card question-${question.status}${question.display_name ? " question-card-signed" : ""}`} key={question.id}>
+            <div>
+              {kind === "qa" && question.status === "pinned" && <span className="question-status">{t("qa.pinned")}</span>}
+              {kind === "qa" && question.status === "highlighted" && <span className="question-status">{t("qa.highlighted")}</span>}
+              {kind === "audience_qa" && question.status === "pinned" && <span className="question-status">{t("audienceQa.current")}</span>}
+              {kind === "audience_qa" && question.status === "answered" && <span className="question-status">{t("audienceQa.answered")}</span>}
+              {kind === "audience_qa" && question.status === "hidden" && <span className="question-status">{t("audienceQa.hidden")}</span>}
+              <p>{question.body}</p>
+              <small>{t("qa.votes", { count: question.votes })}</small>
+            </div>
+            {question.display_name && <small className="question-author">— {question.display_name}</small>}
+            <div className="question-actions">
+              {kind === "audience_qa" ? archived ? (
+                <button disabled={busy} onClick={() => updateQuestion(question.id, "visible")}>{t("qa.restore")}</button>
+              ) : <>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("audienceQa.unpin") : t("audienceQa.pin")}</button>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, "answered")}>{t("audienceQa.markAnswered")}</button>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, "hidden")}>{t("qa.hide")}</button>
+              </> : <>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "highlighted" ? "visible" : "highlighted")}>{question.status === "highlighted" ? t("qa.unhighlight") : t("qa.highlight")}</button>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.unlowlight") : t("qa.lowlight")}</button>
+                <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
+              </>}
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
 }
 
 type RemoteError =
@@ -203,33 +251,22 @@ export function RemoteApp({ t }: { t: Translate }) {
         {snapshot.current_cue_run?.interactions.length ? snapshot.current_cue_run.interactions.map((interaction) => {
           const aggregate = aggregateFor(live, interaction.id);
           const showPrompt = (snapshot.current_cue_run?.interactions.length ?? 0) > 1;
+          const interactionQuestions = questionsForInteraction(liveQuestions, interaction.id);
+          const questionInteraction = interaction.interaction_type === "qa"
+            || interaction.interaction_type === "audience_qa";
           return (
             <article className="remote-interaction" key={interaction.id}>
               {showPrompt && <h3>{interaction.prompt}</h3>}
-              {interaction.interaction_type === "qa" ? (
-                liveQuestions.length
-                  ? (
-                    <div className="question-list">
-                      {liveQuestions.map((question) => (
-                        <article className={`question-card question-${question.status}${question.display_name ? " question-card-signed" : ""}`} key={question.id}>
-                          <div>
-                            {question.status === "pinned" && <span className="question-status">{t("qa.pinned")}</span>}
-                            {question.status === "highlighted" && <span className="question-status">{t("qa.highlighted")}</span>}
-                            <p>{question.body}</p>
-                            <small>{t("qa.votes", { count: question.votes })}</small>
-                          </div>
-                          {question.display_name && <small className="question-author">— {question.display_name}</small>}
-                          <div className="question-actions">
-                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
-                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "highlighted" ? "visible" : "highlighted")}>{question.status === "highlighted" ? t("qa.unhighlight") : t("qa.highlight")}</button>
-                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.unlowlight") : t("qa.lowlight")}</button>
-                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  )
-                  : <p className="remote-empty">{t("qa.empty")}</p>
+              {questionInteraction ? (
+                interactionQuestions.length
+                  ? <RemoteQuestionList
+                      t={t}
+                      questions={interactionQuestions}
+                      kind={interaction.interaction_type as "qa" | "audience_qa"}
+                      busy={busy}
+                      updateQuestion={updateQuestion}
+                    />
+                  : <p className="remote-empty">{t(interaction.interaction_type === "audience_qa" ? "audienceQa.empty" : "qa.empty")}</p>
               ) : aggregate ? (
                 <RemoteAggregate
                   t={t}

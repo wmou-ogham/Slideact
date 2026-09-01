@@ -3,7 +3,13 @@ import type { Cue, Interaction } from "../types";
 
 export function typeName(t: Translate, type: Interaction["interaction_type"]) {
   return t(
-    `interaction.${type === "single_choice" ? "choice" : type === "word_cloud" ? "wordCloud" : type}`,
+    `interaction.${type === "single_choice"
+      ? "choice"
+      : type === "word_cloud"
+        ? "wordCloud"
+        : type === "audience_qa"
+          ? "audienceQa"
+          : type}`,
   );
 }
 
