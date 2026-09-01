@@ -355,13 +355,13 @@ html[data-focus-modality="keyboard"] .canvas-option input:focus-visible { box-sh
 .canvas-sticky-compose { display: grid; place-items: center; align-content: center; gap: 7px; color: #675919; border-style: dashed; text-align: center; }
 .canvas-sticky-compose i { display: grid; width: 28px; height: 28px; place-items: center; color: #fff; background: #335cff; border-radius: 50%; font-size: 18px; font-style: normal; }
 .canvas-audience-qa { display: grid; min-height: 0; margin-top: auto; padding: 5px 2px 15px; grid-template-rows: minmax(0, 1fr) auto; gap: clamp(7px, 1vw, 12px); flex: 1; }
-.canvas-current-question { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr; gap: 5px 10px; min-height: 0; padding: clamp(12px, 1.7vw, 22px); align-content: center; background: #e8f1ff; border: 1px solid #9db6da; border-left: 5px solid #335cff; border-radius: 10px; box-shadow: 0 8px 20px rgba(51,92,255,.1); }
+.canvas-current-question { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr; gap: 5px 10px; min-height: 0; padding: clamp(12px, 1.7vw, 22px); align-content: center; color: #332e1c; background: #fff0a6; border: 2px solid #171717; border-left: 6px solid #335cff; border-radius: 2px; box-shadow: 4px 5px 0 #171717; }
 .canvas-current-question small { grid-column: 1 / -1; color: #335cff; font-size: clamp(7px, .75vw, 10px); font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
-.canvas-current-question strong { align-self: center; font-family: Georgia, serif; font-size: clamp(14px, 2vw, 28px); font-weight: 500; line-height: 1.12; }
-.canvas-current-question span { align-self: end; padding: 6px 8px; color: #fff; background: #335cff; border-radius: 8px; font-size: clamp(7px, .75vw, 10px); font-weight: 800; }
+.canvas-current-question strong { align-self: center; font-family: "Arial Black", Inter, sans-serif; font-size: clamp(14px, 2vw, 28px); font-weight: 900; line-height: 1.12; }
+.canvas-current-question span { align-self: end; padding: 2px 0; color: #665d36; background: transparent; font-size: clamp(8px, .85vw, 12px); font-weight: 850; }
 .canvas-question-queue { display: grid; grid-template-columns: auto repeat(2, minmax(0, 1fr)); gap: 6px; align-items: center; }
 .canvas-question-queue small { color: var(--muted); font-size: clamp(7px, .7vw, 9px); font-weight: 800; }
-.canvas-question-queue i { padding: clamp(7px, .8vw, 10px); overflow: hidden; color: #42515d; background: #f6f8fa; border: 1px solid #dce2e7; border-radius: 7px; font-size: clamp(7px, .75vw, 10px); font-style: normal; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-question-queue i { padding: clamp(7px, .8vw, 10px); overflow: hidden; color: #332e1c; background: #fff9e7; border: 2px solid #171717; border-radius: 2px; box-shadow: 2px 2px 0 #171717; font-size: clamp(7px, .75vw, 10px); font-style: normal; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .qa-response-help { padding: 10px 12px; color: #675919; background: #fff4b8; border: 1px solid #dccb7b; border-radius: 3px; }
 .interaction-inspector { display: flex; min-width: 0; min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; flex-direction: column; background: #fffdf9; border-left: 1px solid var(--line); }
 .interaction-inspector > header, .interaction-inspector > .inspector-section, .interaction-inspector > .inspector-actions { flex: 0 0 auto; }
