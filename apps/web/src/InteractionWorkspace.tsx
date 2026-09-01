@@ -308,15 +308,7 @@ export function InteractionWorkspace({
               }}
             />
             <span className="checkbox-mark" aria-hidden="true">✓</span>
-            <span><strong>{t(type === "qa"
-              ? "interaction.qaBackgroundQuestion"
-              : type === "audience_qa"
-                ? "interaction.audienceQaBackgroundQuestion"
-                : "interaction.backgroundQuestion")}</strong><small>{t(type === "qa"
-              ? "interaction.qaBackgroundQuestionHelp"
-              : type === "audience_qa"
-                ? "interaction.audienceQaBackgroundQuestionHelp"
-                : "interaction.backgroundQuestionHelp")}</small></span>
+            <span><strong>{t("interaction.backgroundQuestion")}</strong><small>{t("interaction.backgroundQuestionHelp")}</small></span>
           </label>
           <label className={`visibility-checkbox${backgroundQuestion ? " disabled" : ""}`}>
             <input
@@ -406,7 +398,7 @@ function InteractionCanvasBody({ t, type, options, updateOption, removeOption, a
         <div className="canvas-current-question">
           <small>{t("audienceQa.current")}</small>
           <strong>{t("audienceQa.previewCurrent")}</strong>
-          <span>＋1&nbsp;&nbsp;12</span>
+          <span>👍&nbsp;&nbsp;12</span>
         </div>
         <div className="canvas-question-queue">
           <small>{t("audienceQa.waiting", { count: 2 })}</small>

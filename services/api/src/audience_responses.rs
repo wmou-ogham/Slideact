@@ -85,10 +85,10 @@ async fn submit_response(
         .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?;
-    let interaction = sqlx::query_as::<_, (String, String, i64, Value)>(
+    let interaction = sqlx::query_as::<_, (String, String, String, i64, Value)>(
         r#"
-        SELECT interactions.interaction_type, cue_runs.state, live_sessions.state_version,
-               interactions.settings
+        SELECT interactions.interaction_type, live_sessions.status, cue_runs.state,
+               live_sessions.state_version, interactions.settings
         FROM interactions
         JOIN cues ON cues.id = interactions.cue_id
         JOIN cue_runs ON cue_runs.cue_id = cues.id
@@ -106,14 +106,14 @@ async fn submit_response(
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ApiError::not_found("interaction_not_found"))?;
-    if interaction.1 != "open" {
+    if interaction.1 != "live" || interaction.2 != "open" {
         return Err(ApiError::conflict("interaction_not_open"));
     }
     let payload = validate_payload(
         &mut transaction,
         interaction_id,
         &interaction.0,
-        &interaction.3,
+        &interaction.4,
         &request.payload,
     )
     .await?;
@@ -138,7 +138,7 @@ async fn submit_response(
         &mut transaction,
         ResponseRuleContext {
             interaction_type: &interaction.0,
-            settings: &interaction.3,
+            settings: &interaction.4,
             cue_run_id: request.cue_run_id,
             interaction_id,
             participant_id,
@@ -150,7 +150,7 @@ async fn submit_response(
     let submission_index = next_submission_index(
         &mut transaction,
         &interaction.0,
-        &interaction.3,
+        &interaction.4,
         request.cue_run_id,
         interaction_id,
         participant_id,
@@ -218,7 +218,7 @@ async fn submit_response(
             "cue_run_id": request.cue_run_id,
             "interaction_id": interaction_id,
         });
-        let audience_event = if results_are_public(&interaction.3, &interaction.1) {
+        let audience_event = if results_are_public(&interaction.4, &interaction.2) {
             full_event.clone()
         } else {
             invalidation_event
@@ -226,7 +226,7 @@ async fn submit_response(
         emit_event_to_topics(
             &mut transaction,
             actor.session_id,
-            u64::try_from(interaction.2)
+            u64::try_from(interaction.3)
                 .map_err(|_| ApiError::internal("state_version_invalid"))?,
             [
                 ("presenter", full_event),

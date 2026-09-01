@@ -176,6 +176,7 @@ async fn toggle_question_vote(
         JOIN cue_runs ON cue_runs.id = questions.cue_run_id
         JOIN live_sessions ON live_sessions.id = cue_runs.session_id
         WHERE questions.id = $1 AND live_sessions.id = $2
+          AND live_sessions.status = 'live' AND cue_runs.state = 'open'
           AND questions.status IN ('visible', 'pinned', 'highlighted', 'answered')
         FOR UPDATE OF questions
         "#,
@@ -412,7 +413,8 @@ async fn open_question_interaction(
         FROM cue_runs
         JOIN live_sessions ON live_sessions.id = cue_runs.session_id
         JOIN interactions ON interactions.cue_id = cue_runs.cue_id
-        WHERE cue_runs.id = $1 AND live_sessions.id = $2 AND cue_runs.state = 'open'
+        WHERE cue_runs.id = $1 AND live_sessions.id = $2
+          AND live_sessions.status = 'live' AND cue_runs.state = 'open'
           AND interactions.interaction_type IN ('qa', 'audience_qa')
           AND ($3::UUID IS NULL OR interactions.id = $3)
         ORDER BY CASE interactions.interaction_type WHEN 'qa' THEN 0 ELSE 1 END,

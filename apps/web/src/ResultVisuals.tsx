@@ -133,12 +133,20 @@ function QuestionVote({ t, question, busy, onVote }: {
       onClick={() => onVote(question.id)}
       aria-label={t("qa.votes", { count: question.votes })}
     >
-      <b>＋1</b>{question.votes}
+      <ThumbIcon /><b>{question.votes}</b>
     </button>
   ) : (
     <span className="question-vote question-vote-static" aria-label={t("qa.votes", { count: question.votes })}>
-      <b>＋1</b>{question.votes}
+      <ThumbIcon /><b>{question.votes}</b>
     </span>
+  );
+}
+
+function ThumbIcon() {
+  return (
+    <svg className="question-vote-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M8 10.25 11.35 3.8a1.7 1.7 0 0 1 3.2.92v4.03h3.9a2 2 0 0 1 1.94 2.49l-1.57 6.2a2.5 2.5 0 0 1-2.42 1.88H8m0-9.07v9.07m0-9.07H5a1.4 1.4 0 0 0-1.4 1.4v6.27A1.4 1.4 0 0 0 5 19.32h3" />
+    </svg>
   );
 }
 
