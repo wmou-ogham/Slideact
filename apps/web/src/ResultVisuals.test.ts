@@ -2,13 +2,45 @@ import { describe, expect, it } from "vitest";
 
 import {
   type PositionedWordCloudGlyph,
+  questionCardLayout,
   reflowWordCloudAroundPinned,
   restoreMissingWordCloudWords,
+  visibleProjectionQuestions,
   wordCloudDensityScale,
   wordCloudFloatingTexts,
   wordCloudLayoutSignature,
   wordCloudWordsOverlap,
 } from "./ResultVisuals";
+import type { Question } from "./types";
+
+function question(body: string, status: Question["status"] = "visible"): Question {
+  return {
+    id: `${status}-${body}`,
+    cue_run_id: "run-1",
+    body,
+    display_name: null,
+    status,
+    votes: 0,
+    voted_by_me: false,
+    created_at: "2026-09-01T00:00:00Z",
+  };
+}
+
+describe("question projection layout", () => {
+  it("shrinks long questions before promoting them to a two-column card", () => {
+    expect(questionCardLayout("短問題")).toBe("regular");
+    expect(questionCardLayout("中".repeat(27))).toBe("condensed");
+    expect(questionCardLayout("長".repeat(49))).toBe("compact");
+    expect(questionCardLayout("超".repeat(85))).toBe("wide");
+  });
+
+  it("keeps hidden questions out of the projection while retaining moderated states", () => {
+    const visible = question("Visible");
+    const answered = question("Answered", "answered");
+    const hidden = question("Hidden", "hidden");
+    expect(visibleProjectionQuestions([visible, hidden, answered])).toEqual([visible, answered]);
+  });
+});
 
 function word(text: string, x: number, y: number, size = 40): PositionedWordCloudGlyph {
   return { text, x, y, size, rotate: 0 };

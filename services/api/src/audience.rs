@@ -26,6 +26,7 @@ struct JoinRequest {
     join_code: String,
     locale: String,
     participant_key: Option<String>,
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -65,6 +66,7 @@ async fn join(
         }
         None => random_token(),
     };
+    let display_name = normalize_display_name(request.display_name.as_deref())?;
 
     let mut transaction = state.database.begin().await.map_err(persistence_error)?;
     let session = sqlx::query_as::<_, (Uuid, i64)>(
@@ -84,6 +86,7 @@ async fn join(
         session.0,
         &participant_key,
         &request.locale,
+        display_name.as_deref(),
     )
     .await?;
     let token = random_token();
@@ -150,13 +153,16 @@ async fn upsert_participant(
     session_id: Uuid,
     participant_key: &str,
     locale: &str,
+    display_name: Option<&str>,
 ) -> Result<Uuid, ApiError> {
     sqlx::query_scalar::<_, Uuid>(
         r#"
-        INSERT INTO participants (id, session_id, anonymous_key_hash, locale)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO participants (id, session_id, anonymous_key_hash, locale, display_name)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (session_id, anonymous_key_hash)
-        DO UPDATE SET locale = EXCLUDED.locale, last_seen_at = NOW()
+        DO UPDATE SET locale = EXCLUDED.locale,
+                      display_name = EXCLUDED.display_name,
+                      last_seen_at = NOW()
         RETURNING id
         "#,
     )
@@ -164,6 +170,7 @@ async fn upsert_participant(
     .bind(session_id)
     .bind(hash_secret(participant_key))
     .bind(locale)
+    .bind(display_name)
     .fetch_one(&mut **transaction)
     .await
     .map_err(persistence_error)
@@ -198,6 +205,20 @@ fn validate_participant_key(key: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn normalize_display_name(value: Option<&str>) -> Result<Option<String>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.chars().count() > 40 || value.chars().any(char::is_control) {
+        return Err(ApiError::bad_request("display_name_invalid"));
+    }
+    Ok(Some(value))
+}
+
 fn persistence_error(error: sqlx::Error) -> ApiError {
     warn!(%error, "audience join persistence operation failed");
     ApiError::internal("audience_join_failed")
@@ -205,7 +226,7 @@ fn persistence_error(error: sqlx::Error) -> ApiError {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_join_code, validate_participant_key};
+    use super::{normalize_display_name, normalize_join_code, validate_participant_key};
 
     #[test]
     fn join_codes_accept_numeric_and_grandfathered_live_formats() {
@@ -219,5 +240,16 @@ mod tests {
     fn participant_keys_use_url_safe_256_bit_tokens() {
         assert!(validate_participant_key("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").is_ok());
         assert!(validate_participant_key("too-short").is_err());
+    }
+
+    #[test]
+    fn display_names_are_optional_normalized_and_bounded() {
+        assert_eq!(normalize_display_name(None).unwrap(), None);
+        assert_eq!(normalize_display_name(Some("   ")).unwrap(), None);
+        assert_eq!(
+            normalize_display_name(Some("  Ada\nLovelace  ")).unwrap(),
+            Some("Ada Lovelace".to_owned())
+        );
+        assert!(normalize_display_name(Some(&"a".repeat(41))).is_err());
     }
 }

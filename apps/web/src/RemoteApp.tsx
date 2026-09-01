@@ -211,17 +211,18 @@ export function RemoteApp({ t }: { t: Translate }) {
                   ? (
                     <div className="question-list">
                       {liveQuestions.map((question) => (
-                        <article className={`question-card question-${question.status}`} key={question.id}>
+                        <article className={`question-card question-${question.status}${question.display_name ? " question-card-signed" : ""}`} key={question.id}>
                           <div>
-                            {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
-                            {question.status === "highlighted" && <span>{t("qa.highlighted")}</span>}
+                            {question.status === "pinned" && <span className="question-status">{t("qa.pinned")}</span>}
+                            {question.status === "highlighted" && <span className="question-status">{t("qa.highlighted")}</span>}
                             <p>{question.body}</p>
                             <small>{t("qa.votes", { count: question.votes })}</small>
                           </div>
+                          {question.display_name && <small className="question-author">— {question.display_name}</small>}
                           <div className="question-actions">
                             <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "pinned" ? "visible" : "pinned")}>{question.status === "pinned" ? t("qa.unpin") : t("qa.pin")}</button>
                             <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "highlighted" ? "visible" : "highlighted")}>{question.status === "highlighted" ? t("qa.unhighlight") : t("qa.highlight")}</button>
-                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.restore") : t("qa.markAnswered")}</button>
+                            <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "answered" ? "visible" : "answered")}>{question.status === "answered" ? t("qa.unlowlight") : t("qa.lowlight")}</button>
                             <button disabled={busy} onClick={() => updateQuestion(question.id, question.status === "hidden" ? "visible" : "hidden")}>{question.status === "hidden" ? t("qa.restore") : t("qa.hide")}</button>
                           </div>
                         </article>

@@ -54,7 +54,7 @@ export function OverlayApp({ t }: { t: Translate }) {
             <article className="overlay-interaction" key={interaction.id}>
               <h1>{interaction.prompt}</h1>
               {interaction.interaction_type === "qa"
-                ? resultsVisible && pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}>{pinnedQuestion.status === "pinned" && <span>{t("qa.pinned")}</span>}<p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>
+                ? resultsVisible && pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}><p>{pinnedQuestion.body}</p>{pinnedQuestion.display_name && <small className="overlay-question-author">— {pinnedQuestion.display_name}</small>}<small className="overlay-question-votes">{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>
                 : aggregate
                   ? <AggregateBars t={t} aggregate={aggregate} />
                   : !multi && <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}

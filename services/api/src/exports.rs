@@ -67,6 +67,7 @@ struct InteractionResult {
 struct QuestionResult {
     id: Uuid,
     body: String,
+    display_name: Option<String>,
     status: String,
     votes: i64,
     created_at: String,
@@ -149,22 +150,25 @@ async fn session_results(
     .fetch_all(&state.database)
     .await
     .map_err(persistence_error)?;
-    let question_rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, i64, String)>(
-        r#"
-        SELECT questions.cue_run_id, questions.id, questions.body, questions.status,
+    let question_rows =
+        sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String, i64, String)>(
+            r#"
+        SELECT questions.cue_run_id, questions.id, questions.body, participants.display_name,
+               questions.status,
                COUNT(question_votes.participant_id), questions.created_at::TEXT
         FROM questions
         JOIN cue_runs ON cue_runs.id = questions.cue_run_id
+        JOIN participants ON participants.id = questions.participant_id
         LEFT JOIN question_votes ON question_votes.question_id = questions.id
         WHERE cue_runs.session_id = $1
-        GROUP BY questions.id
+        GROUP BY questions.id, participants.display_name
         ORDER BY questions.created_at, questions.id
         "#,
-    )
-    .bind(session_id)
-    .fetch_all(&state.database)
-    .await
-    .map_err(persistence_error)?;
+        )
+        .bind(session_id)
+        .fetch_all(&state.database)
+        .await
+        .map_err(persistence_error)?;
     let mut interactions: HashMap<Uuid, Vec<InteractionResult>> = HashMap::new();
     for row in interaction_rows {
         interactions
@@ -182,9 +186,10 @@ async fn session_results(
         questions.entry(row.0).or_default().push(QuestionResult {
             id: row.1,
             body: row.2,
-            status: row.3,
-            votes: row.4,
-            created_at: row.5,
+            display_name: row.3,
+            status: row.4,
+            votes: row.5,
+            created_at: row.6,
         });
     }
     let cue_runs = run_rows

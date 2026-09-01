@@ -86,6 +86,29 @@ describe("rememberCueLive", () => {
     if (interaction) interaction.prompt = "Updated prompt";
     expect(rememberCueLive(cache, refreshed).aggregates).toEqual([]);
   });
+
+  it("does not revive a question after moderation hides the final visible card", () => {
+    const cache: Record<string, LiveView> = {};
+    const populated = view("revealed", { background_question: false, publish_results: true });
+    populated.questions = [{
+      id: "question-1",
+      cue_run_id: "run-1",
+      body: "Please explain this",
+      display_name: null,
+      status: "visible",
+      votes: 1,
+      voted_by_me: false,
+      created_at: "2026-09-01T00:00:00Z",
+    }];
+    rememberCueLive(cache, populated);
+
+    const moderated = rememberCueLive(
+      cache,
+      view("revealed", { background_question: false, publish_results: true }),
+    );
+
+    expect(moderated.questions).toEqual([]);
+  });
 });
 
 describe("live refresh ordering", () => {

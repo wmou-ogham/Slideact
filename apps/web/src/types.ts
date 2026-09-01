@@ -95,6 +95,7 @@ export type SessionResults = {
     questions: Array<{
       id: string;
       body: string;
+      display_name: string | null;
       status: string;
       votes: number;
       created_at: string;
@@ -146,6 +147,7 @@ export type Question = {
   id: string;
   cue_run_id: string;
   body: string;
+  display_name: string | null;
   status: "pending" | "visible" | "answered" | "hidden" | "pinned" | "highlighted";
   votes: number;
   voted_by_me: boolean;

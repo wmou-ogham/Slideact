@@ -70,7 +70,10 @@ export function rememberCueLive(cache: Record<string, LiveView>, live: LiveView)
   return {
     ...live,
     aggregates: remembered.aggregates,
-    questions: live.questions.length ? live.questions : remembered.questions,
+    // An empty question list can be an intentional moderation result (for
+    // example, when the final visible question is hidden). Never revive old
+    // questions while smoothing a transient aggregate refresh.
+    questions: live.questions,
   };
 }
 

@@ -167,7 +167,7 @@ export function InteractionWorkspace({
           <div className={`interaction-canvas canvas-type-${type}`}>
             <span className={`type-badge type-${type}`}>{typeName(t, type)}</span>
             <label className="canvas-title-field">
-              <span>{t("interaction.promptLabel")}</span>
+              <span>{t(type === "qa" ? "interaction.qaPromptLabel" : "interaction.promptLabel")}</span>
               <textarea
                 name="prompt"
                 required
@@ -175,7 +175,7 @@ export function InteractionWorkspace({
                 rows={2}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                placeholder={t("interaction.promptPlaceholder")}
+                placeholder={t(type === "qa" ? "interaction.qaPromptPlaceholder" : "interaction.promptPlaceholder")}
               />
             </label>
             <InteractionCanvasBody
@@ -194,7 +194,7 @@ export function InteractionWorkspace({
             <span>{t("interaction.createHintCopy")}</span>
           </div>}
         </div>
-        <p className="canvas-help">{t("interaction.canvasHelp")}</p>
+        <p className="canvas-help">{t(type === "qa" ? "interaction.qaCanvasHelp" : "interaction.canvasHelp")}</p>
       </section>
 
       <aside className="interaction-inspector">
@@ -276,6 +276,7 @@ export function InteractionWorkspace({
               <span><strong>{t("interaction.allowDuplicate")}</strong><small>{t("interaction.allowDuplicateHelp")}</small></span>
             </label>
           </>}
+          {type === "qa" && <p className="inspector-section-help qa-response-help">{t("interaction.qaResponseHelp")}</p>}
         </section>
 
         <section className="inspector-section">
@@ -293,7 +294,7 @@ export function InteractionWorkspace({
               }}
             />
             <span className="checkbox-mark" aria-hidden="true">✓</span>
-            <span><strong>{t("interaction.backgroundQuestion")}</strong><small>{t("interaction.backgroundQuestionHelp")}</small></span>
+            <span><strong>{t(type === "qa" ? "interaction.qaBackgroundQuestion" : "interaction.backgroundQuestion")}</strong><small>{t(type === "qa" ? "interaction.qaBackgroundQuestionHelp" : "interaction.backgroundQuestionHelp")}</small></span>
           </label>
           <label className={`visibility-checkbox${backgroundQuestion ? " disabled" : ""}`}>
             <input
@@ -304,7 +305,7 @@ export function InteractionWorkspace({
               onChange={(event) => setPublishResults(event.target.checked)}
             />
             <span className="checkbox-mark" aria-hidden="true">✓</span>
-            <span><strong>{t("interaction.publishLive")}</strong><small>{t("interaction.publishLiveHelp")}</small></span>
+            <span><strong>{t(type === "qa" ? "interaction.qaPublishLive" : "interaction.publishLive")}</strong><small>{t(type === "qa" ? "interaction.qaPublishLiveHelp" : "interaction.publishLiveHelp")}</small></span>
           </label>
         </section>
 
@@ -362,8 +363,9 @@ function InteractionCanvasBody({ t, type, options, updateOption, removeOption, a
   if (type === "qa") {
     return (
       <div className="canvas-qa" aria-hidden="true">
-        <div><i />{t("qa.placeholder")}</div>
-        <div><i />{t("interaction.qaPreviewQuestion")}</div>
+        <div className="canvas-sticky-note canvas-sticky-compose"><i>＋</i><span>{t("qa.ask")}</span></div>
+        <div className="canvas-sticky-note"><span>{t("qa.placeholder")}</span></div>
+        <div className="canvas-sticky-note"><span>{t("interaction.qaPreviewQuestion")}</span></div>
       </div>
     );
   }

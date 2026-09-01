@@ -90,6 +90,7 @@ function questionsFromRun(run: SessionResults["cue_runs"][number]): Question[] {
     id: question.id,
     cue_run_id: run.id,
     body: question.body,
+    display_name: question.display_name,
     status: question.status as Question["status"],
     votes: question.votes,
     voted_by_me: false,

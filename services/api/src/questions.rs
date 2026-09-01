@@ -25,6 +25,7 @@ pub(crate) struct QuestionView {
     id: Uuid,
     cue_run_id: Uuid,
     body: String,
+    display_name: Option<String>,
     status: String,
     votes: i64,
     voted_by_me: bool,
@@ -92,6 +93,14 @@ async fn create_question(
     let state_version =
         open_qa_state_version(&mut transaction, actor.session_id, request.cue_run_id).await?;
     let id = Uuid::new_v4();
+    let display_name = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT display_name FROM participants WHERE id = $1 AND session_id = $2",
+    )
+    .bind(participant_id)
+    .bind(actor.session_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
     let created_at = sqlx::query_scalar::<_, String>(
         r#"
         INSERT INTO questions (id, cue_run_id, participant_id, body, status)
@@ -121,6 +130,7 @@ async fn create_question(
             id,
             cue_run_id: request.cue_run_id,
             body,
+            display_name,
             status: "visible".to_owned(),
             votes: 0,
             voted_by_me: false,
@@ -262,6 +272,18 @@ async fn update_question(
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ApiError::not_found("question_not_found"))?;
+    let display_name = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT participants.display_name
+        FROM questions
+        JOIN participants ON participants.id = questions.participant_id
+        WHERE questions.id = $1
+        "#,
+    )
+    .bind(question_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
     let votes =
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM question_votes WHERE question_id = $1")
             .bind(question_id)
@@ -287,6 +309,7 @@ async fn update_question(
         id: question_id,
         cue_run_id: row.0,
         body: row.1,
+        display_name,
         status: row.2,
         votes,
         voted_by_me: false,
@@ -300,19 +323,33 @@ pub(crate) async fn load_questions(
     participant_id: Option<Uuid>,
     include_hidden: bool,
 ) -> Result<Vec<QuestionView>, ApiError> {
-    sqlx::query_as::<_, (Uuid, Uuid, String, String, i64, bool, String)>(
+    sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            String,
+            Option<String>,
+            String,
+            i64,
+            bool,
+            String,
+        ),
+    >(
         r#"
-        SELECT questions.id, questions.cue_run_id, questions.body, questions.status,
+        SELECT questions.id, questions.cue_run_id, questions.body, participants.display_name,
+               questions.status,
                COUNT(question_votes.participant_id),
                COALESCE(BOOL_OR(question_votes.participant_id = $2), FALSE),
                questions.created_at::TEXT
         FROM questions
         JOIN cue_runs ON cue_runs.id = questions.cue_run_id
+        JOIN participants ON participants.id = questions.participant_id
         LEFT JOIN question_votes ON question_votes.question_id = questions.id
         WHERE cue_runs.session_id = $1
           AND cue_runs.id = (SELECT current_cue_run_id FROM live_sessions WHERE id = $1)
           AND ($3 OR questions.status IN ('visible', 'pinned', 'highlighted', 'answered'))
-        GROUP BY questions.id
+        GROUP BY questions.id, participants.display_name
         -- Highlight is presentation-only: it must not move a question in the
         -- audience's vote/time ordering.
         ORDER BY (questions.status = 'pinned') DESC,
@@ -332,10 +369,11 @@ pub(crate) async fn load_questions(
                 id: row.0,
                 cue_run_id: row.1,
                 body: row.2,
-                status: row.3,
-                votes: row.4,
-                voted_by_me: row.5,
-                created_at: row.6,
+                display_name: row.3,
+                status: row.4,
+                votes: row.5,
+                voted_by_me: row.6,
+                created_at: row.7,
             })
             .collect()
     })
