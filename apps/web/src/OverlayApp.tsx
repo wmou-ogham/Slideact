@@ -8,7 +8,11 @@ import {
 } from "./lib/liveSession";
 import { projectionInteractionIsVisible, projectionInteractionShowsResults } from "./lib/interactions";
 import { ProjectionJoinQr } from "./ProjectionApp";
-import { AggregateBars } from "./ResultVisuals";
+import {
+  AggregateBars,
+  audienceQuestionQueue,
+  questionsForInteraction,
+} from "./ResultVisuals";
 
 export function OverlayApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
@@ -38,8 +42,6 @@ export function OverlayApp({ t }: { t: Translate }) {
   if (!cueRun) return <main className="overlay-root overlay-minimal"><div className="overlay-code"><small>{t("projection.waiting")}</small><strong>{live.snapshot.join_code}</strong></div></main>;
   const interactions = cueRun.interactions.filter(projectionInteractionIsVisible);
   if (cueRun.state === "ready") return <main className="overlay-root"><section className="overlay-card"><div className="overlay-meta"><span>{t("status.ready")}</span><strong>{live.snapshot.join_code}</strong></div>{interactions.length > 0 && <h1>{interactions[0]?.prompt ?? cueRun.cue_name}</h1>}</section></main>;
-  const pinnedQuestion = live.questions.find((question) => question.status === "pinned")
-    ?? live.questions.find((question) => question.status === "highlighted");
   const multi = interactions.length > 1;
   return (
     <main className="overlay-root">
@@ -47,6 +49,10 @@ export function OverlayApp({ t }: { t: Translate }) {
         <div className="overlay-meta"><span>LIVE · {live.audience_count}</span><strong>{live.snapshot.join_code}</strong></div>
         {interactions.map((interaction) => {
           const resultsVisible = projectionInteractionShowsResults(interaction, cueRun.state);
+          const interactionQuestions = questionsForInteraction(live.questions, interaction.id);
+          const pinnedQuestion = interactionQuestions.find((question) => question.status === "pinned")
+            ?? interactionQuestions.find((question) => question.status === "highlighted");
+          const currentAudienceQuestion = audienceQuestionQueue(interactionQuestions).current;
           const aggregate = resultsVisible
             ? aggregateFor(live, interaction.id)
             : null;
@@ -54,7 +60,9 @@ export function OverlayApp({ t }: { t: Translate }) {
             <article className="overlay-interaction" key={interaction.id}>
               <h1>{interaction.prompt}</h1>
               {interaction.interaction_type === "qa"
-                ? resultsVisible && pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}>{pinnedQuestion.status === "pinned" && <span>{t("qa.pinned")}</span>}<p>{pinnedQuestion.body}</p><small>{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>
+                ? resultsVisible && pinnedQuestion && <div className={`overlay-question ${pinnedQuestion.status === "highlighted" ? "question-highlighted" : ""}`}><p>{pinnedQuestion.body}</p>{pinnedQuestion.display_name && <small className="overlay-question-author">— {pinnedQuestion.display_name}</small>}<small className="overlay-question-votes">{t("qa.votes", { count: pinnedQuestion.votes })}</small></div>
+                : interaction.interaction_type === "audience_qa"
+                  ? resultsVisible && currentAudienceQuestion && <div className="overlay-question overlay-audience-question"><p>{currentAudienceQuestion.body}</p>{currentAudienceQuestion.display_name && <small className="overlay-question-author">— {currentAudienceQuestion.display_name}</small>}<small className="overlay-question-votes">{t("qa.votes", { count: currentAudienceQuestion.votes })}</small></div>
                 : aggregate
                   ? <AggregateBars t={t} aggregate={aggregate} />
                   : !multi && <p>{cueRun.state === "open" ? t("overlay.collecting") : t("audience.closed")}</p>}

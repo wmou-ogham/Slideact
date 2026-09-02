@@ -91,6 +91,8 @@ pub enum RealtimeEvent {
         sync_mode: String,
         current_cue_run_id: Option<String>,
     },
+    #[serde(rename = "session.interface_theme_changed")]
+    SessionInterfaceThemeChanged { interface_theme: String },
     #[serde(rename = "cue.state_changed")]
     CueStateChanged { cue_run_id: String, state: String },
     #[serde(rename = "presentation.position_changed")]
@@ -134,6 +136,7 @@ impl RealtimeEvent {
     pub const fn event_type(&self) -> &'static str {
         match self {
             Self::SessionStateChanged { .. } => "session.state_changed",
+            Self::SessionInterfaceThemeChanged { .. } => "session.interface_theme_changed",
             Self::CueStateChanged { .. } => "cue.state_changed",
             Self::PresentationPositionChanged { .. } => "presentation.position_changed",
             Self::InteractionStateChanged { .. } => "interaction.state_changed",

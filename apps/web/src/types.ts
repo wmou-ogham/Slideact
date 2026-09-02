@@ -1,3 +1,5 @@
+import type { ProjectionTheme } from "./projectionTheme";
+
 export type Profile = {
   id: string;
   display_name: string;
@@ -32,7 +34,7 @@ export type Interaction = {
   id: string;
   cue_id: string;
   position: number;
-  interaction_type: "understanding" | "single_choice" | "word_cloud" | "qa";
+  interaction_type: "understanding" | "single_choice" | "word_cloud" | "qa" | "audience_qa";
   prompt: string;
   description: string | null;
   settings: Record<string, unknown>;
@@ -58,6 +60,7 @@ export type LiveSession = {
   status: "draft" | "lobby" | "live" | "paused" | "ended";
   locale: string;
   sync_mode: string;
+  interface_theme: ProjectionTheme;
   state_version: number;
   created_at: string;
   started_at: string | null;
@@ -91,7 +94,9 @@ export type SessionResults = {
     }>;
     questions: Array<{
       id: string;
+      interaction_id: string;
       body: string;
+      display_name: string | null;
       status: string;
       votes: number;
       created_at: string;
@@ -108,6 +113,7 @@ export type SessionSnapshot = {
   status: LiveSession["status"];
   locale: string;
   sync_mode: string;
+  interface_theme: ProjectionTheme;
   state_version: number;
   presentation_view: "join_qr" | "cue";
   current_cue_run: null | {
@@ -141,7 +147,9 @@ export type Aggregate = {
 export type Question = {
   id: string;
   cue_run_id: string;
+  interaction_id: string;
   body: string;
+  display_name: string | null;
   status: "pending" | "visible" | "answered" | "hidden" | "pinned" | "highlighted";
   votes: number;
   voted_by_me: boolean;

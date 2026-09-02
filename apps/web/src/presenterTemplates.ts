@@ -2,14 +2,15 @@ import type { Translate } from "./i18n";
 import type { Interaction } from "./types";
 
 export type TemplateKind = "teaching" | "lightning" | "demo";
-export type InteractionPurpose = "understanding" | "knowledge" | "opinions" | "questions" | "next" | "mood" | "priorities" | "ideas";
-export const interactionPurposes: InteractionPurpose[] = ["understanding", "knowledge", "opinions", "questions", "next", "mood", "priorities", "ideas"];
+export type InteractionPurpose = "understanding" | "knowledge" | "opinions" | "questions" | "audience_questions" | "next" | "mood" | "priorities" | "ideas";
+export const interactionPurposes: InteractionPurpose[] = ["understanding", "knowledge", "opinions", "questions", "audience_questions", "next", "mood", "priorities", "ideas"];
 
 const purposeTypes: Record<InteractionPurpose, Interaction["interaction_type"]> = {
   understanding: "understanding",
   knowledge: "single_choice",
   opinions: "single_choice",
   questions: "qa",
+  audience_questions: "audience_qa",
   next: "single_choice",
   mood: "word_cloud",
   priorities: "single_choice",

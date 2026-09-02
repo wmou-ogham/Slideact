@@ -19,11 +19,17 @@ export function useProjectionThemeValue() {
 
 type ThemeOptions = {
   applyToBody?: boolean;
+  broadcastChanges?: boolean;
+  persistChanges?: boolean;
+  syncExternal?: boolean;
   syncUrl?: boolean;
 };
 
 export function useProjectionTheme(options: ThemeOptions = {}) {
   const applyToBody = options.applyToBody ?? false;
+  const broadcastChanges = options.broadcastChanges ?? true;
+  const persistChanges = options.persistChanges ?? true;
+  const syncExternal = options.syncExternal ?? true;
   const syncUrl = options.syncUrl ?? false;
   const [theme, setThemeState] = useState<ProjectionTheme>(() => resolveProjectionTheme());
   const themeRef = useRef(theme);
@@ -35,20 +41,20 @@ export function useProjectionTheme(options: ThemeOptions = {}) {
       return;
     }
     setThemeState(next);
-    persistProjectionTheme(next);
+    if (persistChanges) persistProjectionTheme(next);
     if (broadcast) broadcastProjectionTheme(next);
-  }, []);
+  }, [persistChanges]);
 
   useEffect(() => {
     if (!applyToBody) return;
     document.body.classList.add("projection-body");
     document.body.dataset.projectionTheme = theme;
-    persistProjectionTheme(theme);
+    if (persistChanges) persistProjectionTheme(theme);
     return () => {
       document.body.classList.remove("projection-body");
       delete document.body.dataset.projectionTheme;
     };
-  }, [applyToBody, theme]);
+  }, [applyToBody, persistChanges, theme]);
 
   useEffect(() => {
     if (!syncUrl) return;
@@ -59,6 +65,7 @@ export function useProjectionTheme(options: ThemeOptions = {}) {
   }, [syncUrl, theme]);
 
   useEffect(() => {
+    if (!syncExternal) return;
     const onStorage = (event: StorageEvent) => {
       if (event.key !== PROJECTION_THEME_STORAGE_KEY) return;
       const next = parseProjectionTheme(event.newValue);
@@ -77,11 +84,11 @@ export function useProjectionTheme(options: ThemeOptions = {}) {
       window.removeEventListener("storage", onStorage);
       channel.close();
     };
-  }, [applyTheme]);
+  }, [applyTheme, syncExternal]);
 
   const setTheme = useCallback((next: ProjectionTheme) => {
-    applyTheme(next, true);
-  }, [applyTheme]);
+    applyTheme(next, broadcastChanges);
+  }, [applyTheme, broadcastChanges]);
 
   return [theme, setTheme] as const;
 }

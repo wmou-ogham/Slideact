@@ -167,7 +167,11 @@ export function InteractionWorkspace({
           <div className={`interaction-canvas canvas-type-${type}`}>
             <span className={`type-badge type-${type}`}>{typeName(t, type)}</span>
             <label className="canvas-title-field">
-              <span>{t("interaction.promptLabel")}</span>
+              <span>{t(type === "qa"
+                ? "interaction.qaPromptLabel"
+                : type === "audience_qa"
+                  ? "interaction.audienceQaPromptLabel"
+                  : "interaction.promptLabel")}</span>
               <textarea
                 name="prompt"
                 required
@@ -175,7 +179,11 @@ export function InteractionWorkspace({
                 rows={2}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                placeholder={t("interaction.promptPlaceholder")}
+                placeholder={t(type === "qa"
+                  ? "interaction.qaPromptPlaceholder"
+                  : type === "audience_qa"
+                    ? "interaction.audienceQaPromptPlaceholder"
+                    : "interaction.promptPlaceholder")}
               />
             </label>
             <InteractionCanvasBody
@@ -194,7 +202,11 @@ export function InteractionWorkspace({
             <span>{t("interaction.createHintCopy")}</span>
           </div>}
         </div>
-        <p className="canvas-help">{t("interaction.canvasHelp")}</p>
+        <p className="canvas-help">{t(type === "qa"
+          ? "interaction.qaCanvasHelp"
+          : type === "audience_qa"
+            ? "interaction.audienceQaCanvasHelp"
+            : "interaction.canvasHelp")}</p>
       </section>
 
       <aside className="interaction-inspector">
@@ -223,6 +235,7 @@ export function InteractionWorkspace({
               <option value="single_choice">{t("interaction.choice")}</option>
               <option value="word_cloud">{t("interaction.wordCloud")}</option>
               <option value="qa">{t("interaction.qa")}</option>
+              <option value="audience_qa">{t("interaction.audienceQa")}</option>
             </select>
           </label>
         </section>
@@ -276,6 +289,8 @@ export function InteractionWorkspace({
               <span><strong>{t("interaction.allowDuplicate")}</strong><small>{t("interaction.allowDuplicateHelp")}</small></span>
             </label>
           </>}
+          {type === "qa" && <p className="inspector-section-help qa-response-help">{t("interaction.qaResponseHelp")}</p>}
+          {type === "audience_qa" && <p className="inspector-section-help qa-response-help">{t("interaction.audienceQaResponseHelp")}</p>}
         </section>
 
         <section className="inspector-section">
@@ -304,7 +319,15 @@ export function InteractionWorkspace({
               onChange={(event) => setPublishResults(event.target.checked)}
             />
             <span className="checkbox-mark" aria-hidden="true">✓</span>
-            <span><strong>{t("interaction.publishLive")}</strong><small>{t("interaction.publishLiveHelp")}</small></span>
+            <span><strong>{t(type === "qa"
+              ? "interaction.qaPublishLive"
+              : type === "audience_qa"
+                ? "interaction.audienceQaPublishLive"
+                : "interaction.publishLive")}</strong><small>{t(type === "qa"
+              ? "interaction.qaPublishLiveHelp"
+              : type === "audience_qa"
+                ? "interaction.audienceQaPublishLiveHelp"
+                : "interaction.publishLiveHelp")}</small></span>
           </label>
         </section>
 
@@ -362,8 +385,26 @@ function InteractionCanvasBody({ t, type, options, updateOption, removeOption, a
   if (type === "qa") {
     return (
       <div className="canvas-qa" aria-hidden="true">
-        <div><i />{t("qa.placeholder")}</div>
-        <div><i />{t("interaction.qaPreviewQuestion")}</div>
+        <div className="canvas-sticky-note canvas-sticky-compose"><i>＋</i><span>{t("qa.ask")}</span></div>
+        <div className="canvas-sticky-note"><span>{t("qa.placeholder")}</span></div>
+        <div className="canvas-sticky-note"><span>{t("interaction.qaPreviewQuestion")}</span></div>
+      </div>
+    );
+  }
+
+  if (type === "audience_qa") {
+    return (
+      <div className="canvas-audience-qa" aria-hidden="true">
+        <div className="canvas-current-question">
+          <small>{t("audienceQa.current")}</small>
+          <strong>{t("audienceQa.previewCurrent")}</strong>
+          <span>👍&nbsp;&nbsp;12</span>
+        </div>
+        <div className="canvas-question-queue">
+          <small>{t("audienceQa.waiting", { count: 2 })}</small>
+          <i>{t("audienceQa.previewWaitingOne")}</i>
+          <i>{t("audienceQa.previewWaitingTwo")}</i>
+        </div>
       </div>
     );
   }

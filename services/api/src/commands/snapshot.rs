@@ -16,6 +16,8 @@ pub(crate) struct SessionSnapshot {
     pub(super) status: String,
     pub(super) locale: String,
     pub(super) sync_mode: String,
+    #[serde(default = "default_interface_theme")]
+    pub(super) interface_theme: String,
     pub(super) state_version: u64,
     #[serde(default = "default_presentation_view")]
     pub(super) presentation_view: String,
@@ -24,6 +26,10 @@ pub(crate) struct SessionSnapshot {
 
 fn default_presentation_view() -> String {
     "cue".to_owned()
+}
+
+fn default_interface_theme() -> String {
+    "lively".to_owned()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,7 +75,7 @@ impl SessionSnapshot {
     pub(crate) fn current_qa_is_live(&self) -> bool {
         self.current_cue_run.as_ref().is_some_and(|cue_run| {
             cue_run.interactions.iter().any(|interaction| {
-                interaction.interaction_type == "qa"
+                matches!(interaction.interaction_type.as_str(), "qa" | "audience_qa")
                     && results_are_public(&interaction.settings, &cue_run.state)
             })
         })
@@ -98,13 +104,14 @@ pub(super) async fn load_snapshot(
             String,
             String,
             String,
+            String,
             i64,
             Option<Uuid>,
             String,
         ),
     >(
         r#"
-        SELECT project_id, RTRIM(join_code), status, locale, sync_mode, state_version,
+        SELECT project_id, RTRIM(join_code), status, locale, sync_mode, interface_theme, state_version,
                current_cue_run_id, presentation_view
         FROM live_sessions WHERE id = $1
         "#,
@@ -114,7 +121,7 @@ pub(super) async fn load_snapshot(
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ApiError::not_found("session_not_found"))?;
-    let current_cue_run = match row.6 {
+    let current_cue_run = match row.7 {
         Some(cue_run_id) => Some(load_cue_snapshot(transaction, cue_run_id).await?),
         None => None,
     };
@@ -125,9 +132,10 @@ pub(super) async fn load_snapshot(
         status: row.2,
         locale: row.3,
         sync_mode: row.4,
-        state_version: u64::try_from(row.5)
+        interface_theme: row.5,
+        state_version: u64::try_from(row.6)
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
-        presentation_view: row.7,
+        presentation_view: row.8,
         current_cue_run,
     })
 }

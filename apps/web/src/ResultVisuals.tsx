@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
 
 import type { Translate } from "./i18n";
@@ -6,6 +6,52 @@ import { WORD_CLOUD_THEME } from "./projectionTheme";
 import { ProjectionHeading } from "./TypewriterText";
 import type { Aggregate, Question } from "./types";
 import { useProjectionThemeValue } from "./useProjectionTheme";
+
+export type QuestionCardLayout = "regular" | "condensed" | "compact" | "wide";
+
+export function questionCardLayout(body: string): QuestionCardLayout {
+  const length = [...body.trim()].length;
+  if (length > 84) return "wide";
+  if (length > 48) return "compact";
+  if (length > 26) return "condensed";
+  return "regular";
+}
+
+export function visibleProjectionQuestions(questions: Question[]) {
+  return questions.filter((question) => question.status !== "hidden");
+}
+
+export function questionsForInteraction(questions: Question[], interactionId: string) {
+  return questions.filter((question) => question.interaction_id === interactionId);
+}
+
+export function audienceQuestionQueue(questions: Question[]) {
+  const active = questions.filter((question) => !matchesQuestionStatus(question, "answered", "hidden"));
+  const current = active.find((question) => question.status === "pinned") ?? active[0] ?? null;
+  return {
+    current,
+    waiting: current ? active.filter((question) => question.id !== current.id) : [],
+  };
+}
+
+export function moderationQuestionOrder(questions: Question[]) {
+  const rank: Record<Question["status"], number> = {
+    pinned: 0,
+    visible: 1,
+    highlighted: 1,
+    hidden: 2,
+    pending: 2,
+    answered: 3,
+  };
+  return questions
+    .map((question, index) => ({ question, index }))
+    .sort((left, right) => rank[left.question.status] - rank[right.question.status] || left.index - right.index)
+    .map(({ question }) => question);
+}
+
+function matchesQuestionStatus(question: Question, ...statuses: Question["status"][]) {
+  return statuses.includes(question.status);
+}
 
 export function QuestionList({ t, questions, busy, onVote }: {
   t: Translate;
@@ -16,24 +62,91 @@ export function QuestionList({ t, questions, busy, onVote }: {
   if (!questions.length) return <p className="qa-empty">{t("qa.empty")}</p>;
   return (
     <div className="question-list">
-      {questions.map((question) => (
-        <article className={`question-card question-${question.status}`} key={question.id}>
-          <div>
-            {question.status === "pinned" && <span>{t("qa.pinned")}</span>}
-            <p>{question.body}</p>
-            {question.status === "answered" && <small>{t("qa.answered")}</small>}
-          </div>
-          <button
-            className={question.voted_by_me ? "question-vote selected" : "question-vote"}
-            disabled={busy || !onVote}
-            onClick={() => onVote?.(question.id)}
-            aria-label={t("qa.votes", { count: question.votes })}
-          >
-            <b>▲</b>{question.votes}
-          </button>
-        </article>
-      ))}
+      {questions.map((question) => {
+        const layout = questionCardLayout(question.body);
+        const signed = Boolean(question.display_name);
+        return (
+          <article className={`question-card question-${question.status} question-card-${layout}${signed ? " question-card-signed" : ""}`} key={question.id}>
+            <div>
+              {question.status === "pinned" && <span className="question-status">{t("qa.pinned")}</span>}
+              {question.status === "highlighted" && <span className="question-status">{t("qa.highlighted")}</span>}
+              <p>{question.body}</p>
+              {question.status === "answered" && <small className="question-status">{t("qa.answered")}</small>}
+            </div>
+            {question.display_name && <small className="question-author">— {question.display_name}</small>}
+            <QuestionVote t={t} question={question} busy={busy} onVote={onVote} />
+          </article>
+        );
+      })}
     </div>
+  );
+}
+
+export function AudienceQuestionBoard({ t, questions, busy, onVote }: {
+  t: Translate;
+  questions: Question[];
+  busy: boolean;
+  onVote?: (questionId: string) => Promise<void>;
+}) {
+  const { current, waiting } = audienceQuestionQueue(questions);
+  if (!current) return <p className="qa-empty">{t("audienceQa.empty")}</p>;
+  const visibleWaiting = waiting.slice(0, 3);
+  const currentLayout = questionCardLayout(current.body);
+  return (
+    <div className="audience-qa-board">
+      <article className={`audience-qa-current audience-qa-current-${currentLayout}${current.display_name ? " signed" : ""}`} key={current.id}>
+        <small className="audience-qa-section-label">{t("audienceQa.current")}</small>
+        <p>{current.body}</p>
+        {current.display_name && <small className="audience-qa-author">— {current.display_name}</small>}
+        <QuestionVote t={t} question={current} busy={busy} onVote={onVote} />
+      </article>
+      {waiting.length > 0 && <section className="audience-qa-waiting">
+        <header>
+          <strong>{t("audienceQa.waiting", { count: waiting.length })}</strong>
+          {waiting.length > visibleWaiting.length && <small>{t("audienceQa.more", { count: waiting.length - visibleWaiting.length })}</small>}
+        </header>
+        <div>
+          {visibleWaiting.map((question) => (
+            <article className={question.display_name ? "signed" : ""} key={question.id}>
+              <p>{question.body}</p>
+              {question.display_name && <small className="audience-qa-author">— {question.display_name}</small>}
+              <QuestionVote t={t} question={question} busy={busy} onVote={onVote} />
+            </article>
+          ))}
+        </div>
+      </section>}
+    </div>
+  );
+}
+
+function QuestionVote({ t, question, busy, onVote }: {
+  t: Translate;
+  question: Question;
+  busy: boolean;
+  onVote?: (questionId: string) => Promise<void>;
+}) {
+  return onVote ? (
+    <button
+      className={question.voted_by_me ? "question-vote selected" : "question-vote"}
+      disabled={busy}
+      type="button"
+      onClick={() => onVote(question.id)}
+      aria-label={t("qa.votes", { count: question.votes })}
+    >
+      <ThumbIcon /><b>{question.votes}</b>
+    </button>
+  ) : (
+    <span className="question-vote question-vote-static" aria-label={t("qa.votes", { count: question.votes })}>
+      <ThumbIcon /><b>{question.votes}</b>
+    </span>
+  );
+}
+
+function ThumbIcon() {
+  return (
+    <svg className="question-vote-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M8 10.25 11.35 3.8a1.7 1.7 0 0 1 3.2.92v4.03h3.9a2 2 0 0 1 1.94 2.49l-1.57 6.2a2.5 2.5 0 0 1-2.42 1.88H8m0-9.07v9.07m0-9.07H5a1.4 1.4 0 0 0-1.4 1.4v6.27A1.4 1.4 0 0 0 5 19.32h3" />
+    </svg>
   );
 }
 
@@ -84,13 +197,19 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
   const theme = useProjectionThemeValue();
   return (
     <div className="projection-visuals">
-      {interactions.map((interaction) => (
-        <article className="projection-interaction" key={interaction.id}>
+      {interactions.map((interaction) => {
+        const interactionQuestions = questionsForInteraction(questions, interaction.id);
+        const displayedQuestions = visibleProjectionQuestions(interactionQuestions);
+        return <article className={`projection-interaction projection-interaction-${interaction.interaction_type}`} key={interaction.id}>
           {multi && <h2><ProjectionHeading theme={theme} text={interaction.prompt} /></h2>}
           {interaction.interaction_type === "qa" ? (
-            interaction.results_visible !== false && questions.length
-              ? <div className="projection-questions"><QuestionList t={t} questions={questions} busy /></div>
+            interaction.results_visible !== false && displayedQuestions.length
+              ? <div className="projection-questions"><QuestionList t={t} questions={displayedQuestions} busy /></div>
               : <span className="projection-empty">{t(interaction.results_visible !== false ? "qa.empty" : "projection.noResults")}</span>
+          ) : interaction.interaction_type === "audience_qa" ? (
+            interaction.results_visible !== false
+              ? <div className="projection-audience-qa"><AudienceQuestionBoard t={t} questions={interactionQuestions} busy /></div>
+              : <span className="projection-empty">{t("projection.noResults")}</span>
           ) : interaction.aggregate ? (
             <AggregateBars
               t={t}
@@ -102,8 +221,8 @@ export function CueResultVisuals({ t, interactions, questions, onToggleWordPin }
           ) : (
             <span className="projection-empty">{t("projection.noResults")}</span>
           )}
-        </article>
-      ))}
+        </article>;
+      })}
     </div>
   );
 }
@@ -115,15 +234,18 @@ const WORD_CLOUD_HEIGHT = 400;
 const WORD_CLOUD_SINGLE_SIZE = WORD_CLOUD_HEIGHT / 3;
 const WORD_CLOUD_COLLISION_PADDING = 8;
 const WORD_CLOUD_SEARCH_STEP = 10;
+const WORD_CLOUD_MIN_SIZE = 12;
+const WORD_CLOUD_TARGET_OCCUPANCY = 0.7;
+const WORD_CLOUD_MAX_FLOATING_WORDS = 6;
+const WORD_CLOUD_ENTER_TIMEOUT_MS = 520;
+const WORD_CLOUD_POP_TIMEOUT_MS = 260;
 
 export function wordCloudSizeRange(wordCount: number): { minSize: number; maxSize: number } {
-  const count = Math.max(1, wordCount);
-  const maxSize = WORD_CLOUD_SINGLE_SIZE / count ** 0.28;
-  const minSize = count === 1 ? maxSize : Math.max(18, maxSize * 0.32);
-  return { minSize, maxSize };
+  if (wordCount <= 1) return { minSize: WORD_CLOUD_SINGLE_SIZE, maxSize: WORD_CLOUD_SINGLE_SIZE };
+  return { minSize: 32, maxSize: 92 };
 }
 
-export function wordCloudFontSize(
+function wordCloudBaseFontSize(
   word: { text: string; value: number },
   minimum: number,
   maximum: number,
@@ -138,8 +260,45 @@ export function wordCloudFontSize(
   return maxWidth / (Math.max(1, word.text.length) * 0.62);
 }
 
+function estimateWordCloudArea(word: { text: string }, size: number) {
+  const padding = Math.max(10, size * 0.18);
+  return (estimateWordWidth(word.text, size) + padding * 2) * (size * 1.18 + padding);
+}
+
+/**
+ * Keep the original type scale while the estimated glyph area is below 70%
+ * of the canvas. Once the cloud is denser than that, shrink every word by the
+ * same ratio so frequency differences and the centre-weighted shape survive.
+ */
+export function wordCloudDensityScale(
+  words: Array<{ text: string; value: number }>,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!words.length) return 1;
+  const baseSizes = words.map((word) => wordCloudBaseFontSize(word, minimum, maximum, words.length));
+  const estimatedArea = words.reduce(
+    (total, word, index) => total + estimateWordCloudArea(word, baseSizes[index] ?? WORD_CLOUD_MIN_SIZE),
+    0,
+  );
+  const targetArea = WORD_CLOUD_WIDTH * WORD_CLOUD_HEIGHT * WORD_CLOUD_TARGET_OCCUPANCY;
+  if (estimatedArea <= targetArea) return 1;
+  return Math.max(0.24, Math.sqrt(targetArea / estimatedArea));
+}
+
+export function wordCloudFontSize(
+  word: { text: string; value: number },
+  minimum: number,
+  maximum: number,
+  wordCount: number,
+  densityScale = 1,
+): number {
+  return wordCloudBaseFontSize(word, minimum, maximum, wordCount) * densityScale;
+}
+
 type WordCloudGlyph = {
   text?: string;
+  value?: number;
   font?: string;
   weight?: string | number;
   rotate?: number;
@@ -179,16 +338,36 @@ function wordCloudRotate(word: { text: string }, rotate: boolean): number {
 
 function wordMotionStyle(text: string): CSSProperties {
   const tone = wordTone(text);
+  const driftX = 4 + (tone % 5);
+  const driftY = 5 + ((tone >>> 4) % 6);
   return {
-    "--drift-x": `${4 + (tone % 5)}px`,
-    "--drift-y": `${5 + ((tone >>> 4) % 6)}px`,
-    "--enter-delay": `${(tone % 9) * 0.045}s`,
+    "--drift-x": `${driftX}px`,
+    "--drift-x-back": `${driftX * -0.7}px`,
+    "--drift-y": `${driftY}px`,
+    "--drift-y-up": `${-driftY}px`,
+    "--enter-delay": `${(tone % 7) * 0.025}s`,
     "--float-delay": `${0.55 + ((tone >>> 8) % 18) / 10}s`,
-    "--float-duration": `${6 + (tone % 5)}s`,
+    "--float-duration": `${4.1 + (tone % 5) * 0.15}s`,
   } as CSSProperties;
 }
 
-type PinnedLayout = { x: number; y: number; rotate: number };
+/** Limit perpetual decorative motion to a small, deterministic set. */
+export function wordCloudFloatingTexts(
+  words: Array<{ text: string; value: number }>,
+  limit = WORD_CLOUD_MAX_FLOATING_WORDS,
+): ReadonlySet<string> {
+  if (limit <= 0) return new Set();
+  return new Set(
+    [...words]
+      .sort((left, right) => (
+        right.value - left.value
+        || wordTone(left.text) - wordTone(right.text)
+        || left.text.localeCompare(right.text)
+      ))
+      .slice(0, limit)
+      .map((word) => word.text),
+  );
+}
 
 function estimateWordWidth(text: string, size: number) {
   return [...text].reduce((width, character) => width + (character.charCodeAt(0) > 255 ? size : size * 0.62), 0);
@@ -267,37 +446,60 @@ function findAvailableWordPosition(
   return null;
 }
 
-/** Keeps pinned words fixed and relocates only words that would cover them. */
-export function avoidPinnedWordCollisions<T extends PositionedWordCloudGlyph>(
-  words: T[],
-  pinned: ReadonlySet<string>,
-  width = WORD_CLOUD_WIDTH,
-  height = WORD_CLOUD_HEIGHT,
-): T[] {
-  const pinnedWords = words.filter((word) => pinned.has(word.text));
-  if (!pinnedWords.length) return words;
-  const displaced = new Set(words
-    .filter((word) => !pinned.has(word.text)
-      && pinnedWords.some((fixed) => wordCloudWordsOverlap(word, fixed)))
-    .map((word) => word.text));
-  if (!displaced.size) return words;
+function wordCloudOverlapArea(left: PositionedWordCloudGlyph, right: PositionedWordCloudGlyph) {
+  const leftBounds = wordCloudBounds(left);
+  const rightBounds = wordCloudBounds(right);
+  const width = Math.max(0, Math.min(leftBounds.right, rightBounds.right) - Math.max(leftBounds.left, rightBounds.left));
+  const height = Math.max(0, Math.min(leftBounds.bottom, rightBounds.bottom) - Math.max(leftBounds.top, rightBounds.top));
+  return width * height;
+}
 
-  const occupied = words.filter((word) => !displaced.has(word.text));
-  const relocated = new Map<string, T>();
-  const pending = words
-    .filter((word) => displaced.has(word.text))
-    .sort((left, right) => right.size - left.size);
-  for (const word of pending) {
-    const next = findAvailableWordPosition(word, occupied, width, height) as T | null;
-    if (!next) continue;
-    relocated.set(word.text, next);
-    occupied.push(next);
+function fitWordInsideCanvas<T extends PositionedWordCloudGlyph>(word: T, width: number, height: number): T {
+  let fitted = { ...word, x: 0, y: 0 } as T;
+  while (!wordFitsCanvas(fitted, width, height) && fitted.size > 4) {
+    fitted = { ...fitted, size: fitted.size * 0.85 };
   }
-  return words.flatMap((word) => {
-    if (!displaced.has(word.text)) return [word];
-    const next = relocated.get(word.text);
-    return next ? [next] : [];
-  });
+  return fitted;
+}
+
+/**
+ * A saturated cloud should degrade to slight overlap, never a missing answer.
+ * The deterministic grid starts at a text-derived offset so fallback words do
+ * not all pile into the centre.
+ */
+function findLeastCrowdedWordPosition<T extends PositionedWordCloudGlyph>(
+  word: T,
+  occupied: PositionedWordCloudGlyph[],
+  width: number,
+  height: number,
+): T {
+  const fitted = fitWordInsideCanvas({ ...word, size: Math.min(word.size, WORD_CLOUD_MIN_SIZE) }, width, height);
+  const bounds = wordCloudBounds(fitted);
+  const minimumX = -width / 2 - bounds.left;
+  const maximumX = width / 2 - bounds.right;
+  const minimumY = -height / 2 - bounds.top;
+  const maximumY = height / 2 - bounds.bottom;
+  const step = Math.max(10, Math.floor(fitted.size * 0.8));
+  const candidates: Array<{ x: number; y: number }> = [];
+  for (let y = minimumY; y <= maximumY; y += step) {
+    for (let x = minimumX; x <= maximumX; x += step) candidates.push({ x, y });
+  }
+  if (!candidates.length) return fitted;
+
+  const offset = wordTone(word.text) % candidates.length;
+  let best = { ...fitted, ...candidates[offset] } as T;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const point = candidates[(offset + index) % candidates.length];
+    const candidate = { ...fitted, ...point } as T;
+    const score = occupied.reduce((total, current) => total + wordCloudOverlapArea(candidate, current), 0);
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+      if (score === 0) break;
+    }
+  }
+  return best;
 }
 
 /**
@@ -317,7 +519,7 @@ export function restoreMissingWordCloudWords<T extends PositionedWordCloudGlyph>
   for (const word of missing) {
     let size = word.size;
     let next: T | null = null;
-    while (size >= 12 && !next) {
+    while (size >= WORD_CLOUD_MIN_SIZE && !next) {
       const candidate = { ...word, size } as T;
       if (wordFitsCanvas(candidate, width, height)
         && occupied.every((current) => !wordCloudWordsOverlap(candidate, current))) {
@@ -327,12 +529,127 @@ export function restoreMissingWordCloudWords<T extends PositionedWordCloudGlyph>
       }
       size = Math.floor(size * 0.85);
     }
-    if (!next) continue;
+    if (!next) next = findLeastCrowdedWordPosition(word, occupied, width, height);
     occupied.push(next);
     restored.push(next);
   }
   return [...placed, ...restored];
 }
+
+/**
+ * Keep pinned words as fixed anchors while giving every other word a chance
+ * to move around them. The cloud layout can be rebuilt when counts change,
+ * but a pin should not turn that rebuild into a jump for the presenter.
+ */
+export function reflowWordCloudAroundPinned<T extends PositionedWordCloudGlyph>(
+  placed: T[],
+  pinned: T[],
+  width = WORD_CLOUD_WIDTH,
+  height = WORD_CLOUD_HEIGHT,
+): T[] {
+  if (!pinned.length) return placed;
+
+  const pinnedByText = new Map(pinned.map((word) => [word.text, word]));
+  const occupied: PositionedWordCloudGlyph[] = [...pinnedByText.values()];
+  return placed.map((word) => {
+    const fixed = pinnedByText.get(word.text);
+    if (fixed) return fixed;
+
+    let next = word;
+    if (!wordFitsCanvas(word, width, height)
+      || occupied.some((current) => wordCloudWordsOverlap(word, current))) {
+      next = findAvailableWordPosition(word, occupied, width, height) as T | null
+        ?? findLeastCrowdedWordPosition(word, occupied, width, height);
+    }
+    occupied.push(next);
+    return next;
+  });
+}
+
+type WordCloudWordProps = {
+  colors: readonly string[];
+  entering: boolean;
+  floating: boolean;
+  hot: boolean;
+  interactive: boolean;
+  motionStyle: CSSProperties;
+  onTogglePin: (text: string, pinned: boolean) => void;
+  pinLabel: string;
+  pinned: boolean;
+  popping: boolean;
+  unpinLabel: string;
+  word: PositionedWordCloudGlyph;
+};
+
+const WordCloudWord = memo(function WordCloudWord({
+  colors,
+  entering,
+  floating,
+  hot,
+  interactive,
+  motionStyle,
+  onTogglePin,
+  pinLabel,
+  pinned,
+  popping,
+  unpinLabel,
+  word,
+}: WordCloudWordProps) {
+  const text = word.text;
+  const boxWidth = pinned ? estimateWordWidth(text, word.size) + Math.max(16, word.size * 0.35) : 0;
+  const boxHeight = pinned ? word.size * 1.22 : 0;
+  const togglePin = () => onTogglePin(text, !pinned);
+
+  return (
+    <g
+      className={`${interactive ? "word-cloud-hit " : ""}word-cloud-position${pinned ? " is-pinned" : ""}`}
+      style={{ transform: `translate(${word.x}px, ${word.y}px)` }}
+      onClick={interactive ? (event) => {
+        togglePin();
+        if (event.detail) event.currentTarget.blur();
+      } : undefined}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-pressed={interactive ? pinned : undefined}
+      aria-label={interactive ? (pinned ? unpinLabel : pinLabel) : undefined}
+      onKeyDown={interactive ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          togglePin();
+        }
+      } : undefined}
+    >
+      <g transform={`rotate(${word.rotate})`}>
+        <g
+          className={`word-cloud-enter${entering ? " is-entering" : ""}${popping ? " is-popping" : ""}`}
+          style={motionStyle}
+        >
+          <g className={`word-cloud-float${pinned ? " is-pinned" : ""}${floating ? " is-floating" : ""}${hot ? " is-hot" : ""}`}>
+            {pinned && (
+              <rect
+                className="word-cloud-pin-box"
+                x={-boxWidth / 2}
+                y={-word.size * 0.88}
+                width={boxWidth}
+                height={boxHeight}
+                rx={Math.max(6, word.size * 0.12)}
+              />
+            )}
+            <text
+              fill={colors[wordTone(text) % colors.length]}
+              fontFamily={word.font}
+              fontSize={word.size}
+              fontWeight={word.weight}
+              textAnchor="middle"
+            >
+              {text}
+            </text>
+          </g>
+        </g>
+      </g>
+    </g>
+  );
+});
 
 function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinLabel }: {
   entries: Array<{ text: string; count: number }>;
@@ -357,36 +674,83 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   );
   const seen = useRef(new Set<string>());
   const previousCounts = useRef(new Map<string, number>());
-  const enterTimers = useRef<number[]>([]);
-  const pinnedLayout = useRef(new Map<string, PinnedLayout>());
-  const pinnedSet = useMemo(() => new Set(pinned), [pinned]);
+  const pinnedPositions = useRef(new Map<string, Pick<PositionedWordCloudGlyph, "x" | "y" | "rotate">>());
+  const completedLayout = useRef<PositionedWordCloudGlyph[]>([]);
+  const completedLayoutRevision = useRef<string | null>(null);
+  const cloudWordsReference = useRef<WordCloudGlyph[] | null>(null);
+  const processedLayout = useRef<{
+    cloudWords: WordCloudGlyph[];
+    pinnedSignature: string;
+    revision: string;
+    words: PositionedWordCloudGlyph[];
+  } | null>(null);
+  const enterTimers = useRef(new Set<number>());
+  const pinnedSignature = JSON.stringify([...pinned].sort());
+  const pinnedSet = useMemo(
+    () => new Set(pinned),
+    // Pin order has no visual meaning; avoid rebuilding for an equivalent array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pinnedSignature],
+  );
   const [enteringState, setEnteringState] = useState<ReadonlySet<string>>(new Set());
   const [popping, setPopping] = useState<ReadonlySet<string>>(new Set());
-  const entering = new Set(enteringState);
-  for (const word of words) {
-    if (!seen.current.has(word.text)) entering.add(word.text);
-  }
-  const minimum = words.length ? Math.min(...words.map((word) => word.value)) : 0;
-  const maximum = words.length ? Math.max(...words.map((word) => word.value)) : 1;
+  const entering = useMemo(() => {
+    const next = new Set(enteringState);
+    for (const word of words) {
+      if (!seen.current.has(word.text)) next.add(word.text);
+    }
+    return next;
+  }, [enteringState, words]);
+  const { minimum, maximum } = useMemo(() => {
+    if (!words.length) return { minimum: 0, maximum: 1 };
+    let nextMinimum = Number.POSITIVE_INFINITY;
+    let nextMaximum = Number.NEGATIVE_INFINITY;
+    for (const word of words) {
+      nextMinimum = Math.min(nextMinimum, word.value);
+      nextMaximum = Math.max(nextMaximum, word.value);
+    }
+    return { minimum: nextMinimum, maximum: nextMaximum };
+  }, [words]);
+  const densityScale = useMemo(
+    () => wordCloudDensityScale(words, minimum, maximum),
+    [maximum, minimum, words],
+  );
   const { maxSize } = wordCloudSizeRange(words.length);
+  const layoutRevision = `${theme}\n${wordSignature}`;
+  const wordReferences = useMemo(() => new Set<object>(words), [words]);
+  const visibleTexts = useMemo(() => new Set(words.map((word) => word.text)), [words]);
+  const floatingTexts = useMemo(() => wordCloudFloatingTexts(words), [words]);
+  const motionStyles = useMemo(
+    () => new Map(words.map((word) => [word.text, wordMotionStyle(word.text)])),
+    [words],
+  );
   const fontSize = useMemo(
-    () => (word: { text: string; value: number }) => wordCloudFontSize(word, minimum, maximum, words.length),
-    [minimum, maximum, words.length],
+    () => (word: { text: string; value: number }) => wordCloudFontSize(word, minimum, maximum, words.length, densityScale),
+    [densityScale, minimum, maximum, words.length],
   );
   const fontWeight = useMemo(
     () => (word: { value: number }) => (word.value >= maximum * 0.55 ? 800 : 650),
     [maximum],
   );
+  const onTogglePinRef = useRef(onTogglePin);
+  useEffect(() => {
+    onTogglePinRef.current = onTogglePin;
+  }, [onTogglePin]);
+  const toggleWordPin = useCallback((text: string, nextPinned: boolean) => {
+    onTogglePinRef.current?.(text, nextPinned);
+  }, []);
 
   useEffect(() => () => {
     enterTimers.current.forEach((timer) => window.clearTimeout(timer));
+    enterTimers.current.clear();
   }, []);
 
   useEffect(() => {
     if (!words.length) {
+      enterTimers.current.forEach((timer) => window.clearTimeout(timer));
+      enterTimers.current.clear();
       seen.current.clear();
       previousCounts.current.clear();
-      pinnedLayout.current.clear();
       setEnteringState(new Set());
       setPopping(new Set());
       return;
@@ -410,17 +774,19 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
         newcomers.forEach((text) => next.add(text));
         return next;
       });
-      enterTimers.current.push(window.setTimeout(() => {
+      const enterTimer = window.setTimeout(() => {
+        enterTimers.current.delete(enterTimer);
         setEnteringState((current) => {
           const next = new Set(current);
           newcomers.forEach((text) => next.delete(text));
           return next;
         });
-      }, 1100));
+      }, WORD_CLOUD_ENTER_TIMEOUT_MS);
+      enterTimers.current.add(enterTimer);
     }
     if (!nextPop.size) return;
     setPopping(nextPop);
-    const popTimer = window.setTimeout(() => setPopping(new Set()), 520);
+    const popTimer = window.setTimeout(() => setPopping(new Set()), WORD_CLOUD_POP_TIMEOUT_MS);
     return () => window.clearTimeout(popTimer);
   }, [words]);
 
@@ -428,14 +794,14 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
   return (
     <div className={`word-cloud-results${onTogglePin ? " is-interactive" : ""}`} aria-label={label}>
       <svg viewBox={`0 0 ${WORD_CLOUD_WIDTH} ${WORD_CLOUD_HEIGHT}`} role="img">
-        {/* d3-cloud lays out asynchronously. A revision key prevents an older
-            layout from replacing a newer aggregate after rapid submissions. */}
+        <title>{label}</title>
+        {/* d3-cloud lays out asynchronously. Keep the last completed layout
+            visible until the current aggregate has finished calculating. */}
         <Wordcloud
-          key={`${theme}\n${wordSignature}`}
           width={WORD_CLOUD_WIDTH}
           height={WORD_CLOUD_HEIGHT}
           words={words}
-          padding={8}
+          padding={4}
           font={palette.font}
           fontSize={fontSize}
           fontWeight={fontWeight}
@@ -444,6 +810,46 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
           random={WORD_CLOUD_RANDOM}
         >
           {(cloudWords: WordCloudGlyph[]) => {
+            const isCurrentCloudLayout = cloudWords.length > 0
+              && cloudWords.every((word) => wordReferences.has(word));
+            if (cloudWordsReference.current !== cloudWords) {
+              cloudWordsReference.current = cloudWords;
+              if (isCurrentCloudLayout) completedLayoutRevision.current = layoutRevision;
+            }
+            const renderWords = (positionedWords: PositionedWordCloudGlyph[]) => positionedWords.map((word) => {
+              const text = word.text;
+              const isPinned = pinnedSet.has(text);
+              const isFloating = !isPinned && floatingTexts.has(text);
+              return (
+                <WordCloudWord
+                  key={text}
+                  colors={palette.colors}
+                  entering={entering.has(text)}
+                  floating={isFloating}
+                  hot={isFloating && word.size >= maxSize * 0.72}
+                  interactive={Boolean(onTogglePin)}
+                  motionStyle={motionStyles.get(text) ?? {}}
+                  onTogglePin={toggleWordPin}
+                  pinLabel={pinLabel}
+                  pinned={isPinned}
+                  popping={popping.has(text)}
+                  unpinLabel={unpinLabel}
+                  word={word}
+                />
+              );
+            });
+            if (completedLayoutRevision.current !== layoutRevision) {
+              return renderWords(completedLayout.current.filter((word) => visibleTexts.has(word.text)));
+            }
+            const cachedLayout = processedLayout.current;
+            if (
+              cachedLayout
+              && cachedLayout.cloudWords === cloudWords
+              && cachedLayout.revision === layoutRevision
+              && cachedLayout.pinnedSignature === pinnedSignature
+            ) {
+              return renderWords(cachedLayout.words);
+            }
             const laidOutWords = cloudWords.map((word): PositionedWordCloudGlyph => ({
               ...word,
               text: word.text ?? "",
@@ -464,87 +870,41 @@ function WordCloudResult({ entries, label, pinned, onTogglePin, pinLabel, unpinL
                 x: 0,
                 y: 0,
               }));
-            const completeWords = restoreMissingWordCloudWords(laidOutWords, missingWords);
-            const positionedWords = completeWords.map((word): PositionedWordCloudGlyph => {
-              const text = word.text ?? "";
-              const positioned = {
-                ...word,
-                text,
-                rotate: word.rotate ?? 0,
-                size: word.size ?? 24,
-                x: word.x ?? 0,
-                y: word.y ?? 0,
-              };
-              if (!pinnedSet.has(text)) {
-                pinnedLayout.current.delete(text);
-                return positioned;
-              }
-              const saved = pinnedLayout.current.get(text);
-              if (saved) return { ...positioned, ...saved };
-              pinnedLayout.current.set(text, {
-                x: positioned.x,
-                y: positioned.y,
-                rotate: positioned.rotate,
+            const restoredWords = restoreMissingWordCloudWords(laidOutWords, missingWords).map((word): PositionedWordCloudGlyph => ({
+              ...word,
+              text: word.text ?? "",
+              rotate: word.rotate ?? 0,
+              size: word.size ?? 24,
+              x: word.x ?? 0,
+              y: word.y ?? 0,
+            }));
+            const restoredTexts = new Set(restoredWords.map((word) => word.text));
+            for (const text of pinnedPositions.current.keys()) {
+              if (!pinnedSet.has(text) || !restoredTexts.has(text)) pinnedPositions.current.delete(text);
+            }
+            const pinnedWords = restoredWords
+              .filter((word) => pinnedSet.has(word.text))
+              .map((word) => {
+                const saved = pinnedPositions.current.get(word.text);
+                if (!saved) {
+                  pinnedPositions.current.set(word.text, {
+                    x: word.x,
+                    y: word.y,
+                    rotate: word.rotate,
+                  });
+                  return word;
+                }
+                return { ...word, ...saved };
               });
-              return positioned;
-            });
-            const visibleWords = avoidPinnedWordCollisions(positionedWords, pinnedSet);
-            return visibleWords.map((word) => {
-              const text = word.text;
-              const isPinned = pinnedSet.has(text);
-              const size = word.size;
-              const boxWidth = estimateWordWidth(text, size) + Math.max(16, size * 0.35);
-              const boxHeight = size * 1.22;
-              const hot = size >= maxSize * 0.72;
-              return (
-                <g
-                  key={text}
-                  className={onTogglePin ? "word-cloud-hit" : undefined}
-                  transform={`translate(${word.x}, ${word.y}) rotate(${word.rotate})`}
-                  onClick={onTogglePin ? (event) => {
-                    onTogglePin(text, !isPinned);
-                    if (event.detail) event.currentTarget.blur();
-                  } : undefined}
-                  role={onTogglePin ? "button" : undefined}
-                  tabIndex={onTogglePin ? 0 : undefined}
-                  aria-pressed={onTogglePin ? isPinned : undefined}
-                  aria-label={onTogglePin ? (isPinned ? unpinLabel : pinLabel) : undefined}
-                  onKeyDown={onTogglePin ? (event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onTogglePin(text, !isPinned);
-                    }
-                  } : undefined}
-                >
-                  {isPinned && (
-                    <rect
-                      className="word-cloud-pin-box"
-                      x={-boxWidth / 2}
-                      y={-size * 0.88}
-                      width={boxWidth}
-                      height={boxHeight}
-                      rx={Math.max(6, size * 0.12)}
-                    />
-                  )}
-                  <g
-                    className={`word-cloud-enter${entering.has(text) ? " is-entering" : ""}${popping.has(text) && !isPinned ? " is-popping" : ""}${hot ? " is-hot" : ""}`}
-                    style={isPinned ? undefined : wordMotionStyle(text)}
-                  >
-                    <g className={isPinned ? undefined : "word-cloud-float"}>
-                      <text
-                        fill={palette.colors[wordTone(text) % palette.colors.length]}
-                        fontFamily={word.font}
-                        fontSize={word.size}
-                        fontWeight={word.weight}
-                        textAnchor="middle"
-                      >
-                        {text}
-                      </text>
-                    </g>
-                  </g>
-                </g>
-              );
-            });
+            const positionedWords = reflowWordCloudAroundPinned(restoredWords, pinnedWords);
+            completedLayout.current = positionedWords;
+            processedLayout.current = {
+              cloudWords,
+              pinnedSignature,
+              revision: layoutRevision,
+              words: positionedWords,
+            };
+            return renderWords(positionedWords);
           }}
         </Wordcloud>
       </svg>

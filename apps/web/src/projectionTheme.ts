@@ -2,7 +2,7 @@ export const PROJECTION_THEMES = ["classic", "lively", "terminal"] as const;
 
 export type ProjectionTheme = (typeof PROJECTION_THEMES)[number];
 
-export const DEFAULT_PROJECTION_THEME: ProjectionTheme = "classic";
+export const DEFAULT_PROJECTION_THEME: ProjectionTheme = "lively";
 export const PROJECTION_THEME_STORAGE_KEY = "slide-helper-projection-theme";
 export const PROJECTION_THEME_CHANNEL = "slide-helper-projection-theme";
 
@@ -13,12 +13,12 @@ export const WORD_CLOUD_THEME = {
     rotate: true,
   },
   lively: {
-    colors: ["#ff4d8d", "#5b7cff", "#7c3aed", "#14c8b0", "#9b5de5", "#ff7a45", "#3d8bfd"],
+    colors: ["#335cff", "#2448d8", "#171717", "#5e73e8", "#173d8f", "#4664ff"],
     font: "Inter, ui-sans-serif, system-ui, sans-serif",
     rotate: true,
   },
   terminal: {
-    colors: ["#39ff14", "#9aff7a", "#00e676", "#b9f6ca", "#69f0ae", "#00c853"],
+    colors: ["#55dfff", "#22b8d6", "#b3efff", "#77b8c8", "#1e8baa", "#c5f6ff"],
     font: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
     rotate: false,
   },

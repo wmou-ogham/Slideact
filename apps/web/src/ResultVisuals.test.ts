@@ -1,12 +1,79 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  avoidPinnedWordCollisions,
+  audienceQuestionQueue,
+  moderationQuestionOrder,
   type PositionedWordCloudGlyph,
+  questionCardLayout,
+  questionsForInteraction,
+  reflowWordCloudAroundPinned,
   restoreMissingWordCloudWords,
+  visibleProjectionQuestions,
+  wordCloudDensityScale,
+  wordCloudFloatingTexts,
   wordCloudLayoutSignature,
   wordCloudWordsOverlap,
 } from "./ResultVisuals";
+import type { Question } from "./types";
+
+function question(body: string, status: Question["status"] = "visible"): Question {
+  return {
+    id: `${status}-${body}`,
+    cue_run_id: "run-1",
+    interaction_id: "interaction-1",
+    body,
+    display_name: null,
+    status,
+    votes: 0,
+    voted_by_me: false,
+    created_at: "2026-09-01T00:00:00Z",
+  };
+}
+
+describe("question projection layout", () => {
+  it("shrinks long questions before promoting them to a two-column card", () => {
+    expect(questionCardLayout("短問題")).toBe("regular");
+    expect(questionCardLayout("中".repeat(27))).toBe("condensed");
+    expect(questionCardLayout("長".repeat(49))).toBe("compact");
+    expect(questionCardLayout("超".repeat(85))).toBe("wide");
+  });
+
+  it("keeps hidden questions out of the projection while retaining moderated states", () => {
+    const visible = question("Visible");
+    const answered = question("Answered", "answered");
+    const hidden = question("Hidden", "hidden");
+    expect(visibleProjectionQuestions([visible, hidden, answered])).toEqual([visible, answered]);
+  });
+
+  it("uses the pinned audience question as current and excludes archived questions", () => {
+    const waiting = question("Waiting");
+    const current = question("Current", "pinned");
+    const answered = question("Answered", "answered");
+    const hidden = question("Hidden", "hidden");
+
+    expect(audienceQuestionQueue([waiting, answered, current, hidden])).toEqual({
+      current,
+      waiting: [waiting],
+    });
+  });
+
+  it("keeps answered questions at the bottom of the moderation list", () => {
+    const answered = question("Answered", "answered");
+    const hidden = question("Hidden", "hidden");
+    const visible = question("Visible");
+    const pinned = question("Pinned", "pinned");
+
+    expect(moderationQuestionOrder([answered, hidden, visible, pinned]))
+      .toEqual([pinned, visible, hidden, answered]);
+  });
+
+  it("keeps sticky notes and audience questions scoped to their own interaction", () => {
+    const sticky = question("Sticky");
+    const audience = { ...question("Audience"), interaction_id: "interaction-2" };
+
+    expect(questionsForInteraction([sticky, audience], "interaction-2")).toEqual([audience]);
+  });
+});
 
 function word(text: string, x: number, y: number, size = 40): PositionedWordCloudGlyph {
   return { text, x, y, size, rotate: 0 };
@@ -40,54 +107,14 @@ describe("word cloud layout revisions", () => {
         { text: "b", count: 2 },
       ]));
   });
-});
 
-describe("pinned word collision avoidance", () => {
-  it("keeps a pinned word fixed and relocates a colliding new word", () => {
-    const fixed = word("pinned", 0, 0, 52);
-    const incoming = word("incoming", 0, 0, 32);
-    const result = avoidPinnedWordCollisions([fixed, incoming], new Set(["pinned"]));
-    const pinned = result.find((item) => item.text === "pinned");
-    const moved = result.find((item) => item.text === "incoming");
+  it("does not include pin state in the layout revision", () => {
+    const entries = [{ text: "highlight me", count: 3 }];
+    const beforePin = wordCloudLayoutSignature(entries);
+    const pinned = new Set(["highlight me"]);
 
-    expect(pinned).toMatchObject({ x: 0, y: 0, rotate: 0 });
-    expect(moved).toBeDefined();
-    expect(wordCloudWordsOverlap(pinned!, moved!)).toBe(false);
-  });
-
-  it("leaves an already collision-free layout unchanged", () => {
-    const words = [word("pinned", -120, 0), word("clear", 120, 0)];
-    expect(avoidPinnedWordCollisions(words, new Set(["pinned"]))).toEqual(words);
-  });
-
-  it("separates multiple new words that collide with the same pinned word", () => {
-    const fixed = word("pinned", 0, 0, 52);
-    const result = avoidPinnedWordCollisions(
-      [fixed, word("first", 0, 0, 32), word("second", 0, 0, 32)],
-      new Set(["pinned"]),
-    );
-    const pinned = result.find((item) => item.text === "pinned");
-    const first = result.find((item) => item.text === "first");
-    const second = result.find((item) => item.text === "second");
-
-    expect(pinned).toMatchObject({ x: 0, y: 0, rotate: 0 });
-    expect(first).toBeDefined();
-    expect(second).toBeDefined();
-    expect(wordCloudWordsOverlap(pinned!, first!)).toBe(false);
-    expect(wordCloudWordsOverlap(pinned!, second!)).toBe(false);
-    expect(wordCloudWordsOverlap(first!, second!)).toBe(false);
-  });
-
-  it("omits an incoming word when no non-overlapping position fits", () => {
-    const fixed = word("wide pinned answer", 0, 0, 48);
-    const incoming = word("another wide answer", 0, 0, 48);
-    const result = avoidPinnedWordCollisions(
-      [fixed, incoming],
-      new Set(["wide pinned answer"]),
-      120,
-      60,
-    );
-    expect(result.map((item) => item.text)).toEqual(["wide pinned answer"]);
+    expect(pinned.has("highlight me")).toBe(true);
+    expect(wordCloudLayoutSignature(entries)).toBe(beforePin);
   });
 });
 
@@ -111,5 +138,75 @@ describe("word cloud layout recovery", () => {
   it("does not alter a complete layout", () => {
     const placed = [word("first", -80, 0), word("second", 80, 0)];
     expect(restoreMissingWordCloudWords(placed, [])).toBe(placed);
+  });
+
+  it("keeps every word visible when a small canvas is saturated", () => {
+    const result = restoreMissingWordCloudWords(
+      [word("wide pinned answer", 0, 0, 48)],
+      [word("another wide answer", 0, 0, 48), word("latest answer", 0, 0, 48)],
+      120,
+      60,
+    );
+
+    expect(result.map((item) => item.text)).toEqual([
+      "wide pinned answer",
+      "another wide answer",
+      "latest answer",
+    ]);
+  });
+});
+
+describe("pinned word cloud layout", () => {
+  it("keeps pinned words fixed and reflows other words around them", () => {
+    const pinned = word("pinned answer", -170, -40, 42);
+    const result = reflowWordCloudAroundPinned(
+      [word("pinned answer", 170, 40, 70), word("nearby answer", 170, 40, 42)],
+      [pinned],
+    );
+    const fixed = result.find((item) => item.text === pinned.text);
+    const nearby = result.find((item) => item.text === "nearby answer");
+
+    expect(fixed).toEqual(pinned);
+    expect(nearby).toBeDefined();
+    expect(wordCloudWordsOverlap(fixed!, nearby!)).toBe(false);
+  });
+});
+
+describe("word cloud density", () => {
+  it("keeps the original type scale while the cloud is below 70% occupancy", () => {
+    const sparse = [
+      { text: "互動", value: 2 },
+      { text: "洞察", value: 1 },
+      { text: "清晰", value: 1 },
+    ];
+
+    expect(wordCloudDensityScale(sparse, 1, 2)).toBe(1);
+  });
+
+  it("only shrinks the shared type scale after the cloud passes 70% occupancy", () => {
+    const dense = Array.from({ length: 70 }, (_, index) => ({
+      text: `audience-insight-${index}`,
+      value: 1 + index % 5,
+    }));
+
+    const scale = wordCloudDensityScale(dense, 1, 5);
+    expect(scale).toBeLessThan(1);
+    expect(scale).toBeGreaterThan(0);
+  });
+});
+
+describe("word cloud decorative motion", () => {
+  it("limits perpetual floating to the six highest-value words", () => {
+    const words = Array.from({ length: 12 }, (_, index) => ({
+      text: `word-${index}`,
+      value: index,
+    }));
+
+    const floating = wordCloudFloatingTexts(words);
+
+    expect(floating.size).toBe(6);
+    expect(floating.has("word-11")).toBe(true);
+    expect(floating.has("word-6")).toBe(true);
+    expect(floating.has("word-5")).toBe(false);
   });
 });

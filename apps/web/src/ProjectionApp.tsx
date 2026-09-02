@@ -18,7 +18,13 @@ export function ProjectionApp({ t }: { t: Translate }) {
   const sessionId = location.pathname.split("/")[2] ?? "";
   const token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
   const [error, setError] = useState("");
-  const [theme, setTheme] = useProjectionTheme({ applyToBody: true, syncUrl: true });
+  const [theme, setTheme] = useProjectionTheme({
+    applyToBody: true,
+    broadcastChanges: false,
+    persistChanges: false,
+    syncExternal: false,
+    syncUrl: true,
+  });
   const { live, refresh } = useLiveSession({
     sessionId,
     token,

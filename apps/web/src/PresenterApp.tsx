@@ -17,11 +17,13 @@ import {
 import { sendCommand } from "./lib/liveSession";
 import { LiveControl } from "./LiveControl";
 import { PresenterLogin, downloadGuestVault } from "./PresenterAuth";
+import { ProjectionThemePicker } from "./ProjectionThemePicker";
 import {
   type TemplateKind,
   generatedCueName,
   templates,
 } from "./presenterTemplates";
+import { DEFAULT_PROJECTION_THEME, type ProjectionTheme } from "./projectionTheme";
 import type {
   Cue,
   Interaction,
@@ -88,7 +90,12 @@ export function shouldCollapseLibraryByDefault(projects: ReadonlyArray<Pick<Proj
   return projects.length > 0;
 }
 
-export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
+export function PresenterApp({ t, locale, theme, setTheme }: {
+  t: Translate;
+  locale: string;
+  theme?: ProjectionTheme;
+  setTheme?: (theme: ProjectionTheme) => void;
+}) {
   const [profile, setProfile] = useState<Profile | null>();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -108,12 +115,14 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   const [message, setMessage] = useState("");
   const cueButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const libraryDefaultApplied = useRef(false);
+  const pendingTheme = useRef<ProjectionTheme | null>(null);
 
   const project = projects.find((item) => item.id === projectId) ?? null;
   const cue = cues.find((item) => item.id === cueId) ?? null;
   const selectedInteraction = cue?.interactions.find((item) => item.id === expandedInteractionId)
     ?? cue?.interactions.at(0)
     ?? null;
+  const presenterTheme = theme ?? DEFAULT_PROJECTION_THEME;
 
   const report = useCallback(
     (error: unknown) => {
@@ -187,6 +196,29 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     }
     setSnapshot(await apiJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`));
   }, [sessionId]);
+
+  const applyPresenterTheme = useCallback((next: ProjectionTheme) => {
+    setTheme?.(next);
+    if (!snapshot || snapshot.status === "draft" || snapshot.status === "ended") return;
+    pendingTheme.current = next;
+    void apiJson<SessionSnapshot>(`/api/sessions/${snapshot.session_id}/interface-theme`, {
+      method: "PUT",
+      body: JSON.stringify({ theme: next }),
+    }).then((nextSnapshot) => {
+      pendingTheme.current = null;
+      setSnapshot(nextSnapshot);
+    }).catch((error: unknown) => {
+      pendingTheme.current = null;
+      report(error);
+      void refreshSnapshot().catch(() => undefined);
+    });
+  }, [refreshSnapshot, report, setTheme, snapshot]);
+
+  useEffect(() => {
+    const sessionTheme = snapshot?.interface_theme;
+    if (!sessionTheme || !setTheme || pendingTheme.current || sessionTheme === theme) return;
+    setTheme(sessionTheme);
+  }, [setTheme, snapshot?.interface_theme, snapshot?.session_id, theme]);
 
   useEffect(() => {
     refreshSnapshot().catch(report);
@@ -515,6 +547,7 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
     await run(async () => {
       const created = await postJson<LiveSession>(`/api/projects/${projectId}/sessions`, {
         locale,
+        interface_theme: presenterTheme,
       });
       setSessionId(created.id);
       const opened = await sendCommand(created.id, created.state_version, {
@@ -538,7 +571,17 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
   }
 
   if (profile === null) {
-    return <PresenterLogin t={t} locale={locale} busy={busy} message={message} setMessage={setMessage} />;
+    return (
+      <PresenterLogin
+        t={t}
+        locale={locale}
+        busy={busy}
+        message={message}
+        setMessage={setMessage}
+        theme={theme}
+        setTheme={setTheme}
+      />
+    );
   }
 
   return (
@@ -547,6 +590,12 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         <a className="workspace-brand" href="/" aria-label={t("app.name")}><span>S</span></a>
         <strong className="workspace-project-title" title={project?.title}>{project?.title ?? t("project.heading")}</strong>
         <div className="workspace-toolbar-actions">
+          {theme && setTheme && (
+            <label className="workspace-theme-picker">
+              <span>{t("theme.label")}</span>
+              <ProjectionThemePicker t={t} theme={theme} setTheme={applyPresenterTheme} variant="select" />
+            </label>
+          )}
           <div className="profile-chip">
             <span>{profile.account_type === "guest" ? t("auth.guestVault") : profile.display_name}</span>
             {profile.account_type === "guest" && (
@@ -758,6 +807,8 @@ export function PresenterApp({ t, locale }: { t: Translate; locale: string }) {
         refreshSnapshot={refreshSnapshot}
         createSession={createSession}
         send={send}
+        theme={presenterTheme}
+        setTheme={applyPresenterTheme}
         onClose={() => setLiveControlsOpen(false)}
       />}
     </main>
@@ -777,7 +828,8 @@ function CueThumbnail({ t, cue }: { t: Translate; cue: Cue }) {
         {interactionType === "single_choice" && <><i /><i /><i /><i /></>}
         {interactionType === "understanding" && <><i /><i /><i /></>}
         {interactionType === "word_cloud" && <><i>IDEA</i><i>LIVE</i><i>WORD</i></>}
-        {interactionType === "qa" && <><i /><i /></>}
+        {interactionType === "qa" && <><i /><i /><i /></>}
+        {interactionType === "audience_qa" && <><i /><i /><i /></>}
         {interactionType === "empty" && <i>+</i>}
       </span>
     </span>
