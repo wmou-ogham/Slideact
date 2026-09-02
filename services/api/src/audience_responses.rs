@@ -734,9 +734,10 @@ async fn compute_aggregate(
             }))
         }
         "word_cloud" => {
-            let rows = sqlx::query_as::<_, (String, i64)>(
+            let rows = sqlx::query_as::<_, (String, i64, i64)>(
                 r#"
-                SELECT payload ->> 'text' AS text, COUNT(*)
+                SELECT payload ->> 'text' AS text, COUNT(*),
+                       (SUM(COUNT(*)) OVER ())::BIGINT AS total_responses
                 FROM responses
                 WHERE cue_run_id = $1 AND interaction_id = $2
                 GROUP BY text
@@ -749,7 +750,7 @@ async fn compute_aggregate(
             .fetch_all(&mut **transaction)
             .await
             .map_err(persistence_error)?;
-            let total_responses = rows.iter().map(|row| row.1).sum::<i64>();
+            let total_responses = rows.first().map(|row| row.2).unwrap_or(0);
             let present: Vec<String> = rows.iter().map(|row| row.0.clone()).collect();
             let pinned = load_pinned_words(transaction, cue_run_id, interaction_id)
                 .await?

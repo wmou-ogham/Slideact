@@ -109,6 +109,44 @@ export function shouldApplyLiveRefresh(order: LiveRefreshOrder, requestId: numbe
   return true;
 }
 
+type LiveRefreshTask = {
+  key: string;
+  queued: boolean;
+  promise: Promise<void>;
+};
+
+export type LiveRefreshScheduler = {
+  current: LiveRefreshTask | null;
+};
+
+export function createLiveRefreshScheduler(): LiveRefreshScheduler {
+  return { current: null };
+}
+
+export function scheduleLiveRefresh(
+  scheduler: LiveRefreshScheduler,
+  key: string,
+  refreshOnce: () => Promise<void>,
+) {
+  const active = scheduler.current;
+  if (active?.key === key) {
+    active.queued = true;
+    return active.promise;
+  }
+
+  const task: LiveRefreshTask = { key, queued: false, promise: Promise.resolve() };
+  task.promise = (async () => {
+    do {
+      task.queued = false;
+      await refreshOnce();
+    } while (task.queued && scheduler.current === task);
+  })().finally(() => {
+    if (scheduler.current === task) scheduler.current = null;
+  });
+  scheduler.current = task;
+  return task.promise;
+}
+
 export function connectLiveSocket(token: string, topic: string, refresh: () => Promise<void>) {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/api/ws?token=${encodeURIComponent(token)}`);
@@ -149,19 +187,30 @@ export function useLiveSession(options: UseLiveSessionOptions) {
   const [live, setLive] = useState<LiveView | null>(null);
   const cueLiveCache = useRef<Record<string, LiveView>>({});
   const refreshOrder = useRef(createLiveRefreshOrder());
+  const refreshScheduler = useRef(createLiveRefreshScheduler());
+  const sessionKey = `${sessionId}\n${token}`;
+  const sessionKeyRef = useRef(sessionKey);
+  sessionKeyRef.current = sessionKey;
   const onLiveRef = useRef(options.onLive);
   onLiveRef.current = options.onLive;
   const onInitialErrorRef = useRef(options.onInitialError);
   onInitialErrorRef.current = options.onInitialError;
 
-  const refresh = useCallback(async () => {
-    if (!token) throw new Error("live_token_missing");
-    const requestId = beginLiveRefresh(refreshOrder.current);
-    const next = await loadLiveView(sessionId, token);
-    if (!shouldApplyLiveRefresh(refreshOrder.current, requestId)) return;
-    setLive(rememberCueLive(cueLiveCache.current, next));
-    onLiveRef.current?.(next);
-  }, [sessionId, token]);
+  const refresh = useCallback(() => {
+    if (!token) return Promise.reject(new Error("live_token_missing"));
+    return scheduleLiveRefresh(
+      refreshScheduler.current,
+      sessionKey,
+      async () => {
+        const requestId = beginLiveRefresh(refreshOrder.current);
+        const next = await loadLiveView(sessionId, token);
+        if (sessionKeyRef.current !== sessionKey) return;
+        if (!shouldApplyLiveRefresh(refreshOrder.current, requestId)) return;
+        setLive(rememberCueLive(cueLiveCache.current, next));
+        onLiveRef.current?.(next);
+      },
+    );
+  }, [sessionId, sessionKey, token]);
 
   useEffect(() => {
     if (!enabled) return;

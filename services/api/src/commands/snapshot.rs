@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::api_error::ApiError;
@@ -164,27 +165,48 @@ async fn load_cue_snapshot(
     .fetch_all(&mut **transaction)
     .await
     .map_err(persistence_error)?;
-    let mut snapshots = Vec::with_capacity(interactions.len());
-    for interaction in interactions {
-        let options = sqlx::query_as::<_, (Uuid, String, Option<bool>)>(
-            "SELECT id, label, is_correct FROM interaction_options WHERE interaction_id = $1 ORDER BY position, id",
+    let interaction_ids = interactions
+        .iter()
+        .map(|interaction| interaction.0)
+        .collect::<Vec<_>>();
+    let mut options_by_interaction = HashMap::<Uuid, Vec<OptionSnapshot>>::new();
+    if !interaction_ids.is_empty() {
+        let options = sqlx::query_as::<_, (Uuid, Uuid, String, Option<bool>)>(
+            r#"
+            SELECT interaction_id, id, label, is_correct
+            FROM interaction_options
+            WHERE interaction_id = ANY($1)
+            ORDER BY interaction_id, position, id
+            "#,
         )
-        .bind(interaction.0)
+        .bind(&interaction_ids)
         .fetch_all(&mut **transaction)
         .await
-        .map_err(persistence_error)?
+        .map_err(persistence_error)?;
+        for (interaction_id, id, label, is_correct) in options {
+            options_by_interaction
+                .entry(interaction_id)
+                .or_default()
+                .push(OptionSnapshot {
+                    id,
+                    label,
+                    is_correct,
+                });
+        }
+    }
+    let snapshots = interactions
         .into_iter()
-        .map(|option| OptionSnapshot { id: option.0, label: option.1, is_correct: option.2 })
-        .collect();
-        snapshots.push(InteractionSnapshot {
+        .map(|interaction| InteractionSnapshot {
             id: interaction.0,
             interaction_type: interaction.1,
             prompt: interaction.2,
             description: interaction.3,
             settings: interaction.4,
-            options,
-        });
-    }
+            options: options_by_interaction
+                .remove(&interaction.0)
+                .unwrap_or_default(),
+        })
+        .collect();
     Ok(CueRunSnapshot {
         id: cue_run_id,
         cue_id: row.0,
