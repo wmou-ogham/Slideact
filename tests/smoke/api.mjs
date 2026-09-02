@@ -1283,8 +1283,13 @@ const endedSessionResults = await requestJson(
 );
 assert.equal(endedSessionResults.response.status, 200);
 assert.equal(endedSessionResults.body.status, "ended");
+assert.equal(endedSessionResults.body.cue_runs.length, 2);
 assert.equal(endedSessionResults.body.cue_runs[0].interactions.length, 4);
 assert.equal(endedSessionResults.body.cue_runs[0].questions.length, 1);
+assert.equal(
+  endedSessionResults.body.cue_runs[1].id,
+  preparedOtherSlide.body.snapshot.current_cue_run.id,
+);
 const reopenedEndedSession = await sendCommand(commandSessionId, {
   idempotency_key: "smoke:reopen-ended-session-001",
   expected_version: endedCommandSession.body.snapshot.state_version,
@@ -1306,12 +1311,20 @@ const reopenedSessionResults = await requestJson(
 );
 assert.equal(reopenedSessionResults.response.status, 200);
 assert.equal(reopenedSessionResults.body.status, "lobby");
-assert.equal(reopenedSessionResults.body.cue_runs.length, 1);
+assert.equal(reopenedSessionResults.body.cue_runs.length, 2);
+assert.equal(
+  reopenedSessionResults.body.cue_runs[0].id,
+  revealedForAudience.body.snapshot.current_cue_run.id,
+);
 assert.equal(
   reopenedSessionResults.body.cue_runs[0].interactions.some(
     (interaction) => interaction.aggregate?.total_responses === 1,
   ),
   true,
+);
+assert.equal(
+  reopenedSessionResults.body.cue_runs[1].id,
+  preparedOtherSlide.body.snapshot.current_cue_run.id,
 );
 joinedSocket.close();
 
