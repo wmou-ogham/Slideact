@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { navigationSelectors } from "./navigation";
+import { navigationSelectors, presentationTargetUrl } from "./navigation";
 
 describe("navigationSelectors", () => {
   it("covers Google Slides presentation controls in English and Traditional Chinese", () => {
@@ -15,5 +15,12 @@ describe("navigationSelectors", () => {
   it("prefers the stable presentation-viewer classes", () => {
     expect(navigationSelectors("previous")[0]).toBe(".punch-viewer-nav-v2-prev");
     expect(navigationSelectors("next")[0]).toBe(".punch-viewer-nav-v2-next");
+  });
+
+  it("builds a Google Slides URL for a slide id target", () => {
+    expect(presentationTargetUrl(
+      "https://docs.google.com/presentation/d/deck/edit?usp=sharing",
+      "p3",
+    )).toBe("https://docs.google.com/presentation/d/deck/edit?usp=sharing#slide=id.p3");
   });
 });

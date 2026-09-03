@@ -22,11 +22,17 @@ pub(crate) struct SessionSnapshot {
     pub(super) state_version: u64,
     #[serde(default = "default_presentation_view")]
     pub(super) presentation_view: String,
+    #[serde(default = "default_presentation_follows_cue")]
+    pub(super) presentation_follows_cue: bool,
     pub(super) current_cue_run: Option<CueRunSnapshot>,
 }
 
 fn default_presentation_view() -> String {
     "cue".to_owned()
+}
+
+fn default_presentation_follows_cue() -> bool {
+    true
 }
 
 fn default_interface_theme() -> String {
@@ -109,11 +115,12 @@ pub(super) async fn load_snapshot(
             i64,
             Option<Uuid>,
             String,
+            bool,
         ),
     >(
         r#"
         SELECT project_id, RTRIM(join_code), status, locale, sync_mode, interface_theme, state_version,
-               current_cue_run_id, presentation_view
+               current_cue_run_id, presentation_view, presentation_follows_cue
         FROM live_sessions WHERE id = $1
         "#,
     )
@@ -137,6 +144,7 @@ pub(super) async fn load_snapshot(
         state_version: u64::try_from(row.6)
             .map_err(|_| ApiError::internal("state_version_invalid"))?,
         presentation_view: row.8,
+        presentation_follows_cue: row.9,
         current_cue_run,
     })
 }

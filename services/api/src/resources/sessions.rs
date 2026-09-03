@@ -20,6 +20,7 @@ pub(super) struct LiveSession {
     locale: String,
     sync_mode: String,
     interface_theme: String,
+    presentation_follows_cue: bool,
     state_version: i64,
     created_at: String,
     started_at: Option<String>,
@@ -47,8 +48,8 @@ pub(super) async fn list_sessions(
     require_project_access(&state.database, project_id, user_id).await?;
     let rows = sqlx::query_as::<_, SessionRow>(
         r#"
-        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, interface_theme, state_version,
-               created_at::TEXT, started_at::TEXT, ended_at::TEXT
+        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, interface_theme,
+               presentation_follows_cue, state_version, created_at::TEXT, started_at::TEXT, ended_at::TEXT
         FROM live_sessions WHERE project_id = $1 ORDER BY created_at DESC
         "#,
     )
@@ -104,8 +105,8 @@ pub(super) async fn get_session(
 async fn load_session(database: &PgPool, session_id: Uuid) -> Result<LiveSession, ApiError> {
     sqlx::query_as::<_, SessionRow>(
         r#"
-        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, interface_theme, state_version,
-               created_at::TEXT, started_at::TEXT, ended_at::TEXT
+        SELECT id, project_id, RTRIM(join_code), status, locale, sync_mode, interface_theme,
+               presentation_follows_cue, state_version, created_at::TEXT, started_at::TEXT, ended_at::TEXT
         FROM live_sessions WHERE id = $1
         "#,
     )
@@ -125,6 +126,7 @@ type SessionRow = (
     String,
     String,
     String,
+    bool,
     i64,
     String,
     Option<String>,
@@ -140,10 +142,11 @@ fn session_from_row(row: SessionRow) -> LiveSession {
         locale: row.4,
         sync_mode: row.5,
         interface_theme: row.6,
-        state_version: row.7,
-        created_at: row.8,
-        started_at: row.9,
-        ended_at: row.10,
+        presentation_follows_cue: row.7,
+        state_version: row.8,
+        created_at: row.9,
+        started_at: row.10,
+        ended_at: row.11,
     }
 }
 

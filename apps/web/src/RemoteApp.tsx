@@ -170,6 +170,14 @@ export function RemoteApp({ t }: { t: Translate }) {
     }
   }
 
+  async function queueNavigation(direction: "previous" | "next", cueId: string) {
+    await apiJson(`/api/sessions/${sessionId}/navigation`, {
+      method: "POST",
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+      body: JSON.stringify({ direction, cue_id: cueId }),
+    });
+  }
+
   async function navigate(direction: "previous" | "next") {
     if (!live) return;
     const snapshot = live.snapshot;
@@ -180,19 +188,42 @@ export function RemoteApp({ t }: { t: Translate }) {
         ? orderedCues.findIndex((cue) => cue.id === snapshot.current_cue_run?.cue_id)
         : -1;
       const showingQr = snapshot.presentation_view === "join_qr";
-      const targetCue = orderedCues[currentIndex + (direction === "next" ? 1 : -1)];
+      const currentCue = snapshot.current_cue_run
+        ? orderedCues.find((cue) => cue.id === snapshot.current_cue_run?.cue_id)
+        : undefined;
+      let targetCue: Cue | undefined = orderedCues[currentIndex + (direction === "next" ? 1 : -1)];
       if (showingQr && direction === "next" && snapshot.current_cue_run) {
         await sendCommand(sessionId, snapshot.state_version, { type: "show_cue" }, token || undefined);
+        targetCue = currentCue;
       } else if (!showingQr && direction === "previous" && currentIndex === 0) {
         await sendCommand(sessionId, snapshot.state_version, { type: "show_join_qr" }, token || undefined);
       } else if (targetCue) {
         await sendCommand(sessionId, snapshot.state_version, { type: "prepare_cue", cue_id: targetCue.id }, token || undefined);
       }
-      await apiJson(`/api/sessions/${sessionId}/navigation`, {
-        method: "POST",
-        headers: token ? { authorization: `Bearer ${token}` } : undefined,
-        body: JSON.stringify({ direction }),
-      });
+      if (targetCue) await queueNavigation(direction, targetCue.id);
+      setError(null);
+    } catch (cause) {
+      setError(actionError(cause));
+    } finally {
+      await refreshLive().catch(() => undefined);
+      setBusy(false);
+    }
+  }
+
+  async function selectCue(cue: Cue) {
+    if (!live) return;
+    const snapshot = live.snapshot;
+    const isCurrentCue = cue.id === snapshot.current_cue_run?.cue_id;
+    const showingQr = snapshot.presentation_view === "join_qr";
+    setBusy(true);
+    try {
+      await sendCommand(
+        sessionId,
+        snapshot.state_version,
+        isCurrentCue && !showingQr ? { type: "show_cue" } : { type: "prepare_cue", cue_id: cue.id },
+        token || undefined,
+      );
+      if (!isCurrentCue || showingQr) await queueNavigation("next", cue.id);
       setError(null);
     } catch (cause) {
       setError(actionError(cause));
@@ -242,8 +273,8 @@ export function RemoteApp({ t }: { t: Translate }) {
           {cueState === "revealed" && <button disabled={busy} onClick={() => send({ type: "reopen_cue" })}>{t("live.reopen")}</button>}
         </div>
         <div className="remote-navigation">
-          <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previous")}</button>
-          <button disabled={busy} onClick={() => navigate("next")}>{t("remote.next")}<span>→</span></button>
+          <button disabled={busy} onClick={() => navigate("previous")}><span>←</span>{t("remote.previousCue")}</button>
+          <button disabled={busy} onClick={() => navigate("next")}>{t("remote.nextCue")}<span>→</span></button>
         </div>
       </section>
       <section className="remote-responses">
@@ -283,7 +314,7 @@ export function RemoteApp({ t }: { t: Translate }) {
       <section className="remote-cues">
         <h2>{t("remote.cues")}</h2>
         <button className={showingQr ? "selected" : ""} disabled={busy} onClick={() => send({ type: "show_join_qr" })}><span>QR</span>{t("live.qrHome")}<small>{t("projection.join")}</small></button>
-        {cues.map((cue) => <button className={!showingQr && cue.id === snapshot.current_cue_run?.cue_id ? "selected" : ""} disabled={busy} key={cue.id} onClick={() => send(cue.id === snapshot.current_cue_run?.cue_id ? { type: "show_cue" } : { type: "prepare_cue", cue_id: cue.id })}><span>{cue.position + 1}</span>{cueNavigationLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
+        {cues.map((cue) => <button className={!showingQr && cue.id === snapshot.current_cue_run?.cue_id ? "selected" : ""} disabled={busy} key={cue.id} onClick={() => void selectCue(cue)}><span>{cue.position + 1}</span>{cueNavigationLabel(t, cue)}<small>{cue.trigger_mode === "immediate" ? t("cue.immediate") : t("cue.confirm")}</small></button>)}
       </section>
       {error && <p className="form-error">{error.kind === "action" ? actionMessage(t, error.code) : t("remote.loadFailed")}</p>}
     </main>

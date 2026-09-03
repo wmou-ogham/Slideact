@@ -81,18 +81,24 @@ struct HeartbeatResponse {
 #[serde(deny_unknown_fields)]
 struct NavigationRequest {
     direction: String,
+    #[serde(default)]
+    cue_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct NavigationCommand {
     id: Uuid,
     direction: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slide_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slide_index: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
 struct NavigationQueuedResponse {
     accepted: bool,
-    command_id: Uuid,
+    command_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,6 +133,12 @@ struct SyncModeRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PresentationFollowModeRequest {
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct InterfaceThemeRequest {
     theme: String,
 }
@@ -157,6 +169,10 @@ pub(crate) fn router() -> Router<AppState> {
             put(update_sync_mode),
         )
         .route(
+            "/api/sessions/{session_id}/presentation-follow-mode",
+            put(update_presentation_follow_mode),
+        )
+        .route(
             "/api/sessions/{session_id}/interface-theme",
             put(update_interface_theme),
         )
@@ -172,6 +188,20 @@ async fn queue_navigation(
     if !matches!(request.direction.as_str(), "previous" | "next") {
         return Err(ApiError::bad_request("navigation_direction_invalid"));
     }
+    let follows_cue = sqlx::query_scalar::<_, bool>(
+        "SELECT presentation_follows_cue FROM live_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::not_found("session_not_found"))?;
+    if !follows_cue {
+        return Ok(Json(NavigationQueuedResponse {
+            accepted: false,
+            command_id: None,
+        }));
+    }
     check_rate_limit(
         &state.redis,
         "presentation-navigation",
@@ -180,9 +210,21 @@ async fn queue_navigation(
         60,
     )
     .await?;
+    let (slide_id, slide_index) = match request.cue_id {
+        Some(cue_id) => navigation_target_for_cue(&state, session_id, cue_id).await?,
+        None => (None, None),
+    };
+    if request.cue_id.is_some() && slide_id.is_none() && slide_index.is_none() {
+        return Ok(Json(NavigationQueuedResponse {
+            accepted: false,
+            command_id: None,
+        }));
+    }
     let command = NavigationCommand {
         id: Uuid::new_v4(),
         direction: request.direction,
+        slide_id,
+        slide_index,
     };
     let payload = serde_json::to_string(&command)
         .map_err(|_| ApiError::internal("navigation_command_invalid"))?;
@@ -212,8 +254,39 @@ async fn queue_navigation(
         .map_err(redis_error)?;
     Ok(Json(NavigationQueuedResponse {
         accepted: true,
-        command_id: command.id,
+        command_id: Some(command.id),
     }))
+}
+
+async fn navigation_target_for_cue(
+    state: &AppState,
+    session_id: Uuid,
+    cue_id: Uuid,
+) -> Result<(Option<String>, Option<u32>), ApiError> {
+    let target = sqlx::query_as::<_, (String, Option<String>)>(
+        r#"
+        SELECT cues.anchor_type, cues.anchor_value
+        FROM cues
+        JOIN live_sessions ON live_sessions.project_id = cues.project_id
+        WHERE live_sessions.id = $1 AND cues.id = $2
+        "#,
+    )
+    .bind(session_id)
+    .bind(cue_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(persistence_error)?
+    .ok_or_else(|| ApiError::not_found("cue_not_found"))?;
+    if target.0 != "deck_slide" {
+        return Ok((None, None));
+    }
+    let Some(anchor) = target.1 else {
+        return Ok((None, None));
+    };
+    if let Ok(slide_number) = anchor.parse::<u32>() {
+        return Ok((None, slide_number.checked_sub(1)));
+    }
+    Ok((Some(anchor.trim_start_matches("id.").to_owned()), None))
 }
 
 async fn take_navigation(
@@ -223,6 +296,26 @@ async fn take_navigation(
     let actor = authenticate_session_token(&state.database, bearer_token(&headers)?).await?;
     if actor.role != SessionRole::Extension {
         return Err(ApiError::forbidden("extension_token_required"));
+    }
+    let follows_cue = sqlx::query_scalar::<_, bool>(
+        "SELECT presentation_follows_cue FROM live_sessions WHERE id = $1",
+    )
+    .bind(actor.session_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(persistence_error)?;
+    if !follows_cue {
+        let mut connection = state
+            .redis
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(redis_error)?;
+        let _: i64 = redis::cmd("DEL")
+            .arg(navigation_key(actor.session_id))
+            .query_async(&mut connection)
+            .await
+            .map_err(redis_error)?;
+        return Ok(Json(ExtensionNavigationResponse { command: None }));
     }
     let mut connection = state
         .redis
@@ -566,6 +659,60 @@ async fn update_sync_mode(
     )
     .await?;
     transaction.commit().await.map_err(persistence_error)?;
+    Ok(Json(
+        snapshot_for_session(&state.database, session_id).await?,
+    ))
+}
+
+async fn update_presentation_follow_mode(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<PresentationFollowModeRequest>,
+) -> Result<Json<SessionSnapshot>, ApiError> {
+    let user_id = authenticated_user_id(&state.database, &headers).await?;
+    require_session_owner(&state.database, session_id, user_id).await?;
+    let mut transaction = state.database.begin().await.map_err(persistence_error)?;
+    let state_version = sqlx::query_scalar::<_, i64>(
+        r#"
+        UPDATE live_sessions
+        SET presentation_follows_cue = $2, state_version = state_version + 1
+        WHERE id = $1 AND presentation_follows_cue IS DISTINCT FROM $2
+        RETURNING state_version
+        "#,
+    )
+    .bind(session_id)
+    .bind(request.enabled)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
+    if let Some(state_version) = state_version {
+        emit_event_to_all(
+            &mut transaction,
+            session_id,
+            u64::try_from(state_version)
+                .map_err(|_| ApiError::internal("state_version_invalid"))?,
+            json!({
+                "event_type": "presentation.follow_mode_changed",
+                "presentation_follows_cue": request.enabled,
+            }),
+            &format!("presentation-follow-mode-{state_version}"),
+        )
+        .await?;
+    }
+    transaction.commit().await.map_err(persistence_error)?;
+    if !request.enabled {
+        let mut connection = state
+            .redis
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(redis_error)?;
+        let _: i64 = redis::cmd("DEL")
+            .arg(navigation_key(session_id))
+            .query_async(&mut connection)
+            .await
+            .map_err(redis_error)?;
+    }
     Ok(Json(
         snapshot_for_session(&state.database, session_id).await?,
     ))

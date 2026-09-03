@@ -17,6 +17,8 @@ export type NavigationDirection = "previous" | "next";
 export interface NavigationCommand {
   id: string;
   direction: NavigationDirection;
+  slide_id?: string;
+  slide_index?: number;
 }
 
 export interface ExtensionStatus {

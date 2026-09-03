@@ -116,6 +116,7 @@ export type SessionSnapshot = {
   interface_theme: ProjectionTheme;
   state_version: number;
   presentation_view: "join_qr" | "cue";
+  presentation_follows_cue: boolean;
   current_cue_run: null | {
     id: string;
     cue_id: string;

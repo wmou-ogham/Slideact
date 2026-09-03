@@ -379,6 +379,7 @@ assert.equal(createdSession.response.status, 201);
 assert.equal(createdSession.body.status, "draft");
 assert.equal(createdSession.body.sync_mode, "manual");
 assert.equal(createdSession.body.interface_theme, "lively");
+assert.equal(createdSession.body.presentation_follows_cue, true);
 
 const protectedProjectDelete = await requestJson(`/api/projects/${projectId}`, {
   method: "DELETE",
@@ -520,7 +521,7 @@ assert.deepEqual(overlayCannotControl.body, { code: "controller_token_required" 
 
 const queuedNavigation = await requestJson(
   `/api/sessions/${commandSessionId}/navigation`,
-  { method: "POST", token: controllerIssue.body.token, body: { direction: "next" } },
+  { method: "POST", token: controllerIssue.body.token, body: { direction: "next", cue_id: cueId } },
 );
 assert.equal(queuedNavigation.response.status, 200);
 assert.equal(queuedNavigation.body.accepted, true);
@@ -536,11 +537,39 @@ const takenNavigation = await requestJson("/api/extension/navigation", {
 assert.equal(takenNavigation.response.status, 200);
 assert.equal(takenNavigation.body.command.id, queuedNavigation.body.command_id);
 assert.equal(takenNavigation.body.command.direction, "next");
+assert.equal(takenNavigation.body.command.slide_index, 4);
 const consumedNavigation = await requestJson("/api/extension/navigation", {
   token: pairedExtension.body.token,
 });
 assert.equal(consumedNavigation.response.status, 200);
 assert.equal(consumedNavigation.body.command, null);
+
+const disabledPresentationFollow = await requestJson(
+  `/api/sessions/${commandSessionId}/presentation-follow-mode`,
+  { method: "PUT", cookie: ownerCookie, body: { enabled: false } },
+);
+assert.equal(disabledPresentationFollow.response.status, 200);
+assert.equal(disabledPresentationFollow.body.presentation_follows_cue, false);
+assert.equal(disabledPresentationFollow.body.sync_mode, "auto_connected");
+
+const ignoredNavigation = await requestJson(
+  `/api/sessions/${commandSessionId}/navigation`,
+  { method: "POST", token: controllerIssue.body.token, body: { direction: "next", cue_id: cueId } },
+);
+assert.deepEqual(ignoredNavigation.body, { accepted: false, command_id: null });
+const ignoredNavigationPoll = await requestJson("/api/extension/navigation", {
+  token: pairedExtension.body.token,
+});
+assert.equal(ignoredNavigationPoll.response.status, 200);
+assert.equal(ignoredNavigationPoll.body.command, null);
+
+const enabledPresentationFollow = await requestJson(
+  `/api/sessions/${commandSessionId}/presentation-follow-mode`,
+  { method: "PUT", cookie: ownerCookie, body: { enabled: true } },
+);
+assert.equal(enabledPresentationFollow.response.status, 200);
+assert.equal(enabledPresentationFollow.body.presentation_follows_cue, true);
+assert.equal(enabledPresentationFollow.body.sync_mode, "auto_connected");
 
 const reusedPairing = await requestJson("/api/extension/pair", {
   method: "POST",

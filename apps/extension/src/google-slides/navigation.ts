@@ -1,4 +1,4 @@
-import type { NavigationDirection } from "../messages";
+import type { NavigationCommand, NavigationDirection } from "../messages";
 
 const PREVIOUS_SELECTORS = [
   ".punch-viewer-nav-v2-prev",
@@ -44,7 +44,70 @@ export function navigationSelectors(direction: NavigationDirection): readonly st
   return direction === "previous" ? PREVIOUS_SELECTORS : NEXT_SELECTORS;
 }
 
-export function navigatePresentation(direction: NavigationDirection, root: Document = document) {
+function slideIdForElement(element: HTMLElement): string | null {
+  for (const attribute of ["data-slide-id", "data-page-id", "data-id"]) {
+    const value = element.getAttribute(attribute);
+    if (value) return value.replace(/^id\./, "");
+  }
+  const match = element.className.match(/(?:slide|page)[-_]([a-zA-Z0-9_-]+)/);
+  return match?.[1] ?? null;
+}
+
+export function presentationTargetUrl(href: string, slideId: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== "docs.google.com" || !url.pathname.includes("/presentation/d/")) return null;
+  const target = `id.${slideId.replace(/^id\./, "")}`;
+  if (/\/edit(?:\/|$)/.test(url.pathname)) {
+    url.hash = `slide=${encodeURIComponent(target)}`;
+  } else {
+    url.searchParams.set("slide", target);
+  }
+  return url.toString();
+}
+
+export function navigateToPresentationTarget(
+  command: Pick<NavigationCommand, "slide_id" | "slide_index">,
+  root: Document = document,
+  locationRoot: Pick<Location, "href" | "assign"> = window.location,
+) {
+  const thumbnails = Array.from(root.querySelectorAll<HTMLElement>(EDITOR_THUMBNAILS));
+  let target: HTMLElement | undefined;
+  if (command.slide_id) {
+    target = thumbnails.find((thumbnail) => slideIdForElement(thumbnail) === command.slide_id?.replace(/^id\./, ""));
+  } else if (command.slide_index !== undefined) {
+    target = thumbnails[command.slide_index];
+  }
+  if (target) {
+    target.scrollIntoView({ block: "nearest" });
+    target.click();
+    return true;
+  }
+  if (command.slide_id) {
+    const targetUrl = presentationTargetUrl(locationRoot.href, command.slide_id);
+    if (targetUrl && targetUrl !== locationRoot.href) {
+      locationRoot.assign(targetUrl);
+      return true;
+    }
+  }
+  return false;
+}
+
+export function navigatePresentation(
+  commandOrDirection: NavigationCommand | NavigationDirection,
+  root: Document = document,
+) {
+  const command = typeof commandOrDirection === "string" ? null : commandOrDirection;
+  if (command && (command.slide_id || command.slide_index !== undefined) && navigateToPresentationTarget(command, root)) {
+    return true;
+  }
+  const direction: NavigationDirection = typeof commandOrDirection === "string"
+    ? commandOrDirection
+    : commandOrDirection.direction;
   for (const selector of navigationSelectors(direction)) {
     const control = root.querySelector<HTMLElement>(selector);
     if (control && control.getAttribute("aria-disabled") !== "true") {

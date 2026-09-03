@@ -134,11 +134,11 @@ export function LiveControl({
     await createRemoteAccess();
   }
 
-  async function useManualSync() {
+  async function togglePresentationFollow() {
     if (!snapshot) return;
-    await apiJson(`/api/sessions/${snapshot.session_id}/sync-mode`, {
+    await apiJson(`/api/sessions/${snapshot.session_id}/presentation-follow-mode`, {
       method: "PUT",
-      body: JSON.stringify({ mode: "manual" }),
+      body: JSON.stringify({ enabled: !snapshot.presentation_follows_cue }),
     });
     await refreshSnapshot().catch(() => undefined);
   }
@@ -156,7 +156,7 @@ export function LiveControl({
       <div className="live-dock-primary">
         <div className="live-summary">
           <span className={snapshot && snapshot.status !== "ended" ? "live-light active" : "live-light"} />
-          <div className="live-status-copy"><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : snapshot.sync_mode === "manual" ? t("sync.manualStatus") : t("sync.notPaired")}</em>}</div>
+          <div className="live-status-copy"><small>{t("live.heading")}</small><strong>{snapshot ? t(`statusName.${snapshot.status}`) : t("live.none")}</strong>{snapshot && <em className={extensionConnected === true ? "sync-connected" : ""}>{extensionConnected === true ? t("sync.connected") : extensionConnected === false ? t("sync.disconnected") : t("sync.notPaired")}</em>}</div>
           {isControllable && snapshot?.join_code && <div className="join-code"><small>{t("live.joinCode")}</small><strong>{snapshot.join_code}</strong></div>}
         </div>
         {hasStageControl && <div className="live-stage-control" role="group" aria-label={t("live.groupStage")}>
@@ -209,7 +209,12 @@ export function LiveControl({
           <div className="live-tools">
             <button className={remoteLink ? "secondary-link is-open" : "secondary-link"} aria-expanded={Boolean(remoteLink)} onClick={() => void toggleRemoteAccess()}>{t("live.remote")}</button>
             <button className={pairingOpen ? "secondary-link is-open" : "secondary-link"} aria-expanded={pairingOpen} onClick={() => void toggleExtensionPairing()}>{t("sync.pair")}</button>
-            {snapshot?.sync_mode !== "manual" && <button className="secondary-link" onClick={useManualSync}>{t("sync.manual")}</button>}
+            {extensionConnected !== null && <button
+              className={snapshot?.presentation_follows_cue ? "secondary-link is-open" : "secondary-link"}
+              aria-pressed={snapshot?.presentation_follows_cue ?? false}
+              disabled={busy}
+              onClick={() => void togglePresentationFollow()}
+            >{snapshot?.presentation_follows_cue ? t("sync.followCue") : t("sync.notFollowCue")}</button>}
           </div>
         </div>}
         {snapshot && <div className="live-tool-group live-tool-records" role="group" aria-label={t("live.groupRecords")}>

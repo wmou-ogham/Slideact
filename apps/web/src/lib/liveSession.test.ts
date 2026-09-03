@@ -28,6 +28,7 @@ function view(
       interface_theme: "lively",
       state_version: 1,
       presentation_view: "cue",
+      presentation_follows_cue: true,
       current_cue_run: {
         id: "run-1",
         cue_id: "cue-1",

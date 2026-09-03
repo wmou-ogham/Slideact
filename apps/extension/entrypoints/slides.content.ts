@@ -71,7 +71,7 @@ export default defineContentScript({
         const command = await browser.runtime.sendMessage({
           type: MESSAGE_TYPES.pollNavigation,
         }) as NavigationCommand | null;
-        if (command) navigatePresentation(command.direction);
+        if (command) navigatePresentation(command);
       } catch {
         // Polling resumes when the extension background context is available again.
       } finally {
