@@ -4,7 +4,11 @@ set -eu
 project_name="slide-helper-ci"
 
 ci_compose() {
-  docker compose --file compose.yaml --file compose.ci.yaml --project-name "$project_name" "$@"
+  GOOGLE_OAUTH_CLIENT_ID= \
+  GOOGLE_OAUTH_CLIENT_SECRET= \
+  GOOGLE_OAUTH_REDIRECT_URL= \
+  AUTH_COOKIE_SECURE=false \
+    docker compose --file compose.yaml --file compose.ci.yaml --project-name "$project_name" "$@"
 }
 
 cleanup() {

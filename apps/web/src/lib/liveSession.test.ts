@@ -4,7 +4,9 @@ import type { LiveView } from "../types";
 import {
   beginLiveRefresh,
   createLiveRefreshOrder,
+  createLiveRefreshScheduler,
   rememberCueLive,
+  scheduleLiveRefresh,
   shouldApplyLiveRefresh,
 } from "./liveSession";
 
@@ -127,5 +129,31 @@ describe("live refresh ordering", () => {
     const later = beginLiveRefresh(order);
     expect(shouldApplyLiveRefresh(order, earlier)).toBe(true);
     expect(shouldApplyLiveRefresh(order, later)).toBe(true);
+  });
+});
+
+describe("live refresh scheduling", () => {
+  it("coalesces overlapping triggers into one trailing refresh", async () => {
+    const scheduler = createLiveRefreshScheduler();
+    let releaseFirst: () => void = () => undefined;
+    const firstRequest = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let requestCount = 0;
+    const refresh = () => scheduleLiveRefresh(scheduler, "session-1", async () => {
+      requestCount += 1;
+      if (requestCount === 1) await firstRequest;
+    });
+
+    const first = refresh();
+    const second = refresh();
+    const third = refresh();
+
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(requestCount).toBe(1);
+    releaseFirst();
+    await first;
+    expect(requestCount).toBe(2);
   });
 });

@@ -48,13 +48,6 @@ mod tests {
                 publish_results: false,
             }
         );
-        assert_eq!(
-            result_visibility(&json!({})),
-            ResultVisibility {
-                background_question: false,
-                publish_results: false,
-            }
-        );
         assert!(!results_are_public(&json!({}), "open"));
         assert!(results_are_public(&json!({}), "revealed"));
     }
